@@ -1,0 +1,64 @@
+[package]
+name = "snip-ai-tauri"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "snip_ai_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-http = "2"
+tauri-plugin-clipboard-manager = "2"
+# Tự khởi động cùng Windows + system tray -> app chạy nền thực sự, không mất
+# tích khi đóng cửa sổ Settings (trước đó chỉ ẩn được, không có cách mở lại).
+tauri-plugin-autostart = "2"
+# Chỉ cho phép 1 instance chạy cùng lúc (giống Snipping Tool) — nếu không có
+# cái này, chạy lại .exe trong khi app đã chạy nền sẽ tạo process thứ 2, và
+# process đó đăng ký global hotkey Ctrl+PrintScreen thất bại (hotkey chỉ 1
+# process giữ được) -> setup() lỗi -> app thứ 2 tự thoát ngay (đúng bug đã gặp
+# thực tế: cửa sổ hiện lên "load mãi rồi tắt luôn"). Có plugin này, chạy lại
+# exe sẽ tự động focus lại cửa sổ của instance đang chạy thay vì tạo mới.
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Lưu API key vào Windows Credential Manager (OS keychain) thay vì localStorage.
+# Key KHÔNG bao giờ được gửi ngược về frontend sau khi lưu — mọi lệnh gọi AI
+# đọc key trực tiếp trong Rust, nên JS trong webview không thể đọc trộm key.
+keyring = { version = "3", features = ["windows-native"] }
+# Chụp màn hình đa nền tảng (Windows/macOS/Linux)
+xcap = "0.0.14"
+image = "0.25"
+base64 = "0.22"
+# Gọi AI trực tiếp từ Rust (không qua @tauri-apps/plugin-http nữa) — ảnh đã có
+# sẵn trong AppState, không cần base64-hoá rồi gửi qua lại IPC (từng là nguyên
+# nhân treo request trong dev mode do payload lớn qua kênh postMessage).
+# native-tls (dùng Schannel của Windows) thay vì rustls — nghi ngờ 1 số mạng/
+# proxy công ty hoặc phần mềm bảo mật xử lý khác nhau giữa 2 loại TLS stack,
+# có thể khiến request bị route sai (đã gặp lỗi HTTP 404 generic khó hiểu).
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "native-tls"] }
+futures-util = "0.3"
+bytes = "1"
+tokio = { version = "1", features = ["time"] }
+
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
