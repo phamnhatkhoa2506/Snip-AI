@@ -136,8 +136,18 @@ body {
   height: 100%;
   background: transparent;
   color: var(--color-text);
+  /* Đổi "Segoe UI Variable Display" -> "Segoe UI Variable Text": đây là 2
+     biến thể KHÁC NHAU của cùng font, tối ưu nét chữ theo cỡ chữ dùng
+     (optical size), không phải cùng 1 font đổi tên suông. "Display" vẽ nét
+     mảnh, hợp cỡ chữ tiêu đề lớn (36px+); "Text" vẽ nét dày/thoáng hơn, hợp
+     cỡ chữ nội dung nhỏ. App này dùng cỡ chữ rất nhỏ ở hầu hết mọi nơi
+     (10.5-13px, xem các class text-[Npx] rải khắp) nhưng lại đang dùng biến
+     thể "Display" cho TOÀN BỘ app -> đúng nguyên nhân khiến chữ nhỏ khó đọc,
+     đặc biệt với dấu tiếng Việt (dấu dễ bị mờ/dính khi nét chữ quá mảnh ở cỡ
+     nhỏ). Microsoft xác nhận rõ: "Text" dành cho cỡ chữ thường, "Display"
+     dành cho cỡ chữ lớn — 2 việc khác nhau, không thể dùng 1 cho cả 2 tốt. */
   font-family:
-    "Segoe UI Variable Display",
+    "Segoe UI Variable Text",
     "Segoe UI",
     ui-sans-serif,
     system-ui,
