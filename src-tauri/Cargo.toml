@@ -55,6 +55,16 @@ bytes = "1"
 tokio = { version = "1", features = ["time"] }
 
 
+# Ép crate `image` LUÔN build tối ưu (opt-level=3) dù đang ở profile "dev"
+# (không tối ưu) — việc resize ảnh (Lanczos3) test thấy khựng rõ khi chạy
+# `npm run tauri dev` (build debug, không tối ưu hoá cho các phép toán trên
+# từng pixel), nhưng mượt trong bản release. Debug build không tối ưu code
+# CỦA APP để giữ compile nhanh + debug info đầy đủ, nhưng crate xử lý ảnh
+# nặng CPU như `image` thì nên tối ưu riêng — cách này giữ code app debug
+# bình thường, chỉ tăng tốc đúng phần xử lý ảnh trong lúc dev.
+[profile.dev.package.image]
+opt-level = 3
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

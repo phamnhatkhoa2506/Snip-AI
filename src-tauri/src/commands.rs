@@ -1,6 +1,8 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindowBuilder,
+};
 
 use crate::capture;
 use crate::state::{AppState, MonitorBounds};
@@ -182,27 +184,51 @@ pub async fn crop_and_open_result(
     };
     eprintln!("[snip-ai] monitor bounds: {monitor:?}, screenshot {} bytes", screenshot.len());
 
-    let cropped = capture::crop_png(&screenshot, x, y, width, height)?;
-    eprintln!("[snip-ai] crop xong, {} bytes PNG", cropped.len());
-
-    let session_id = state.next_session_id.fetch_add(1, Ordering::Relaxed);
-    let window_label = format!("{RESULT_LABEL_PREFIX}{session_id}");
-    state.crop_sessions.lock().unwrap().insert(window_label.clone(), cropped);
-
-    let crop_bounds_x = monitor.x + x as i32;
-    let crop_bounds_y = monitor.y + y as i32;
-
+    // Đóng overlay NGAY khi vừa nhận toạ độ vùng chọn — trước khi crop/resize
+    // (việc nặng CPU, có thể mất vài trăm ms với vùng lớn). Đóng ngay cho phản
+    // hồi tức thì, không để màn hình tối đứng yên trong lúc xử lý.
     if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = win.close();
     }
-    eprintln!("[snip-ai] đã đóng overlay, chuẩn bị tạo cửa sổ kết quả (label={window_label})");
 
+    // Vị trí/kích thước cửa sổ kết quả chỉ phụ thuộc x,y,height (toạ độ vùng
+    // chọn) — KHÔNG cần đợi crop/resize ảnh xong mới tính được. Nên mở cửa sổ
+    // kết quả NGAY Ở ĐÂY (trước khi xử lý ảnh), cửa sổ hiện trạng thái loading
+    // trong lúc chờ, thay vì đợi xử lý ảnh xong mới mở cửa sổ — trước đây làm
+    // theo thứ tự "xử lý ảnh rồi mới mở cửa sổ" khiến người dùng cảm thấy cửa
+    // sổ kết quả "lâu hiện ra" hẳn (dù tổng thời gian xử lý là như nhau, chỉ
+    // là được che bởi overlay trước đó, giờ lộ ra thành 1 khoảng chờ trống).
+    let session_id = state.next_session_id.fetch_add(1, Ordering::Relaxed);
+    let window_label = format!("{RESULT_LABEL_PREFIX}{session_id}");
+    let crop_bounds_x = monitor.x + x as i32;
+    let crop_bounds_y = monitor.y + y as i32;
+
+    eprintln!("[snip-ai] mở cửa sổ kết quả NGAY (label={window_label}), ảnh sẽ nạp sau khi xử lý xong");
     open_result_window(&app, monitor, &window_label, crop_bounds_x, crop_bounds_y, height, session_id)?;
     // Chọn vùng xong, hiện lại Settings nếu vừa bị ẩn tạm — gọi SAU khi cửa sổ
     // kết quả đã show()+focus() để cửa sổ kết quả vẫn nằm trên cùng.
     restore_main_after_snip(&app);
+
+    // Decode/crop/resize/encode ảnh là việc NẶNG CPU (đặc biệt bước resize
+    // Lanczos3 với vùng crop lớn) — chạy đồng bộ ngay trong async command này
+    // sẽ chiếm dụng luôn worker thread của Tokio runtime, khiến TOÀN BỘ app
+    // (kể cả IPC/UI đang dùng chung runtime) bị khựng trong lúc xử lý. Đẩy
+    // sang `spawn_blocking` để chạy trên thread pool riêng dành cho việc
+    // CPU-bound, không chặn thread đang phục vụ IPC/window events.
+    let cropped = tokio::task::spawn_blocking(move || capture::crop_png(&screenshot, x, y, width, height))
+        .await
+        .map_err(|e| format!("Lỗi nội bộ khi xử lý ảnh: {e}"))??;
+    eprintln!("[snip-ai] crop xong, {} bytes PNG", cropped.len());
+
+    state.crop_sessions.lock().unwrap().insert(window_label.clone(), cropped);
+
+    // Cửa sổ kết quả đã mở TỪ TRƯỚC lúc ảnh chưa có trong `crop_sessions` —
+    // báo cho nó biết ảnh vừa sẵn sàng để tự gọi lại `get_crop_image_base64`
+    // (xem `loadCropImage()` + lắng nghe event này ở result/+page.svelte).
+    let _ = app.emit_to(&window_label, "ai:crop-ready", ());
+
     eprintln!(
-        "[snip-ai][timing] TỔNG crop_and_open_result (crop + tạo/hiện cửa sổ kết quả): {:.0}ms",
+        "[snip-ai][timing] TỔNG crop_and_open_result (mở cửa sổ + crop + nạp ảnh): {:.0}ms",
         t0.elapsed().as_secs_f64() * 1000.0
     );
     Ok(())

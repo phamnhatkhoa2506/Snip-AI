@@ -11,6 +11,22 @@ pub struct HotkeyState {
     pub current: Mutex<Shortcut>,
 }
 
+/// 1 `reqwest::Client` DÙNG CHUNG cho mọi lệnh gọi AI, thay vì tạo mới mỗi lần
+/// gọi API. `reqwest::Client` giữ pool kết nối HTTP/TLS bên trong — tạo `Client`
+/// mới nghĩa là bắt tay TLS (TLS handshake) lại từ đầu mỗi request, cộng thêm
+/// ~100-300ms độ trễ oan uổng trước khi request thật sự được gửi đi. Dùng
+/// chung 1 client, các request tới CÙNG 1 host (VD nhiều lượt hỏi liên tiếp
+/// trong 1 cuộc hội thoại) sẽ tái dùng kết nối đã mở sẵn.
+pub struct HttpClientState {
+    pub client: reqwest::Client,
+}
+
+impl Default for HttpClientState {
+    fn default() -> Self {
+        Self { client: reqwest::Client::new() }
+    }
+}
+
 /// State dùng chung toàn app, quản lý qua Tauri managed state (thread-safe qua Mutex).
 ///
 /// `screenshot_png`/`monitor_bounds`/`scale_factor` là DÙNG CHUNG (singleton)

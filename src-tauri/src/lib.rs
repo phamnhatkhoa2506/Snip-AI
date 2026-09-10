@@ -6,7 +6,7 @@ mod secrets;
 mod state;
 
 use std::sync::Mutex;
-use state::{AppState, HotkeyState};
+use state::{AppState, HotkeyState, HttpClientState};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
@@ -39,6 +39,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .manage(AppState::default())
+        .manage(HttpClientState::default())
         .on_window_event(|window, event| {
             if window.label() == MAIN_LABEL {
                 // Đóng cửa sổ Settings ("main") KHÔNG được làm thoát cả app —

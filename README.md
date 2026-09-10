@@ -9,19 +9,6 @@ Port đầy đủ tính năng từ bản MVP Python: hotkey `Ctrl+PrintScreen` �
 (OCR / Dịch / Tóm tắt / Giải thích) điền nhanh câu hỏi → hỏi AI streaming
 (NVIDIA NIM hoặc Anthropic) → hỏi tiếp trong cùng cửa sổ kết quả.
 
-## ⚠️ Tình trạng: CHƯA BUILD-TEST ĐƯỢC trên máy soạn code này
-
-Máy dùng để viết code này **không có Rust/MSVC Build Tools** cài sẵn, nên toàn
-bộ phần Rust (`src-tauri/`) mới chỉ được viết cẩn thận theo đúng API Tauri v2 /
-xcap mà mình biết, **chưa chạy được `cargo check`/`cargo build` để xác nhận
-compile sạch**. Phần frontend (Svelte/TS) thì đã verify được:
-✅ `npm run check` (svelte-check + TypeScript) — 0 lỗi, 0 cảnh báo
-✅ `npm run build` (SvelteKit static build) — build thành công
-
-→ Sau khi bạn cài xong Rust, **rất có thể** lần `cargo build` đầu tiên sẽ báo
-1 vài lỗi nhỏ (tên method/tham số lệch phiên bản crate...). Gửi mình log lỗi,
-mình sửa tiếp.
-
 ## Cài đặt môi trường (làm 1 lần)
 
 1. **Rust**: cài qua [rustup](https://www.rust-lang.org/tools/install) —

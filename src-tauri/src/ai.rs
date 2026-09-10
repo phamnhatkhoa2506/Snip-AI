@@ -19,10 +19,10 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::secrets;
-use crate::state::AppState;
+use crate::state::{AppState, HttpClientState};
 
 /// Thời gian tối đa CHỜ PHẢN HỒI ĐẦU TIÊN (header) — không giới hạn tổng thời
 /// gian đọc hết stream, vì model sinh chậm vẫn nên cho chạy tiếp. Model lớn
@@ -188,15 +188,18 @@ async fn ask_openai_compatible(
     let model = model.trim();
     let img_b64 = get_crop_base64(state, window_label)?;
 
-    // Đính kèm ảnh ở MỌI lượt user (không chỉ lượt đầu) — đã gặp thực tế: 1
-    // số model vision (VD Llama 3.2 Vision) mất "grounding" với ảnh ở các
-    // lượt hỏi tiếp theo nếu ảnh không được gửi lại, trả lời kiểu "không có
-    // thông tin trong ảnh" dù ảnh vẫn nằm trong lịch sử hội thoại. Tốn thêm
-    // băng thông mỗi lượt nhưng đổi lại tương thích được với nhiều model hơn.
+    // Chỉ đính ảnh vào LƯỢT USER GẦN NHẤT, không phải mọi lượt user trong lịch
+    // sử. Trước đây gửi lại ảnh ở TẤT CẢ các lượt user (để tránh model mất
+    // "grounding" ở câu hỏi tiếp theo) — nhưng cách đó làm payload phình to
+    // dần theo cấp số cộng: hỏi lần 4 sẽ gửi lại y hệt tấm ảnh đó 4 lần trong
+    // 1 request, cực kỳ tốn băng thông + thời gian upload, đây là 1 nguyên
+    // nhân chính khiến app "phản hồi chậm dần" khi chat dài. Chỉ lượt mới nhất
+    // cần ảnh vẫn đủ để model giữ grounding, vì đó luôn là câu hỏi đang chờ trả lời.
+    let last_user_idx = history.iter().rposition(|t| t.role == "user");
     let mut messages: Vec<serde_json::Value> =
         vec![serde_json::json!({"role": "system", "content": SYSTEM_PROMPT})];
-    messages.extend(history.iter().map(|turn| {
-        if turn.role == "user" {
+    messages.extend(history.iter().enumerate().map(|(i, turn)| {
+        if turn.role == "user" && Some(i) == last_user_idx {
             serde_json::json!({
                 "role": "user",
                 "content": [
@@ -229,7 +232,7 @@ async fn ask_openai_compatible(
     }
 
     eprintln!("[snip-ai][ai] POST {endpoint} (model={model})");
-    let client = reqwest::Client::new();
+    let client = &app.state::<HttpClientState>().client;
     let req = client
         .post(endpoint)
         .bearer_auth(&api_key)
@@ -323,13 +326,15 @@ pub async fn ask_ai_anthropic(
     let model = model.trim();
     let img_b64 = get_crop_base64(&state, &window_label)?;
 
-    // Đính kèm ảnh ở MỌI lượt user — xem giải thích chi tiết ở
-    // ask_openai_compatible phía trên (1 số model vision mất grounding với
-    // ảnh ở các lượt hỏi tiếp theo nếu không gửi lại).
+    // Chỉ đính ảnh vào lượt user GẦN NHẤT — xem giải thích chi tiết ở
+    // ask_openai_compatible phía trên (tránh phình payload theo cấp số cộng
+    // khi hội thoại dài).
+    let last_user_idx = history.iter().rposition(|t| t.role == "user");
     let messages: Vec<serde_json::Value> = history
         .iter()
-        .map(|turn| {
-            if turn.role == "user" {
+        .enumerate()
+        .map(|(i, turn)| {
+            if turn.role == "user" && Some(i) == last_user_idx {
                 serde_json::json!({
                     "role": "user",
                     "content": [
@@ -352,7 +357,7 @@ pub async fn ask_ai_anthropic(
         "messages": messages,
     });
 
-    let client = reqwest::Client::new();
+    let client = &app.state::<HttpClientState>().client;
     let req = client
         .post("https://api.anthropic.com/v1/messages")
         .header("x-api-key", api_key.as_str())
@@ -403,14 +408,17 @@ pub async fn ask_ai_gemini(
     let model = model.trim();
     let img_b64 = get_crop_base64(&state, &window_label)?;
 
-    // Đính kèm ảnh ở MỌI lượt user — xem giải thích chi tiết ở
-    // ask_openai_compatible phía trên.
+    // Chỉ đính ảnh vào lượt user GẦN NHẤT — xem giải thích chi tiết ở
+    // ask_openai_compatible phía trên (tránh phình payload theo cấp số cộng
+    // khi hội thoại dài).
+    let last_user_idx = history.iter().rposition(|t| t.role == "user");
     let contents: Vec<serde_json::Value> = history
         .iter()
-        .map(|turn| {
+        .enumerate()
+        .map(|(i, turn)| {
             let role = if turn.role == "assistant" { "model" } else { "user" };
             let mut parts = vec![serde_json::json!({"text": turn.content})];
-            if turn.role == "user" {
+            if turn.role == "user" && Some(i) == last_user_idx {
                 parts.push(serde_json::json!({
                     "inline_data": {"mime_type": "image/png", "data": img_b64}
                 }));
@@ -419,22 +427,48 @@ pub async fn ask_ai_gemini(
         })
         .collect();
 
-    let body = serde_json::json!({
+    let base_body = serde_json::json!({
         "contents": contents,
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
     });
+
+    // Giảm "thinking" (suy luận ẩn trước khi trả lời, cộng thêm độ trễ) bằng
+    // "thinkingLevel: minimal" — tham số MỚI của Gemini 3, thay thế
+    // "thinkingBudget" của Gemini 2.5 (2 field không tương thích ngược, gửi
+    // nhầm field cho model không hỗ trợ sẽ bị 400 "invalid argument" — đã gặp
+    // thực tế với gemini-3.6-flash + thinkingBudget).
+    //
+    // KHÔNG đoán cứng theo tên model có hỗ trợ "minimal" hay không — theo bảng
+    // hỗ trợ chính thức của Google, ngay trong CÙNG dòng Gemini 3, một số biến
+    // thể (VD Gemini 3.7/3.8 Flash) lại KHÔNG hỗ trợ "minimal" và trả lỗi,
+    // trong khi Gemini 3.5/3.6 Flash thì có — danh sách này có thể đổi theo
+    // thời gian khi Google ra model mới. Thay vào đó: thử gửi kèm field này
+    // trước, nếu bị 400 thì tự động gửi lại KHÔNG kèm field (fallback), không
+    // cần cập nhật code mỗi khi có model Gemini mới.
+    let with_thinking = model.starts_with("gemini-3");
+    let mut body = base_body.clone();
+    if with_thinking {
+        body["generationConfig"] = serde_json::json!({"thinkingConfig": {"thinkingLevel": "minimal"}});
+    }
 
     let endpoint = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
     );
 
-    let client = reqwest::Client::new();
-    let req = client
-        .post(&endpoint)
-        .header("x-goog-api-key", api_key.as_str())
-        .header("Accept", "text/event-stream")
-        .json(&body);
-    let resp = send_with_timeout(req).await?;
+    let client = &app.state::<HttpClientState>().client;
+    let send = |body: &serde_json::Value| {
+        client
+            .post(&endpoint)
+            .header("x-goog-api-key", api_key.as_str())
+            .header("Accept", "text/event-stream")
+            .json(body)
+    };
+
+    let mut resp = send_with_timeout(send(&body)).await?;
+    if with_thinking && resp.status() == reqwest::StatusCode::BAD_REQUEST {
+        eprintln!("[snip-ai][ai] Gemini từ chối thinkingLevel, thử lại không kèm field này");
+        resp = send_with_timeout(send(&base_body)).await?;
+    }
 
     if !resp.status().is_success() {
         let status = resp.status();

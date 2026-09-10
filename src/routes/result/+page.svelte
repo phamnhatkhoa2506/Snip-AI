@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte";
   import { fade } from "svelte/transition";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Icon from "$lib/Icon.svelte";
@@ -41,22 +42,35 @@
 
   let transcriptEl = $state<HTMLDivElement | undefined>();
 
-  async function loadCropImage() {
+  /** `silent`: KHÔNG hiện lỗi nếu ảnh chưa có — dùng cho lần thử đầu tiên lúc
+   * mới mount, vì giờ cửa sổ này được mở NGAY (trước khi ảnh xử lý xong) để
+   * người dùng thấy phản hồi tức thì, nên có thể ảnh CHƯA kịp nạp vào
+   * `crop_sessions` phía Rust — đó là chuyện bình thường, không phải lỗi.
+   * Ảnh sẽ tự nạp lại khi nhận event "ai:crop-ready" (xem onMount bên dưới). */
+  async function loadCropImage(silent: boolean) {
     try {
       cropB64 = await invoke<string>("get_crop_image_base64", {
         windowLabel: getCurrentWindow().label,
       });
     } catch (e) {
-      error = String(e);
+      if (!silent) error = String(e);
     }
   }
 
   onMount(() => {
     // Cửa sổ này luôn được TẠO MỚI mỗi lần snip (xem commands.rs), nên onMount
     // chạy fresh mỗi lần — không cần lắng nghe event reset.
-    loadCropImage();
+    //
+    // Cửa sổ giờ mở NGAY khi vừa chọn xong vùng (trước khi crop/resize ảnh
+    // xong) để phản hồi tức thì thay vì "chờ mù" — nên thử nạp ảnh ngay (silent,
+    // phòng trường hợp ảnh đã kịp xử lý xong), đồng thời lắng nghe event
+    // "ai:crop-ready" từ Rust để nạp lại khi ảnh THẬT SỰ sẵn sàng.
+    let unlisten: (() => void) | undefined;
+    loadCropImage(true);
+    listen("ai:crop-ready", () => loadCropImage(false)).then((fn) => (unlisten = fn));
     const s = loadSettings();
     modelLabel = currentModel(s);
+    return () => unlisten?.();
   });
 
   async function scrollToBottom() {
@@ -179,12 +193,19 @@
           class="max-w-full max-h-full object-contain rounded-xl border border-border shadow-lg"
           transition:fade={{ duration: 180 }}
         />
+      {:else if !error}
+        <!-- Cửa sổ mở ngay khi vừa chọn xong vùng, ảnh còn đang xử lý (resize/
+        encode) ở backend — hiện loading thay vì để khoảng trống im lặng. -->
+        <div class="flex flex-col items-center gap-2 text-text-muted" transition:fade={{ duration: 140 }}>
+          <span class="thinking-dots inline-flex items-center h-4"><span></span><span></span><span></span></span>
+          <span class="text-[11px]">Đang xử lý ảnh…</span>
+        </div>
       {/if}
     </div>
 
     <div class="shrink-0 px-3 pt-3 flex flex-wrap gap-1.5">
       {#each QUICK_PROMPTS as chip (chip.label)}
-        <button class="chip" onclick={() => askWithPrompt(chip)}>
+        <button class="chip disabled:opacity-40" disabled={!cropB64} onclick={() => askWithPrompt(chip)}>
           <Icon name={chip.icon} size={13} />
           {chip.label}
         </button>
@@ -195,11 +216,16 @@
       <input
         type="text"
         bind:value={question}
-        placeholder="Hỏi bất kỳ điều gì về vùng đã chụp…"
-        class="field selectable flex-1"
+        disabled={!cropB64}
+        placeholder={cropB64 ? "Hỏi bất kỳ điều gì về vùng đã chụp…" : "Đang xử lý ảnh…"}
+        class="field selectable flex-1 disabled:opacity-50"
         onkeydown={(e) => e.key === "Enter" && handleAsk()}
       />
-      <button onclick={handleAsk} class="btn-accent px-4 rounded-lg text-[13px] flex items-center gap-1.5">
+      <button
+        onclick={handleAsk}
+        disabled={!cropB64}
+        class="btn-accent px-4 rounded-lg text-[13px] flex items-center gap-1.5 disabled:opacity-40"
+      >
         <Icon name="send" size={15} strokeWidth={2.2} />
       </button>
     </div>
