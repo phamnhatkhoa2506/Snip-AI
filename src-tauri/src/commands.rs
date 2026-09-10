@@ -80,7 +80,7 @@ pub fn capture_and_open_overlay(app: &AppHandle) -> Result<(), String> {
         let _ = win.close();
     }
     let win = WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("overlay".into()))
-        .title("Snip-AI Overlay")
+        .title("Snap AI Overlay")
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)

@@ -36,6 +36,10 @@ export const PROMPT_CODE =
   "- **Hướng xử lý**: (nếu là lỗi) các bước khắc phục cụ thể, theo thứ tự ưu tiên.";
 
 export interface QuickPrompt {
+  /** Định danh ổn định — dùng để lưu "hành động mặc định" trong Settings
+   * (localStorage), KHÔNG dùng `label` vì label có thể đổi câu chữ sau này
+   * mà không muốn phá cấu hình đã lưu của người dùng cũ. */
+  id: string;
   /** tên icon trong Icon.svelte */
   icon: string;
   /** Chữ trên chip gợi ý */
@@ -49,11 +53,11 @@ export interface QuickPrompt {
 }
 
 export const QUICK_PROMPTS: QuickPrompt[] = [
-  { icon: "text", label: "Trích xuất chữ", chatLabel: "Trích xuất chữ trong ảnh", prompt: PROMPT_OCR },
-  { icon: "languages", label: "Dịch", chatLabel: "Dịch sang tiếng Việt", prompt: PROMPT_TRANSLATE },
-  { icon: "list", label: "Tóm tắt", chatLabel: "Tóm tắt nội dung", prompt: PROMPT_SUMMARIZE },
-  { icon: "lightbulb", label: "Giải thích", chatLabel: "Giải thích nội dung", prompt: PROMPT_EXPLAIN },
-  { icon: "code", label: "Mã / Lỗi", chatLabel: "Xem mã / lỗi trong ảnh", prompt: PROMPT_CODE },
+  { id: "ocr", icon: "text", label: "Trích xuất chữ", chatLabel: "Trích xuất chữ trong ảnh", prompt: PROMPT_OCR },
+  { id: "translate", icon: "languages", label: "Dịch", chatLabel: "Dịch sang tiếng Việt", prompt: PROMPT_TRANSLATE },
+  { id: "summarize", icon: "list", label: "Tóm tắt", chatLabel: "Tóm tắt nội dung", prompt: PROMPT_SUMMARIZE },
+  { id: "explain", icon: "lightbulb", label: "Giải thích", chatLabel: "Giải thích nội dung", prompt: PROMPT_EXPLAIN },
+  { id: "code", icon: "code", label: "Mã / Lỗi", chatLabel: "Xem mã / lỗi trong ảnh", prompt: PROMPT_CODE },
 ];
 
 // ⚠️ KHÔNG có gì đảm bảo mọi model reasoning trên NVIDIA NIM dùng chung 1 bộ

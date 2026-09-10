@@ -9,7 +9,7 @@
   import { QUICK_PROMPTS, PROMPT_EXPLAIN, type QuickPrompt } from "$lib/config";
   import { currentModel, loadSettings } from "$lib/settings";
   import { askAIStream, type ChatTurn } from "$lib/aiClient";
-  import { renderMarkdown } from "$lib/markdown";
+  import { renderMarkdown, markdownToPlainText } from "$lib/markdown";
 
   type Phase = "ask" | "chat";
 
@@ -148,7 +148,9 @@
     const lastAi = [...history].reverse().find((t) => t.role === "assistant");
     if (!lastAi) return;
     try {
-      await writeText(lastAi.content);
+      // Chép văn bản SẠCH (không dính cú pháp Markdown thô) — người dùng dán
+      // thẳng vào email/Word/Zalo, xem markdownToPlainText() để hiểu vì sao.
+      await writeText(markdownToPlainText(lastAi.content));
       copyFlash = true;
       setTimeout(() => (copyFlash = false), 1600);
     } catch (e) {
@@ -161,7 +163,7 @@
   let copiedTurnIndex = $state<number | null>(null);
   async function handleCopyTurn(i: number, content: string) {
     try {
-      await writeText(content);
+      await writeText(markdownToPlainText(content));
       copiedTurnIndex = i;
       setTimeout(() => {
         if (copiedTurnIndex === i) copiedTurnIndex = null;
@@ -248,7 +250,7 @@
         </button>
       {:else}
         <div
-          class="w-6 h-6 rounded-lg flex items-center justify-center text-black shrink-0 {busy ? 'pulse-ring' : ''}"
+          class="w-6 h-6 rounded-lg flex items-center justify-center text-accent-text shrink-0 {busy ? 'pulse-ring' : ''}"
           style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
         >
           <Icon name="sparkles" size={13} strokeWidth={2.3} />
@@ -283,7 +285,7 @@
         {#if turn.role === "user"}
           <div class="flex justify-end msg-in">
             <div
-              class="max-w-[86%] rounded-2xl rounded-br-md px-3.5 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap text-black font-medium"
+              class="max-w-[86%] rounded-2xl rounded-br-md px-3.5 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap text-accent-text font-medium"
               style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
             >
               {turn.displayLabel ?? turn.content}
@@ -292,7 +294,7 @@
         {:else}
           <div class="flex items-start gap-2.5 msg-in group">
             <div
-              class="shrink-0 w-6 h-6 mt-0.5 rounded-lg flex items-center justify-center text-black"
+              class="shrink-0 w-6 h-6 mt-0.5 rounded-lg flex items-center justify-center text-accent-text"
               style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
             >
               <Icon name="sparkles" size={12} strokeWidth={2.3} />
@@ -316,7 +318,7 @@
       {#if busy}
         <div class="flex items-start gap-2.5">
           <div
-            class="shrink-0 w-6 h-6 mt-0.5 rounded-lg flex items-center justify-center text-black pulse-ring"
+            class="shrink-0 w-6 h-6 mt-0.5 rounded-lg flex items-center justify-center text-accent-text pulse-ring"
             style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
           >
             <Icon name="sparkles" size={12} strokeWidth={2.3} />

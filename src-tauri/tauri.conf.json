@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Snip-AI",
+  "productName": "Snap AI",
   "version": "0.2.0",
   "identifier": "com.khoap.snip-ai-tauri",
   "build": {
@@ -13,10 +13,10 @@
     "windows": [
       {
         "label": "main",
-        "title": "Snip-AI — Cài đặt",
-        "width": 440,
-        "height": 600,
-        "resizable": true,
+        "title": "Snap AI",
+        "width": 360,
+        "height": 440,
+        "resizable": false,
         "visible": true
       }
     ],

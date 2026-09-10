@@ -1,26 +1,96 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Design tokens. Giữ tinh thần tối + xanh lá NVIDIA của bản trước, nhưng
-   hiện đại hoá: accent chuyển thành gradient (lime -> teal), nền có chiều sâu
-   (radial glow), bề mặt kính (glass) thay cho khối phẳng, viền mảnh hơn.
+   Design tokens — ĐẠI TU cho đối tượng chính là học sinh/sinh viên và người
+   dùng văn phòng (không phải dev). 2 thay đổi cốt lõi so với bản trước:
+
+   1. Tự động theo theme sáng/tối của Windows (`prefers-color-scheme`), tông
+      TRUNG TÍNH (xám-trắng, không xanh-đen như trước) — app này hiện lên
+      CHỒNG LÊN nội dung người dùng đang làm (Word, slide, trình duyệt), nền
+      tối cố định trước đây quá chói/nổi bật so với ngữ cảnh đó lúc dùng ban
+      ngày. Không cần toggle thủ công vì Windows đã có sẵn cài đặt sáng/tối
+      hệ thống rồi.
+   2. Accent GIỮ NGUYÊN xanh lá NVIDIA gốc (lime -> teal, #86e01e/#22d3a6) —
+      từng thử đổi sang xanh dương trầm cho "hợp văn phòng" hơn, nhưng người
+      dùng thấy tông đó nhạt/thiếu sắc, quay lại màu rực ban đầu. Chỉ nền/bề
+      mặt xung quanh đổi theo theme, accent thì không đổi giữa sáng/tối.
+
+   Mọi màu có yếu tố trong suốt (rgba trắng/đen để tạo lớp phủ nhẹ) đều
+   chuyển sang dùng `color-mix(in srgb, var(--color-...) X%, transparent)`
+   thay vì rgba() cứng — nhờ vậy 1 token đổi giá trị là toàn bộ hiệu ứng phụ
+   thuộc nó tự đổi theo đúng theme, không cần định nghĩa lại 2 lần.
    ───────────────────────────────────────────────────────────────────────── */
 @theme {
-  --color-bg: #0a0b0d;
-  --color-bg-soft: #101215;
-  --color-bg-elevated: #16191d;
-  --color-card: #101317;
+  --color-bg: #f4f5f7;
+  --color-bg-soft: #eceef1;
+  --color-bg-elevated: #ffffff;
+  --color-card: #ffffff;
+  /* Xanh lá NVIDIA gốc (lime -> teal) — người dùng thấy màu này rực/nổi hơn
+     hẳn xanh dương trầm đã thử trước đó, giữ nguyên sắc độ này. */
   --color-accent: #86e01e;
   --color-accent-2: #22d3a6;
-  --color-accent-hover: #9bf03a;
-  --color-accent-soft: #14210a;
-  --color-border: #23272d;
-  --color-border-soft: #1a1d22;
-  --color-user: #5cc8ff;
-  --color-ai: #86e01e;
-  --color-text: #e9edf1;
-  --color-text-muted: #8b939c;
-  --color-danger: #ff6b6b;
+  --color-accent-hover: #75c918;
+  --color-accent-soft: #eefadb;
+  /* Màu chữ đặt TRÊN nền accent (nút chính, badge nổi bật) — accent là màu
+     RẤT SÁNG (lime) nên cần chữ TỐI mới đủ tương phản, không phải trắng.
+     Dùng token thay vì hardcode "text-white/text-black" trong từng component
+     — đổi accent sang tông khác (sáng/tối) chỉ cần sửa đúng 1 chỗ này. */
+  --color-accent-text: #0c1a04;
+  --color-border: #e3e6ea;
+  --color-border-soft: #edeff2;
+  --color-user: #2563eb;
+  --color-ai: #4d9c14;
+  --color-text: #191b1e;
+  --color-text-muted: #6b7280;
+  --color-heading: #0e1013;
+  --color-placeholder: #9aa0a8;
+  --color-danger: #dc2626;
+  /* Lớp phủ tinh tế cho nút/ô nhập/hover — sắc độ NGƯỢC với nền (tối trên nền
+     sáng) để luôn nhìn thấy được, thay vì cố định trắng như bản dark-only cũ. */
+  --surface-1: rgba(15, 23, 42, 0.035);
+  --surface-2: rgba(15, 23, 42, 0.055);
+  --surface-hover: rgba(15, 23, 42, 0.075);
+  --code-bg: rgba(77, 156, 20, 0.1);
+  --code-text: #3f7d10;
+  --pre-bg: #f1f3f6;
+}
+
+/* Tailwind v4's `@theme` chỉ khai báo giá trị MẶC ĐỊNH + sinh ra các utility
+   class (bg-accent, text-accent...) 1 lần — không lồng được trong @media.
+   Cách chuẩn để đổi theo theme: override thẳng biến CSS ở đây; các utility
+   class đã sinh ra vẫn tự động dùng giá trị mới vì chúng tham chiếu qua
+   var(--color-...) ở tầng dưới. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #17181b;
+    --color-bg-soft: #1d1f22;
+    --color-bg-elevated: #222427;
+    --color-card: #1b1d20;
+    --color-accent: #86e01e;
+    --color-accent-2: #22d3a6;
+    --color-accent-hover: #9bf03a;
+    --color-accent-soft: #14210a;
+    --color-accent-text: #0c1a04;
+    --color-border: #2b2e33;
+    --color-border-soft: #232529;
+    --color-user: #5cc8ff;
+    --color-ai: #86e01e;
+    --color-text: #eceef0;
+    --color-text-muted: #9298a1;
+    --color-heading: #f5f6f7;
+    --color-placeholder: #5f6772;
+    --color-danger: #f87171;
+    --surface-1: rgba(255, 255, 255, 0.035);
+    --surface-2: rgba(255, 255, 255, 0.055);
+    --surface-hover: rgba(255, 255, 255, 0.08);
+    --code-bg: rgba(134, 224, 30, 0.12);
+    --code-text: #a9e86a;
+    --pre-bg: #101114;
+  }
+}
+
+html {
+  color-scheme: light dark;
 }
 
 html,
@@ -65,30 +135,28 @@ textarea,
   height: 0;
 }
 
-/* ── Nền có chiều sâu: 2 vệt sáng mờ ở góc thay vì nền phẳng đơn sắc ── */
+/* ── Nền có chiều sâu nhẹ: 2 vệt sáng mờ ở góc thay vì nền phẳng đơn sắc.
+   Dùng color-mix từ --color-accent nên tự đổi sắc độ đúng theo theme, không
+   cần định nghĩa rgba riêng cho light/dark. ── */
 .app-bg {
   background:
-    radial-gradient(120% 80% at 100% 0%, rgba(134, 224, 30, 0.07), transparent 60%),
-    radial-gradient(100% 70% at 0% 100%, rgba(34, 211, 166, 0.06), transparent 55%),
+    radial-gradient(120% 80% at 100% 0%, color-mix(in srgb, var(--color-accent) 6%, transparent), transparent 60%),
+    radial-gradient(100% 70% at 0% 100%, color-mix(in srgb, var(--color-accent) 4%, transparent), transparent 55%),
     var(--color-bg);
 }
 
-/* ── Bề mặt ──
-   QUAN TRỌNG: có màu nền ĐẶC (--color-card) làm lớp đáy, gradient chỉ là lớp
-   phủ tạo chiều sâu nhẹ ở trên. Thiếu lớp đáy đặc này thì .card gần như
-   trong suốt (chỉ ~3% trắng) — dùng làm popup/dropdown nổi lên trên nội dung
-   khác sẽ bị lộ chữ phía sau xuyên qua (đã gặp thực tế với dropdown Select). */
+/* ── Bề mặt (card/popup) — nền đặc + viền mảnh + đổ bóng rất nhẹ. Bỏ lớp
+   gradient phủ trắng của bản cũ (chỉ hợp nền tối) — dùng shadow thay cho
+   hiệu ứng "nổi khối", ổn ở cả 2 theme. ── */
 .card {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.008)),
-    var(--color-card);
+  background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: 14px;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .glass {
-  background: rgba(16, 19, 23, 0.72);
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
   border-bottom: 1px solid var(--color-border-soft);
@@ -97,18 +165,18 @@ textarea,
 /* ── Nút accent gradient ── */
 .btn-accent {
   background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
-  color: #08130a;
+  color: var(--color-accent-text);
   font-weight: 700;
   border: none;
   transition:
     transform 0.14s ease,
     box-shadow 0.2s ease,
     filter 0.2s ease;
-  box-shadow: 0 4px 16px -6px rgba(134, 224, 30, 0.6);
+  box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--color-accent) 55%, transparent);
 }
 .btn-accent:hover:not(:disabled) {
-  filter: brightness(1.06);
-  box-shadow: 0 6px 22px -6px rgba(134, 224, 30, 0.75);
+  filter: brightness(1.05);
+  box-shadow: 0 6px 20px -6px color-mix(in srgb, var(--color-accent) 65%, transparent);
 }
 .btn-accent:active:not(:disabled) {
   transform: translateY(1px);
@@ -119,7 +187,7 @@ textarea,
 }
 
 .btn-ghost {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-1);
   border: 1px solid var(--color-border);
   color: var(--color-text-muted);
   transition:
@@ -129,8 +197,8 @@ textarea,
 }
 .btn-ghost:hover:not(:disabled) {
   color: var(--color-text);
-  border-color: #3a424b;
-  background: rgba(255, 255, 255, 0.07);
+  border-color: color-mix(in srgb, var(--color-text) 30%, var(--color-border));
+  background: var(--surface-hover);
 }
 
 /* Chip gợi ý */
@@ -143,7 +211,7 @@ textarea,
   font-size: 12px;
   font-weight: 500;
   color: var(--color-text-muted);
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--surface-1);
   border: 1px solid var(--color-border);
   cursor: pointer;
   transition:
@@ -155,7 +223,7 @@ textarea,
 .chip:hover {
   color: var(--color-text);
   border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
-  background: rgba(134, 224, 30, 0.08);
+  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
   transform: translateY(-1px);
 }
 .chip:active {
@@ -175,12 +243,12 @@ textarea,
   color: var(--color-text-muted);
 }
 .badge-accent {
-  background: rgba(134, 224, 30, 0.1);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
   color: var(--color-accent);
 }
 .badge-danger {
-  background: rgba(255, 107, 107, 0.1);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
   color: var(--color-danger);
 }
@@ -189,7 +257,7 @@ textarea,
   width: 100%;
   padding: 9px 12px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--surface-1);
   border: 1px solid var(--color-border);
   color: var(--color-text);
   font-size: 13px;
@@ -200,12 +268,12 @@ textarea,
     background 0.18s ease;
 }
 .field:focus {
-  border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
-  box-shadow: 0 0 0 3px rgba(134, 224, 30, 0.12);
-  background: rgba(255, 255, 255, 0.05);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
+  background: var(--surface-2);
 }
 .field::placeholder {
-  color: #5f6772;
+  color: var(--color-placeholder);
 }
 
 /* ── Hiệu ứng ── */
@@ -276,13 +344,13 @@ textarea,
 /* Viền sáng chạy quanh avatar AI khi đang trả lời */
 @keyframes pulse-ring {
   0% {
-    box-shadow: 0 0 0 0 rgba(134, 224, 30, 0.35);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 35%, transparent);
   }
   70% {
-    box-shadow: 0 0 0 7px rgba(134, 224, 30, 0);
+    box-shadow: 0 0 0 7px transparent;
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(134, 224, 30, 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 .pulse-ring {
@@ -342,7 +410,7 @@ textarea,
   margin: 14px 0 7px;
   font-weight: 700;
   line-height: 1.3;
-  color: #fff;
+  color: var(--color-heading);
 }
 .markdown-body h1 {
   font-size: 1.15em;
@@ -355,7 +423,7 @@ textarea,
 }
 .markdown-body strong {
   font-weight: 700;
-  color: #fff;
+  color: var(--color-heading);
 }
 .markdown-body a {
   color: var(--color-user);
@@ -365,8 +433,8 @@ textarea,
 .markdown-body code {
   font-family: "Cascadia Code", "Consolas", ui-monospace, monospace;
   font-size: 0.87em;
-  background: rgba(134, 224, 30, 0.1);
-  color: #c7f08a;
+  background: var(--code-bg);
+  color: var(--code-text);
   padding: 1.5px 5px;
   border-radius: 5px;
 }
@@ -374,13 +442,13 @@ textarea,
   margin: 9px 0;
   padding: 11px 13px;
   border-radius: 10px;
-  background: #07080a;
+  background: var(--pre-bg);
   border: 1px solid var(--color-border);
   overflow-x: auto;
 }
 .markdown-body pre code {
   background: none;
-  color: #d5dde4;
+  color: var(--color-text);
   padding: 0;
   font-size: 0.85em;
   white-space: pre;
@@ -405,7 +473,7 @@ textarea,
   text-align: left;
 }
 .markdown-body th {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-1);
   font-weight: 600;
 }
 .markdown-body hr {

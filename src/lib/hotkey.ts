@@ -46,6 +46,22 @@ const CODE_TO_KEY: Record<string, string> = {
   ArrowRight: "Right",
   Enter: "Enter",
   NumpadEnter: "Enter",
+  // Phím dấu câu/ký hiệu — trước đây thiếu, khiến người dùng bấm thử 1 tổ hợp
+  // có phím này làm phím chính thì bộ ghi phím không nhận ra gì cả (cảm giác
+  // như "không bấm được"), dù về mặt hệ điều hành các phím này hoàn toàn dùng
+  // được cho global hotkey. Tên bên phải trùng với tên `Code` mà crate
+  // `global-shortcut` (Rust) hiểu, nên giữ nguyên không cần đổi tên.
+  Comma: "Comma",
+  Period: "Period",
+  Semicolon: "Semicolon",
+  Quote: "Quote",
+  BracketLeft: "BracketLeft",
+  BracketRight: "BracketRight",
+  Backslash: "Backslash",
+  Minus: "Minus",
+  Equal: "Equal",
+  Backquote: "Backquote",
+  Slash: "Slash",
 };
 for (let i = 1; i <= 24; i++) CODE_TO_KEY[`F${i}`] = `F${i}`;
 for (let i = 0; i < 26; i++) {
@@ -53,6 +69,19 @@ for (let i = 0; i < 26; i++) {
   CODE_TO_KEY[`Key${letter}`] = letter;
 }
 for (let i = 0; i <= 9; i++) CODE_TO_KEY[`Digit${i}`] = String(i);
+
+/** Chuẩn hoá 1 phần hiển thị (VD "KeyH" -> "H", "Digit5" -> "5") — cần dùng
+ * khi tách accelerator string NHẬN TỪ RUST (`get_hotkey`/`set_hotkey` trả về
+ * `Shortcut::to_string()`, định dạng nội bộ của crate `global-shortcut`,
+ * khác với tên hiển thị thân thiện). Combo tự bắt qua `captureCombo()` ở
+ * trên đã map sẵn qua `CODE_TO_KEY` nên KHÔNG cần qua hàm này lần nữa. */
+export function formatKeyLabel(part: string): string {
+  const keyMatch = /^Key([A-Z])$/.exec(part);
+  if (keyMatch) return keyMatch[1];
+  const digitMatch = /^Digit(\d)$/.exec(part);
+  if (digitMatch) return digitMatch[1];
+  return part;
+}
 
 export interface CapturedCombo {
   accelerator: string;

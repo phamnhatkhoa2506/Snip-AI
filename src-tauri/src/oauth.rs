@@ -46,13 +46,18 @@ fn session_entry(field: &str) -> Result<Entry, String> {
     Entry::new(SESSION_SERVICE, field).map_err(|e| format!("Không mở được keychain: {e}"))
 }
 
-fn save_session(token: &str, email: &str) -> Result<(), String> {
+fn save_session(token: &str, email: &str, picture: Option<&str>) -> Result<(), String> {
     session_entry("token")?
         .set_password(token)
         .map_err(|e| format!("Không lưu được session token: {e}"))?;
     session_entry("email")?
         .set_password(email)
         .map_err(|e| format!("Không lưu được email: {e}"))?;
+    // Ảnh đại diện không phải lúc nào cũng có (tài khoản Google không đặt
+    // ảnh) — không coi thiếu ảnh là lỗi, chỉ đơn giản không lưu gì.
+    if let Some(pic) = picture {
+        let _ = session_entry("picture").and_then(|e| e.set_password(pic).map_err(|err| err.to_string()));
+    }
     Ok(())
 }
 
@@ -66,6 +71,10 @@ pub fn read_session_token() -> Result<String, String> {
 
 fn read_session_email() -> Option<String> {
     session_entry("email").ok().and_then(|e| e.get_password().ok())
+}
+
+fn read_session_picture() -> Option<String> {
+    session_entry("picture").ok().and_then(|e| e.get_password().ok())
 }
 
 /// Sinh 1 chuỗi ngẫu nhiên URL-safe (base64url, không padding) từ N byte
@@ -134,7 +143,7 @@ fn handle_callback(mut stream: TcpStream, expected_state: &str) -> Result<String
         }
     }
 
-    let _ = write_html_response(&mut stream, "Đăng nhập Snip-AI thành công ✅", "Bạn có thể đóng tab này và quay lại app.");
+    let _ = write_html_response(&mut stream, "Đăng nhập Snap AI thành công ✅", "Bạn có thể đóng tab này và quay lại app.");
 
     let code = code.ok_or("Không nhận được authorization code từ Google")?;
     let state = state.ok_or("Thiếu tham số state trong callback — huỷ đăng nhập để an toàn")?;
@@ -162,16 +171,26 @@ struct ExchangeResponse {
     #[serde(rename = "sessionToken")]
     session_token: String,
     email: String,
+    picture: Option<String>,
 }
 
-/// Chạy toàn bộ luồng đăng nhập Google, trả về email nếu thành công.
+/// Thông tin tài khoản đang đăng nhập — trả cho frontend hiện avatar góc trên
+/// bên phải (email KHÔNG bao gồm session token thật, giữ đúng nguyên tắc
+/// "không expose bí mật ra frontend").
+#[derive(serde::Serialize)]
+pub struct LoginStatus {
+    pub email: String,
+    pub picture: Option<String>,
+}
+
+/// Chạy toàn bộ luồng đăng nhập Google, trả về thông tin tài khoản nếu thành công.
 ///
 /// `async fn` — mở trình duyệt + gọi HTTP tới backend là việc I/O, và bước
 /// chờ callback (blocking `accept()`) được tách sang `spawn_blocking` để
 /// không chặn async runtime (xem giải thích chi tiết ở `commands.rs` cho các
 /// lệnh tương tự tạo cửa sổ/xử lý ảnh nặng).
 #[tauri::command]
-pub async fn start_google_login(app: AppHandle) -> Result<String, String> {
+pub async fn start_google_login(app: AppHandle) -> Result<LoginStatus, String> {
     let (listener, port) = open_loopback_listener()?;
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
 
@@ -223,15 +242,16 @@ pub async fn start_google_login(app: AppHandle) -> Result<String, String> {
         .await
         .map_err(|e| format!("Lỗi đọc phản hồi từ backend: {e}"))?;
 
-    save_session(&parsed.session_token, &parsed.email)?;
-    Ok(parsed.email)
+    save_session(&parsed.session_token, &parsed.email, parsed.picture.as_deref())?;
+    Ok(LoginStatus { email: parsed.email, picture: parsed.picture })
 }
 
-/// Email đang đăng nhập, nếu có — dùng để hiện trạng thái ở Settings UI mà
-/// không cần trả session token thật về frontend.
+/// Thông tin tài khoản đang đăng nhập, nếu có — dùng để hiện avatar/email ở
+/// UI mà không cần trả session token thật về frontend.
 #[tauri::command]
-pub fn get_login_status() -> Option<String> {
-    read_session_email()
+pub fn get_login_status() -> Option<LoginStatus> {
+    let email = read_session_email()?;
+    Some(LoginStatus { email, picture: read_session_picture() })
 }
 
 #[tauri::command]
@@ -240,6 +260,7 @@ pub fn logout() -> Result<(), String> {
     // `delete_api_key` xử lý ở secrets.rs.
     let _ = session_entry("token").and_then(|e| e.delete_credential().map_err(|err| err.to_string()));
     let _ = session_entry("email").and_then(|e| e.delete_credential().map_err(|err| err.to_string()));
+    let _ = session_entry("picture").and_then(|e| e.delete_credential().map_err(|err| err.to_string()));
     Ok(())
 }
 

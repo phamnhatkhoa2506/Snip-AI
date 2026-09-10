@@ -12,7 +12,7 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_global_shortcut::ShortcutState;
 
 pub const MAIN_LABEL: &str = "main";
 
@@ -86,7 +86,13 @@ pub fn run() {
             // từ `HotkeyState` (không capture giá trị cố định vào closure) để
             // người dùng đổi phím tắt trong lúc app đang chạy vẫn hoạt động
             // đúng ngay, không cần khởi động lại app.
-            let (initial_shortcut, initial_accel) = hotkey::resolve_initial_shortcut(&app.handle());
+            //
+            // Việc ĐĂNG KÝ thật với OS chỉ làm được SAU KHI plugin global-shortcut
+            // cài xong (app.global_shortcut() cần plugin đã có) — nên tạm quản lý
+            // HotkeyState với 1 giá trị "dự kiến" trước, rồi cập nhật lại đúng giá
+            // trị THẬT SỰ đã đăng ký được (có thể khác, nếu combo đã lưu thất bại
+            // và phải rơi về mặc định) ngay sau khi cài plugin xong.
+            let (initial_shortcut, _initial_accel) = hotkey::resolve_initial_shortcut(&app.handle());
             app.manage(HotkeyState {
                 current: Mutex::new(initial_shortcut),
             });
@@ -118,8 +124,17 @@ pub fn run() {
                     })
                     .build(),
             )?;
-            app.global_shortcut().register(initial_shortcut)?;
-            eprintln!("[snip-ai] Đã đăng ký phím tắt: {initial_accel}");
+
+            // Thử đăng ký thật — KHÔNG dùng `?` ở đây (khác code cũ): nếu combo
+            // đã lưu/mặc định bị Windows hoặc app khác chiếm mất, app vẫn phải
+            // MỞ ĐƯỢC bình thường (chỉ mất tính năng hotkey, sửa được qua Cài
+            // đặt) thay vì crash ngay lúc khởi động — bug thực tế đã gặp, xem
+            // giải thích chi tiết ở `hotkey::register_initial`.
+            let (registered_shortcut, registered_accel, ok) = hotkey::register_initial(&app.handle());
+            *app.state::<HotkeyState>().current.lock().unwrap() = registered_shortcut;
+            if ok {
+                eprintln!("[snip-ai] Đã đăng ký phím tắt: {registered_accel}");
+            }
 
             // ── System tray ──────────────────────────────────────────────
             let show_item = MenuItem::with_id(app, "show", "Mở Cài đặt", true, None::<&str>)?;
@@ -145,7 +160,7 @@ pub fn run() {
 
             TrayIconBuilder::with_id("main-tray")
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Snip-AI — chạy nền, chờ phím tắt chụp màn hình")
+                .tooltip("Snap AI — chạy nền, chờ phím tắt chụp màn hình")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {

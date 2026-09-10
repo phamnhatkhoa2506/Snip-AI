@@ -1,6 +1,6 @@
-# Snip-AI Backend
+# Snap AI Backend
 
-Proxy Cloudflare Worker cho Snip-AI — giữ API key Gemini thật phía server,
+Proxy Cloudflare Worker cho Snap AI — giữ API key Gemini thật phía server,
 app desktop không bao giờ cần biết/nhập API key nữa.
 
 ## Trạng thái hiện tại (Bước 1/2)

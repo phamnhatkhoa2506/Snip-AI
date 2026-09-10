@@ -1,12 +1,14 @@
-// Cấu hình KHÔNG nhạy cảm (provider đang chọn, tên model, reasoning effort)
-// lưu bằng localStorage — dùng chung giữa các cửa sổ vì cùng origin.
+// Cấu hình KHÔNG nhạy cảm (tên model...) lưu bằng localStorage — dùng chung
+// giữa các cửa sổ vì cùng origin.
 //
-// ⚠️ API KEY KHÔNG nằm ở đây. Key được lưu trong Windows Credential Manager
-// (OS keychain) qua các lệnh Rust ở secrets.rs, và KHÔNG BAO GIỜ được trả về
-// frontend. Frontend chỉ có thể: ghi key mới, hỏi "đã có key chưa" (kèm 4 ký
-// tự cuối để nhận diện), và xoá key.
-
-import { invoke } from "@tauri-apps/api/core";
+// ⚠️ Không có API key nào lưu ở đây. Từ khi chuyển sang đăng nhập Google
+// (xem oauth.rs), người dùng phổ thông không còn tự nhập/quản lý API key
+// nữa — mục "Nhà cung cấp AI (nâng cao)" (chọn provider, nhập key thủ công)
+// đã bị GỠ HẲN khỏi UI vì quá phức tạp với đối tượng chính (học sinh/sinh
+// viên, văn phòng). `provider` vẫn tồn tại trong `Settings` vì `ai.rs` dùng
+// nó để định tuyến lệnh gọi AI, nhưng LUÔN là "gemini" trong thực tế sử dụng
+// (không còn UI nào đổi được giá trị này nữa) — session đăng nhập Google chỉ
+// hoạt động với route đó (xem ai.rs::ask_ai_gemini).
 
 export type Provider = "nvidia" | "openai" | "anthropic" | "gemini";
 
@@ -26,63 +28,31 @@ export interface Settings {
 const STORAGE_KEY = "snip-ai:settings";
 
 export const DEFAULT_SETTINGS: Settings = {
-  provider: "nvidia",
+  // "gemini" — vì đây là provider đi qua backend khi đã đăng nhập Google
+  // (xem ai.rs::ask_ai_gemini), đường DUY NHẤT cho người dùng phổ thông.
+  provider: "gemini",
   nvidiaModel: "meta/llama-3.2-11b-vision-instruct",
   nvidiaReasoningEnabled: false,
   nvidiaReasoningEffort: "none",
   openaiModel: "gpt-4o",
   anthropicModel: "claude-sonnet-5",
-  geminiModel: "gemini-2.0-flash",
+  geminiModel: "gemini-3.6-flash",
 };
 
-export interface ProviderMeta {
-  id: Provider;
-  label: string;
-  /** Nơi lấy API key, hiện trong UI để người dùng biết đi đâu lấy */
-  keyUrl: string;
-  keyPlaceholder: string;
-  /** Trường trong Settings chứa tên model của provider này */
-  modelField: keyof Settings;
-  modelHint: string;
-}
-
-export const PROVIDERS: ProviderMeta[] = [
-  {
-    id: "nvidia",
-    label: "NVIDIA NIM",
-    keyUrl: "build.nvidia.com",
-    keyPlaceholder: "nvapi-...",
-    modelField: "nvidiaModel",
-    modelHint: "Model phải hỗ trợ ảnh (vision). VD: meta/llama-3.2-11b-vision-instruct",
-  },
-  {
-    id: "openai",
-    label: "OpenAI",
-    keyUrl: "platform.openai.com",
-    keyPlaceholder: "sk-...",
-    modelField: "openaiModel",
-    modelHint: "Model phải hỗ trợ vision. VD: gpt-4o",
-  },
-  {
-    id: "anthropic",
-    label: "Anthropic",
-    keyUrl: "console.anthropic.com",
-    keyPlaceholder: "sk-ant-...",
-    modelField: "anthropicModel",
-    modelHint: "VD: claude-sonnet-5",
-  },
-  {
-    id: "gemini",
-    label: "Gemini",
-    keyUrl: "aistudio.google.com",
-    keyPlaceholder: "AIza...",
-    modelField: "geminiModel",
-    modelHint: "VD: gemini-2.0-flash",
-  },
-];
-
-export function providerMeta(id: Provider): ProviderMeta {
-  return PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0];
+/** Trường trong `Settings` chứa tên model của từng provider — chỉ dùng nội
+ * bộ để `currentModel()` tra đúng field, không cần export ra ngoài nữa vì
+ * không còn UI nào cho đổi provider. */
+function modelFieldOf(provider: Provider): keyof Settings {
+  switch (provider) {
+    case "nvidia":
+      return "nvidiaModel";
+    case "openai":
+      return "openaiModel";
+    case "anthropic":
+      return "anthropicModel";
+    case "gemini":
+      return "geminiModel";
+  }
 }
 
 export function loadSettings(): Settings {
@@ -109,53 +79,5 @@ export function saveSettings(settings: Settings): void {
 /** Tên model của provider đang chọn (đã trim — tránh lỗi từng gặp: model dán
  * dính khoảng trắng cuối khiến API trả HTTP 404 khó hiểu). */
 export function currentModel(settings: Settings): string {
-  return String(settings[providerMeta(settings.provider).modelField] ?? "").trim();
-}
-
-/** Ghi tên model cho provider đang chọn (type-safe, không ép kiểu Record). */
-export function setCurrentModel(settings: Settings, value: string): void {
-  switch (settings.provider) {
-    case "nvidia":
-      settings.nvidiaModel = value;
-      break;
-    case "openai":
-      settings.openaiModel = value;
-      break;
-    case "anthropic":
-      settings.anthropicModel = value;
-      break;
-    case "gemini":
-      settings.geminiModel = value;
-      break;
-  }
-}
-
-// ── API key: chỉ đi qua Rust/OS keychain, không lưu ở JS ──────────────────
-
-export interface KeyStatus {
-  provider: Provider;
-  hasKey: boolean;
-  /** 4 ký tự cuối của key (VD "…a3f9") — đủ để nhận diện, không tái tạo được */
-  hint: string;
-}
-
-export async function fetchKeyStatuses(): Promise<Record<Provider, KeyStatus>> {
-  const list = await invoke<{ provider: string; has_key: boolean; hint: string }[]>("api_key_statuses");
-  const map = {} as Record<Provider, KeyStatus>;
-  for (const item of list) {
-    map[item.provider as Provider] = {
-      provider: item.provider as Provider,
-      hasKey: item.has_key,
-      hint: item.hint,
-    };
-  }
-  return map;
-}
-
-export async function saveApiKey(provider: Provider, apiKey: string): Promise<void> {
-  await invoke("save_api_key", { provider, apiKey });
-}
-
-export async function deleteApiKey(provider: Provider): Promise<void> {
-  await invoke("delete_api_key", { provider });
+  return String(settings[modelFieldOf(settings.provider)] ?? "").trim();
 }

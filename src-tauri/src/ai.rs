@@ -43,7 +43,7 @@ const FIRST_RESPONSE_TIMEOUT: Duration = Duration::from_secs(150);
 /// lấy từ prompt — dù ảnh không hề nói về chủ đề đó). Rút gọn tối đa + thêm
 /// quy tắc chống bịa rõ ràng để giảm rủi ro này.
 const SYSTEM_PROMPT: &str = "\
-Bạn là trợ lý AI phân tích ảnh, tích hợp trong app Snip-AI.
+Bạn là trợ lý AI phân tích ảnh, tích hợp trong app Snap AI.
 
 QUY TẮC (bắt buộc):
 1. CHỈ mô tả/trả lời dựa trên những gì THỰC SỰ thấy trong ảnh. Nếu ảnh mờ, quá nhỏ, \

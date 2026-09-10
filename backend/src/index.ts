@@ -1,4 +1,4 @@
-// Snip-AI backend — Cloudflare Worker.
+// Snap AI backend — Cloudflare Worker.
 //
 // Xác thực bằng "session token" (JWT tự ký, xem jwt.ts) cấp SAU KHI người
 // dùng đăng nhập Google thành công (xem POST /v1/auth/google/exchange bên
@@ -154,16 +154,17 @@ export default {
       }
       const sub = idPayload.sub as string | undefined;
       const email = idPayload.email as string | undefined;
+      const picture = idPayload.picture as string | undefined;
       if (!sub || !email) {
         return json({ error: "id_token thiếu thông tin người dùng" }, 401);
       }
 
       const now = Math.floor(Date.now() / 1000);
       const THIRTY_DAYS = 30 * 24 * 60 * 60;
-      const session: SessionPayload = { sub, email, iat: now, exp: now + THIRTY_DAYS };
+      const session: SessionPayload = { sub, email, picture, iat: now, exp: now + THIRTY_DAYS };
       const sessionToken = await signSession(session, env.APP_SESSION_SECRET);
 
-      return json({ sessionToken, email });
+      return json({ sessionToken, email, picture });
     }
 
     if (url.pathname === "/v1/gemini/stream" && request.method === "POST") {

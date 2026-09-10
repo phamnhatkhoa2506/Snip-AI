@@ -1,6 +1,6 @@
-# Snip-AI (Tauri)
+# Snap AI (Tauri)
 
-Bản product thực sự của Snip-AI: Tauri (Rust backend, hiệu năng native, dùng
+Bản product thực sự của Snap AI: Tauri (Rust backend, hiệu năng native, dùng
 WebView2 có sẵn trên Windows — không đóng gói Chromium như Electron) + Svelte
 5 + TailwindCSS cho giao diện.
 
@@ -32,7 +32,7 @@ npm run tauri dev
 ```
 
 Lần đầu `cargo` sẽ tải + compile toàn bộ dependency Rust — có thể mất vài
-phút. Cửa sổ **"Snip-AI — Cài đặt"** sẽ hiện lên; nhập API key (NVIDIA hoặc
+phút. Cửa sổ **"Snap AI — Cài đặt"** sẽ hiện lên; nhập API key (NVIDIA hoặc
 Anthropic) rồi bấm **Lưu cài đặt**. Bấm `Ctrl+PrintScreen` (hoặc nút "📸 Test
 chụp màn hình" trong Settings nếu hotkey chưa đăng ký được) để thử luồng chụp.
 

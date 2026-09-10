@@ -107,17 +107,17 @@
       />
       <div
         class="absolute border-2 border-accent pointer-events-none"
-        style="left:{rect.x}px; top:{rect.y}px; width:{rect.w}px; height:{rect.h}px; box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 0 24px -4px rgba(134,224,30,0.55);"
+        style="left:{rect.x}px; top:{rect.y}px; width:{rect.w}px; height:{rect.h}px; box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 0 24px -4px color-mix(in srgb, var(--color-accent) 55%, transparent);"
       ></div>
       <!-- 4 chấm góc cho cảm giác "chọn vùng" rõ ràng hơn -->
       {#each [[0, 0], [1, 0], [0, 1], [1, 1]] as [fx, fy], ci (ci)}
         <div
           class="absolute w-2 h-2 rounded-full bg-accent pointer-events-none"
-          style="left:{rect.x + fx * rect.w - 4}px; top:{rect.y + fy * rect.h - 4}px; box-shadow: 0 0 8px rgba(134,224,30,0.9);"
+          style="left:{rect.x + fx * rect.w - 4}px; top:{rect.y + fy * rect.h - 4}px; box-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 85%, transparent);"
         ></div>
       {/each}
       <div
-        class="absolute text-[11px] font-mono font-semibold text-black px-2 py-0.5 rounded-md pointer-events-none"
+        class="absolute text-[11px] font-mono font-semibold text-accent-text px-2 py-0.5 rounded-md pointer-events-none"
         style="left:{rect.x}px; top:{Math.max(0, rect.y - 24)}px; background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
       >
         {rect.w} × {rect.h}

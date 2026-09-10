@@ -1,4 +1,4 @@
-// JWT tự ký (HS256) để cấp "session token" riêng cho Snip-AI, dùng Web Crypto
+// JWT tự ký (HS256) để cấp "session token" riêng cho Snap AI, dùng Web Crypto
 // API có sẵn trong Cloudflare Workers — KHÔNG cần thêm thư viện ngoài (giữ
 // bundle nhỏ, ít bề mặt tấn công từ dependency).
 //
@@ -36,6 +36,9 @@ async function hmacKey(secret: string): Promise<CryptoKey> {
 export interface SessionPayload {
   sub: string; // Google user id ("sub" claim từ id_token Google)
   email: string;
+  /** URL ảnh đại diện Google (claim "picture") — có thể thiếu (tài khoản
+   * không đặt ảnh đại diện), UI phải tự có fallback (chữ cái đầu email). */
+  picture?: string;
   iat: number;
   exp: number;
 }
