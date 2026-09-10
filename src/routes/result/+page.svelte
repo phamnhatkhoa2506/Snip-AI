@@ -6,6 +6,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Icon from "$lib/Icon.svelte";
+  import ScrollArea from "$lib/ScrollArea.svelte";
   import { QUICK_PROMPTS, VIDEO_PROMPTS, PROMPT_EXPLAIN, PROMPT_VIDEO_EXPLAIN, type QuickPrompt } from "$lib/config";
   import { currentModel, loadSettings, type Settings } from "$lib/settings";
   import { askAIStream, type ChatTurn } from "$lib/aiClient";
@@ -115,7 +116,7 @@
     for (const p of parts) streamChunks.push({ id: chunkIdSeq++, text: p });
   }
 
-  let transcriptEl = $state<HTMLDivElement | undefined>();
+  let transcriptEl = $state<HTMLDivElement | null>(null);
 
   /** `silent`: KHÔNG hiện lỗi nếu ảnh/video chưa có — dùng cho lần thử đầu
    * tiên lúc mới mount, vì cửa sổ này được mở NGAY (trước khi ảnh/video xử
@@ -470,7 +471,11 @@
       <div class="shrink-0 h-0.5 shimmer" transition:fade={{ duration: 120 }}></div>
     {/if}
 
-    <div bind:this={transcriptEl} class="selectable flex-1 min-h-0 overflow-y-auto px-3 py-3.5 flex flex-col gap-3.5">
+    <ScrollArea
+      bind:viewport={transcriptEl}
+      class="selectable flex-1 min-h-0"
+      contentClass="px-3 py-3.5 flex flex-col gap-3.5"
+    >
       {#each history as turn, i (i)}
         {#if turn.role === "user"}
           <div class="flex justify-end msg-in">
@@ -534,7 +539,7 @@
           <span class="selectable leading-relaxed">{error}</span>
         </div>
       {/if}
-    </div>
+    </ScrollArea>
 
     <div class="shrink-0 px-3 pb-3 pt-1 flex flex-col gap-1.5">
       {#if isVideoSession && rangeTouched}

@@ -21,15 +21,19 @@
      * `class`, để thanh cuộn nằm sát mép khung thay vì bị padding đẩy vào
      * trong (trông như thanh cuộn lơ lửng giữa khoảng trắng). */
     contentClass?: string;
+    /** Tham chiếu tới phần tử CUỘN THẬT bên trong — cho phép component cha
+     * tự gọi `viewport.scrollTo(...)` (VD tự cuộn xuống cuối khi có tin nhắn
+     * mới) mà không cần ScrollArea tự lo việc đó. `$bindable` để 2 chiều:
+     * cha khai báo `bind:viewport={myEl}` là nhận được đúng phần tử cuộn. */
+    viewport?: HTMLDivElement | null;
     children: Snippet;
   }
-  let { class: className = "", contentClass = "", children }: Props = $props();
+  let { class: className = "", contentClass = "", viewport = $bindable(null), children }: Props = $props();
 
   /** Thanh không bao giờ ngắn hơn mức này, kể cả khi nội dung rất dài — quá
    * ngắn thì khó trỏ chuột vào để kéo. */
   const MIN_THUMB_PX = 28;
 
-  let viewport = $state<HTMLDivElement | null>(null);
   let content = $state<HTMLDivElement | null>(null);
 
   let thumbHeight = $state(0);

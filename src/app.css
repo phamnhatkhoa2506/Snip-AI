@@ -679,6 +679,9 @@ textarea,
   border-radius: 10px;
   background: var(--pre-bg);
   border: 1px solid var(--color-border);
+  /* Giữ overflow-x làm lưới an toàn cho chuỗi dài không có chỗ ngắt (URL,
+     hash...), nhưng KHÔNG còn là cách chính để xem hết nội dung nữa — xem
+     lý do ở `pre code` bên dưới. */
   overflow-x: auto;
 }
 .markdown-body pre code {
@@ -686,7 +689,16 @@ textarea,
   color: var(--color-text);
   padding: 0;
   font-size: 0.85em;
-  white-space: pre;
+  line-height: 1.55;
+  /* pre-wrap thay vì pre: cho dòng dài TỰ XUỐNG DÒNG thay vì tràn ra ngoài
+     khung, phải cuộn ngang mới xem hết. Bug thực tế: app đã ẩn HẲN scrollbar
+     mặc định của WebView2 (không style được, xem rule ::-webkit-scrollbar ở
+     đầu file) — nếu vẫn dùng `white-space: pre`, dòng dài bị cắt và người
+     dùng KHÔNG CÒN CÁCH NÀO cuộn để xem phần bị che, mất thông tin thật sự
+     chứ không chỉ xấu. `break-word` xử lý nốt trường hợp 1 "từ" dài hơn cả
+     khung (URL, hash) mà không có khoảng trắng để ngắt tự nhiên. */
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .markdown-body blockquote {
   margin: 9px 0;

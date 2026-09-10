@@ -3,6 +3,7 @@
   import { fade } from "svelte/transition";
   import { invoke } from "@tauri-apps/api/core";
   import Icon from "$lib/Icon.svelte";
+  import ScrollArea from "$lib/ScrollArea.svelte";
   import {
     captureCombo,
     formatKeyLabel,
@@ -392,7 +393,7 @@
     <!-- Chưa đăng nhập: lời mời gọi hành động rõ ràng — bắt buộc phải đăng
     nhập mới dùng được AI (không còn đường lùi "tự nhập API key" nữa). Giữ
     khối phím tắt gọn bên dưới, không cần chờ đăng nhập mới đổi được. -->
-    <div class="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+    <ScrollArea class="flex-1" contentClass="p-5 flex flex-col gap-4">
       <div class="card p-5 flex flex-col items-center text-center gap-3" transition:fade={{ duration: 160 }}>
         <div
           class="w-12 h-12 rounded-2xl flex items-center justify-center text-accent-text"
@@ -461,7 +462,7 @@
           </p>
         {/if}
       {/if}
-    </div>
+    </ScrollArea>
   {:else}
     <!-- Đã đăng nhập: giống màn hình chờ của Snipping Tool — nút "+ New" to,
     dễ bấm ở giữa (cho người không nhớ/không quen phím tắt), kèm 1 dòng chú

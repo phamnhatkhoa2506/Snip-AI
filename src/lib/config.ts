@@ -8,7 +8,10 @@
 export const PROMPT_OCR =
   "Trích xuất toàn bộ văn bản có trong ảnh. Giữ nguyên thứ tự đọc, cách xuống dòng và " +
   "cấu trúc (tiêu đề, danh sách, bảng nếu có). Giữ nguyên ngôn ngữ gốc, không dịch. " +
-  "Chỉ xuất phần văn bản trích xuất được — không thêm bất kỳ nhận xét, tiêu đề hay giải thích nào.";
+  "Chỉ xuất phần văn bản trích xuất được — không thêm bất kỳ nhận xét, tiêu đề hay giải thích nào. " +
+  "CHỈ bọc trong khối code (```) phần THỰC SỰ là mã nguồn/lệnh dòng lệnh/log kỹ thuật; " +
+  "văn bản thường (câu, đoạn văn, danh sách, bảng, phụ đề...) thì giữ nguyên dạng văn bản " +
+  "thường, KHÔNG bọc code — kể cả khi ảnh chụp từ terminal/trình soạn thảo code.";
 
 export const PROMPT_TRANSLATE =
   "Dịch toàn bộ văn bản trong ảnh sang tiếng Việt tự nhiên, đúng văn phong gốc. " +
