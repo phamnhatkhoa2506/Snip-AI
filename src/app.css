@@ -157,10 +157,11 @@ textarea,
 
 /* WebView2 (dùng để chạy app này) render scrollbar bằng UI hệ thống
    (Fluent), phớt lờ hoàn toàn CSS ::-webkit-scrollbar/scrollbar-color — đây
-   là hạn chế đã biết của engine, không sửa được bằng cách style thêm. Giải
-   pháp: ẩn hẳn scrollbar mặc định, nội dung vẫn cuộn bình thường bằng
-   chuột/trackpad. Muốn có chỉ báo cuộn thì phải tự vẽ 1 thanh cuộn riêng
-   bằng JS/Svelte (theo dõi scrollTop) — có thể làm ở bản sau nếu cần. */
+   là hạn chế đã biết của engine (MicrosoftEdge/WebView2Feedback#4131, xuất
+   hiện từ runtime 119), không sửa được bằng cách style thêm. Giải pháp: ẩn
+   hẳn scrollbar mặc định, nội dung vẫn cuộn bình thường bằng chuột/trackpad;
+   chỗ nào cần chỉ báo cuộn thì bọc bằng `$lib/ScrollArea.svelte` (tự vẽ
+   thanh cuộn bằng JS, kiểu dáng ở ngay bên dưới). */
 * {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -169,6 +170,57 @@ textarea,
   display: none;
   width: 0;
   height: 0;
+}
+
+/* ── Thanh cuộn tự vẽ (xem $lib/ScrollArea.svelte) ──────────────────────
+   Nổi ĐÈ lên nội dung (position: absolute) thay vì chiếm 1 cột riêng, nên
+   bật/tắt thanh không làm nội dung bị nhảy ngang. Mặc định mờ nhẹ cho đỡ
+   chói, rê chuột vào vùng cuộn thì rõ hẳn lên và to ra cho dễ trỏ trúng. */
+.cs-track {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  bottom: 4px;
+  width: 10px;
+  border-radius: 999px;
+  /* Rãnh chỉ hiện khi cần: bình thường trong suốt, chỉ thanh kéo là thấy được. */
+  background: transparent;
+  transition: background 0.18s ease;
+}
+.cs-thumb {
+  position: absolute;
+  left: 2px;
+  width: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+  transition:
+    background 0.16s ease,
+    width 0.16s ease,
+    left 0.16s ease;
+}
+/* Rê chuột vào bất kỳ đâu trong vùng cuộn (không chỉ đúng thanh) là thanh
+   rõ lên — dễ nhắm hơn nhiều so với bắt người dùng trỏ trúng dải 6px. */
+.cs-area:hover > .cs-track > .cs-thumb {
+  background: color-mix(in srgb, var(--color-text-muted) 75%, transparent);
+  width: 8px;
+  left: 1px;
+}
+.cs-track:hover {
+  background: color-mix(in srgb, var(--color-text-muted) 12%, transparent);
+}
+.cs-track:hover > .cs-thumb,
+.cs-track.is-dragging > .cs-thumb {
+  background: var(--color-accent);
+  width: 8px;
+  left: 1px;
+}
+/* Đang kéo thì giữ con trỏ dạng "đang nắm" trên TOÀN trang, không chỉ trên
+   thanh — vì chuột thường bị kéo lệch ra ngoài dải 8px trong lúc rê. */
+.cs-track.is-dragging {
+  cursor: grabbing;
+}
+.cs-thumb {
+  cursor: grab;
 }
 
 /* ── Nền có chiều sâu nhẹ: 2 vệt sáng mờ ở góc thay vì nền phẳng đơn sắc.

@@ -3,6 +3,7 @@
   import { fade } from "svelte/transition";
   import { invoke } from "@tauri-apps/api/core";
   import Icon from "$lib/Icon.svelte";
+  import ScrollArea from "$lib/ScrollArea.svelte";
   import { renderMarkdown } from "$lib/markdown";
 
   // Cửa sổ Lịch sử — SINGLETON, riêng biệt hẳn với "Kết quả AI" (result-N).
@@ -176,15 +177,15 @@
 
   <div class="flex-1 min-h-0 flex">
     <!-- Cột trái: danh sách -->
-    <div class="w-[280px] shrink-0 border-r border-border overflow-y-auto">
+    <ScrollArea class="w-[280px] shrink-0 border-r border-border">
       {#if loading}
-        <div class="flex items-center justify-center h-full text-text-muted">
+        <div class="flex flex-1 items-center justify-center text-text-muted">
           <span class="thinking-dots inline-flex items-center h-4"><span></span><span></span><span></span></span>
         </div>
       {:else if loadError}
         <div class="p-4 text-[12px] text-[color:var(--color-danger)]">{loadError}</div>
       {:else if items.length === 0 && pendingDeletes.size === 0}
-        <div class="flex flex-col items-center justify-center h-full gap-2 text-text-muted px-6 text-center">
+        <div class="flex flex-1 flex-col items-center justify-center gap-2 text-text-muted px-6 text-center">
           <Icon name="clock" size={22} class="opacity-40" />
           <p class="text-[12px] leading-relaxed">
             Chưa có gì trong lịch sử. Các lần snip/quay sau khi hỏi AI xong sẽ tự lưu ở đây, tự dọn sau 14 ngày.
@@ -231,16 +232,16 @@
           {/each}
         </div>
       {/if}
-    </div>
+    </ScrollArea>
 
     <!-- Cột phải: chi tiết -->
-    <div class="flex-1 min-w-0 overflow-y-auto p-4">
+    <ScrollArea class="flex-1 min-w-0" contentClass="p-4">
       {#if !selectedId}
-        <div class="h-full flex items-center justify-center text-text-muted text-[12px]">
+        <div class="flex flex-1 items-center justify-center text-text-muted text-[12px]">
           Chọn 1 mục bên trái để xem lại
         </div>
       {:else if detailLoading}
-        <div class="h-full flex items-center justify-center text-text-muted">
+        <div class="flex flex-1 items-center justify-center text-text-muted">
           <span class="thinking-dots inline-flex items-center h-4"><span></span><span></span><span></span></span>
         </div>
       {:else if detailError}
@@ -304,7 +305,7 @@
           </div>
         </div>
       {/if}
-    </div>
+    </ScrollArea>
   </div>
 
   <!-- Toast "Đã xoá — Hoàn tác", 1 cái cho mỗi lượt xoá đang chờ -->
