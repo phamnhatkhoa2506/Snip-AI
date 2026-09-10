@@ -31,6 +31,19 @@
   --color-accent-2: #22d3a6;
   --color-accent-hover: #75c918;
   --color-accent-soft: #eefadb;
+  /* Bản GIẢM BÃO HOÀ của accent — dùng cho DIỆN TÍCH LỚN (nền gradient nút
+     chính, quầng sáng nền app) thay vì bản gốc. Xanh lá NVIDIA nguyên bản
+     rực/bão hoà cao đúng ý người dùng ở QUY MÔ NHỎ (chấm trạng thái, icon,
+     viền) — nhưng phủ y hệt sắc độ đó lên 1 mảng lớn (cả nút, cả nền) lại
+     ngả hẳn sang thẩm mỹ "gaming/kỹ thuật" (đúng màu thương hiệu NVIDIA),
+     hơi lệch với đối tượng chính (học sinh/sinh viên/văn phòng) vốn quen
+     nhìn màu sắc dịu hơn ở các app năng suất họ tin dùng hằng ngày. Không
+     cần định nghĩa riêng ở khối dark bên dưới — `color-mix` đọc lại
+     `--color-accent` GỐC theo đúng theme đang áp dụng, tự khớp cả 2 chế độ.
+     Trộn với "gray" (xám trung tính) thay vì trộn với nền/surface (gần như
+     trong suốt, alpha quá thấp để làm giảm bão hoà thật sự). */
+  --color-accent-muted: color-mix(in srgb, var(--color-accent) 58%, gray);
+  --color-accent-2-muted: color-mix(in srgb, var(--color-accent-2) 58%, gray);
   /* Màu chữ đặt TRÊN nền accent (nút chính, badge nổi bật) — accent là màu
      RẤT SÁNG (lime) nên cần chữ TỐI mới đủ tương phản, không phải trắng.
      Dùng token thay vì hardcode "text-white/text-black" trong từng component
@@ -262,7 +275,12 @@ textarea,
 
 /* ── Nút accent gradient ── */
 .btn-accent {
-  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
+  /* Dùng bản GIẢM BÃO HOÀ (-muted) thay vì accent gốc — đây là 1 khối MÀU
+     LỚN (nút bấm, không phải icon/chấm nhỏ), phủ nguyên sắc độ rực của xanh
+     lá NVIDIA lên cả 1 mảng lớn ngả hẳn sang thẩm mỹ gaming, hơi lệch với
+     đối tượng phổ thông. Giữ nguyên accent gốc ở chi tiết nhỏ (icon, viền,
+     chấm trạng thái) — xem giải thích đầy đủ ở khai báo --color-accent-muted. */
+  background: linear-gradient(135deg, var(--color-accent-muted), var(--color-accent-2-muted));
   color: var(--color-accent-text);
   font-weight: 700;
   border: none;
@@ -270,11 +288,11 @@ textarea,
     transform 0.14s ease,
     box-shadow 0.2s ease,
     filter 0.2s ease;
-  box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--color-accent-muted) 55%, transparent);
 }
 .btn-accent:hover:not(:disabled) {
   filter: brightness(1.05);
-  box-shadow: 0 6px 20px -6px color-mix(in srgb, var(--color-accent) 65%, transparent);
+  box-shadow: 0 6px 20px -6px color-mix(in srgb, var(--color-accent-muted) 65%, transparent);
 }
 .btn-accent:active:not(:disabled) {
   transform: translateY(1px);
@@ -291,13 +309,13 @@ textarea,
   position: relative;
   overflow: hidden;
   box-shadow:
-    0 8px 24px -8px color-mix(in srgb, var(--color-accent) 70%, transparent),
+    0 8px 24px -8px color-mix(in srgb, var(--color-accent-muted) 70%, transparent),
     inset 0 1px 0 rgb(255 255 255 / 0.28);
 }
 .btn-new:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow:
-    0 12px 30px -8px color-mix(in srgb, var(--color-accent) 80%, transparent),
+    0 12px 30px -8px color-mix(in srgb, var(--color-accent-muted) 80%, transparent),
     inset 0 1px 0 rgb(255 255 255 / 0.34);
 }
 .btn-new:active:not(:disabled) {
