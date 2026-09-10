@@ -242,7 +242,14 @@
 
 <main class="app-bg min-h-screen text-text flex flex-col">
   <!-- Top bar -->
-  <header class="glass sticky top-0 z-10 px-4 py-3.5 flex items-center gap-2">
+  <!-- z-30: PHẢI cao hơn thanh toggle Ảnh/Video bên dưới (z-20) — header
+  TỰ TẠO 1 stacking context riêng (position:sticky + z-index), nên menu tài
+  khoản dù nằm TRONG header có z-index cao đến đâu cũng bị "nhốt" trong
+  stacking context z-10 của header, không thể vượt qua z-20 của toggle nằm
+  NGOÀI header được (bài học rút ra: z-index chỉ so sánh được giữa các phần
+  tử CÙNG 1 stacking context — nâng z-index của con bên trong không có tác
+  dụng nếu chính cha đã thấp hơn phần tử cần vượt qua). -->
+  <header class="glass sticky top-0 z-30 px-4 py-3.5 flex items-center gap-2">
     <div
       class="w-8 h-8 rounded-xl flex items-center justify-center text-accent-text shrink-0"
       style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
