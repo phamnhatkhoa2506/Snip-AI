@@ -30,6 +30,45 @@
   let toast = $state<{ kind: "ok" | "err"; text: string } | null>(null);
   let captureError = $state("");
 
+  // ── Đăng nhập Google (thay cho tự nhập API key) ─────────────────────────
+  let loginEmail = $state<string | null>(null);
+  let loginBusy = $state(false);
+  let loginError = $state("");
+
+  async function refreshLoginStatus() {
+    try {
+      loginEmail = await invoke<string | null>("get_login_status");
+    } catch {
+      loginEmail = null;
+    }
+  }
+
+  async function handleGoogleLogin() {
+    loginBusy = true;
+    loginError = "";
+    try {
+      loginEmail = await invoke<string>("start_google_login");
+      flash("ok", `Đã đăng nhập ${loginEmail}`);
+    } catch (e) {
+      loginError = String(e);
+    } finally {
+      loginBusy = false;
+    }
+  }
+
+  async function handleLogout() {
+    loginBusy = true;
+    try {
+      await invoke("logout");
+      loginEmail = null;
+      flash("ok", "Đã đăng xuất");
+    } catch (e) {
+      flash("err", String(e));
+    } finally {
+      loginBusy = false;
+    }
+  }
+
   // ── Phím tắt ──────────────────────────────────────────────────────────
   let hotkeyParts = $state<string[]>(["Ctrl", "PrintScreen"]);
   let recordingHotkey = $state(false);
@@ -111,6 +150,7 @@
     settings = loadSettings();
     refreshKeys();
     loadHotkey();
+    refreshLoginStatus();
     return () => stopRecording(); // dọn listener nếu rời trang giữa lúc đang ghi phím
   });
 
@@ -223,9 +263,59 @@
       {/if}
     </div>
 
+    <!-- Tài khoản (đăng nhập Google) -->
+    <section class="card p-4 flex flex-col gap-3">
+      <h2 class="text-[11px] font-bold text-text-muted uppercase tracking-wider">Tài khoản</h2>
+
+      {#if loginEmail}
+        <div class="flex items-center gap-2.5" transition:fade={{ duration: 140 }}>
+          <div
+            class="w-8 h-8 rounded-full flex items-center justify-center text-black shrink-0"
+            style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
+          >
+            <Icon name="check" size={14} strokeWidth={2.4} />
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-[12.5px] font-semibold truncate">{loginEmail}</div>
+            <div class="text-[10.5px] text-text-muted">Đã đăng nhập — không cần tự nhập API key</div>
+          </div>
+          <button
+            onclick={handleLogout}
+            disabled={loginBusy}
+            class="btn-ghost px-3 py-1.5 rounded-lg text-[12px] font-medium disabled:opacity-50"
+          >
+            Đăng xuất
+          </button>
+        </div>
+      {:else}
+        <div class="flex flex-col gap-2" transition:fade={{ duration: 140 }}>
+          <p class="text-[12px] text-text-muted leading-relaxed">
+            Đăng nhập bằng Google để dùng AI ngay — không cần tự tạo/nhập API key. Muốn tự quản lý key riêng thì
+            bỏ qua mục này, cấu hình thủ công ở phần bên dưới.
+          </p>
+          <button
+            onclick={handleGoogleLogin}
+            disabled={loginBusy}
+            class="btn-accent px-4 py-2 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+          >
+            {#if loginBusy}
+              Đang mở trình duyệt…
+            {:else}
+              <Icon name="sparkles" size={14} /> Đăng nhập bằng Google
+            {/if}
+          </button>
+          {#if loginError}
+            <p class="text-[11.5px] text-[color:var(--color-danger)] selectable leading-relaxed" transition:fade={{ duration: 140 }}>
+              {loginError}
+            </p>
+          {/if}
+        </div>
+      {/if}
+    </section>
+
     <!-- Provider -->
     <section class="card p-4 flex flex-col gap-3.5">
-      <h2 class="text-[11px] font-bold text-text-muted uppercase tracking-wider">Nhà cung cấp AI</h2>
+      <h2 class="text-[11px] font-bold text-text-muted uppercase tracking-wider">Nhà cung cấp AI (nâng cao)</h2>
 
       <div class="grid grid-cols-2 gap-2">
         {#each PROVIDERS as p (p.id)}

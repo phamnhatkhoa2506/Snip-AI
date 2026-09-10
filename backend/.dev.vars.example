@@ -1,0 +1,10 @@
+# Copy file này thành ".dev.vars" (KHÔNG commit file .dev.vars — đã có trong
+# .gitignore) rồi điền giá trị thật vào, để chạy `npm run dev` (wrangler dev)
+# test local mà không cần set secret thật trên Cloudflare mỗi lần.
+#
+# File này CHỈ dùng khi chạy local. Lên production (npm run deploy) vẫn phải
+# set secret bằng `wrangler secret put` như hướng dẫn trong README.md — 2 nơi
+# tách biệt hoàn toàn, không tự động đồng bộ với nhau.
+
+GEMINI_API_KEYS=["AIzaSy...key-cua-ban"]
+APP_SHARED_SECRET=chuoi-ngau-nhien-tu-nghi-de-test-local

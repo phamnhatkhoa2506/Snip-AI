@@ -1,0 +1,14 @@
+name = "snip-ai-backend"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Biến môi trường KHÔNG bí mật (public). Secret thật (GEMINI_API_KEYS,
+# GOOGLE_CLIENT_SECRET, APP_SESSION_SECRET, APP_SHARED_SECRET) đặt bằng lệnh
+# `wrangler secret put <tên>` — KHÔNG bao giờ ghi trực tiếp vào file này (file
+# này commit lên git).
+[vars]
+GEMINI_MODEL = "gemini-3.6-flash"
+# OAuth Client ID (loại "Desktop app", tạo ở Google Cloud Console > Google
+# Auth Platform > Clients) — KHÔNG bí mật, được nhúng thẳng vào app desktop
+# để mở URL đăng nhập Google, an toàn để commit lên git.
+GOOGLE_CLIENT_ID = "172316423385-jn5bi3gq5trh5jvloiaba0jep2vnipra.apps.googleusercontent.com"

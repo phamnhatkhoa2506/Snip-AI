@@ -396,6 +396,17 @@ pub async fn ask_ai_anthropic(
 /// - System prompt là field riêng `systemInstruction`.
 /// - Endpoint dùng luôn tên model trong URL + `?alt=sse` để bật streaming SSE.
 /// - Auth qua header `x-goog-api-key` (không phải Bearer).
+/// Nơi lấy API key/endpoint gọi Gemini — 2 chế độ:
+/// - `Backend { token }`: ĐÃ đăng nhập Google — gọi qua backend (giữ API key
+///   thật, không cần người dùng tự có key). Đây là đường mặc định cho đại đa
+///   số người dùng (học sinh/sinh viên/văn phòng), xem oauth.rs.
+/// - `Direct { api_key }`: CHƯA đăng nhập — dùng API key người dùng tự nhập ở
+///   Cài đặt (đường lùi cho người dùng nâng cao muốn tự quản lý key riêng).
+enum GeminiAuth {
+    Backend { token: String },
+    Direct { api_key: String },
+}
+
 #[tauri::command]
 pub async fn ask_ai_gemini(
     app: AppHandle,
@@ -404,7 +415,13 @@ pub async fn ask_ai_gemini(
     model: String,
     history: Vec<ChatTurnDto>,
 ) -> Result<String, String> {
-    let api_key = secrets::read_api_key("gemini")?;
+    // Ưu tiên session đăng nhập Google nếu có — chỉ fallback về API key tự
+    // nhập khi CHƯA đăng nhập (không phải khi đăng nhập lỗi tạm thời, vì
+    // `read_session_token()` chỉ trả Err khi thật sự không có session nào).
+    let auth = match crate::oauth::read_session_token() {
+        Ok(token) => GeminiAuth::Backend { token },
+        Err(_) => GeminiAuth::Direct { api_key: secrets::read_api_key("gemini")? },
+    };
     let model = model.trim();
     let img_b64 = get_crop_base64(&state, &window_label)?;
 
@@ -445,23 +462,31 @@ pub async fn ask_ai_gemini(
     // thời gian khi Google ra model mới. Thay vào đó: thử gửi kèm field này
     // trước, nếu bị 400 thì tự động gửi lại KHÔNG kèm field (fallback), không
     // cần cập nhật code mỗi khi có model Gemini mới.
-    let with_thinking = model.starts_with("gemini-3");
+    // Gọi qua backend thì KHÔNG biết chắc model server chọn có hỗ trợ
+    // "thinkingLevel" hay không (model đó nằm trong cấu hình backend, app
+    // không biết chính xác) — cứ thử, có sẵn cơ chế fallback-khi-400 bên dưới
+    // rồi nên không sao. Gọi trực tiếp thì vẫn theo đúng tên model người dùng
+    // chọn như cũ.
+    let with_thinking = matches!(auth, GeminiAuth::Backend { .. }) || model.starts_with("gemini-3");
     let mut body = base_body.clone();
     if with_thinking {
         body["generationConfig"] = serde_json::json!({"thinkingConfig": {"thinkingLevel": "minimal"}});
     }
 
-    let endpoint = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
-    );
+    let endpoint = match &auth {
+        GeminiAuth::Backend { .. } => format!("{}/v1/gemini/stream", crate::oauth::backend_base_url()),
+        GeminiAuth::Direct { .. } => {
+            format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse")
+        }
+    };
 
     let client = &app.state::<HttpClientState>().client;
     let send = |body: &serde_json::Value| {
-        client
-            .post(&endpoint)
-            .header("x-goog-api-key", api_key.as_str())
-            .header("Accept", "text/event-stream")
-            .json(body)
+        let req = client.post(&endpoint).header("Accept", "text/event-stream").json(body);
+        match &auth {
+            GeminiAuth::Backend { token } => req.bearer_auth(token),
+            GeminiAuth::Direct { api_key } => req.header("x-goog-api-key", api_key.as_str()),
+        }
     };
 
     let mut resp = send_with_timeout(send(&body)).await?;

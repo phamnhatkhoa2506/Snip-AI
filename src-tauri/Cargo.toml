@@ -53,6 +53,13 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 futures-util = "0.3"
 bytes = "1"
 tokio = { version = "1", features = ["time"] }
+# Đăng nhập Google (OAuth PKCE) — sha2 để tính code_challenge (SHA-256 của
+# code_verifier), rand để sinh code_verifier/state ngẫu nhiên đủ mạnh, url để
+# parse an toàn query string ("code"/"state") từ request callback loopback
+# (thay vì tự tay tách chuỗi, dễ sai với ký tự đã percent-encode).
+sha2 = "0.10"
+rand = "0.8"
+url = "2"
 
 
 # Ép crate `image` LUÔN build tối ưu (opt-level=3) dù đang ở profile "dev"

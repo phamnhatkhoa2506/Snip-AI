@@ -2,6 +2,7 @@ mod ai;
 mod capture;
 mod commands;
 mod hotkey;
+mod oauth;
 mod secrets;
 mod state;
 
@@ -74,6 +75,9 @@ pub fn run() {
             secrets::api_key_statuses,
             hotkey::get_hotkey,
             hotkey::set_hotkey,
+            oauth::start_google_login,
+            oauth::get_login_status,
+            oauth::logout,
         ])
         .setup(|app| {
             // Phím tắt giờ tuỳ chỉnh được (đọc từ file cấu hình đã lưu, mặc
