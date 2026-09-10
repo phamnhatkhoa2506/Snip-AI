@@ -254,6 +254,17 @@
       <p class="text-[11px] text-text-muted leading-tight">Chụp màn hình · Hỏi AI</p>
     </div>
 
+    <!-- Mở cửa sổ Lịch sử — singleton (Rust tự show/focus lại cửa sổ cũ nếu
+    đã mở, không tạo chồng), xem commands.rs::open_history_window. -->
+    <button
+      onclick={() => invoke("open_history_window")}
+      title="Lịch sử"
+      aria-label="Mở lịch sử"
+      class="btn-ghost w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+    >
+      <Icon name="clock" size={14} />
+    </button>
+
     <!-- Công tắc sáng/tối/hệ thống — 1 nút bấm để chuyển vòng qua từng chế
     độ (Sáng -> Hệ thống -> Tối -> Sáng...), thay vì hiện cả 3 lựa chọn dàn
     trải cùng lúc. -->

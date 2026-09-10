@@ -97,6 +97,17 @@
       { t: "circle", cx: 12, cy: 12, r: 5 },
       { t: "circle", cx: 12, cy: 12, r: 1 },
     ],
+    // Đồng hồ — nút mở Lịch sử
+    clock: [
+      { t: "circle", cx: 12, cy: 12, r: 9 },
+      { t: "path", d: "M12 7v5l3.5 2" },
+    ],
+    // Ảnh — mục lịch sử kiểu snip ảnh (khác "video")
+    image: [
+      { t: "rect", x: 3, y: 3, w: 18, h: 18, rx: 3 },
+      { t: "circle", cx: 8.5, cy: 8.5, r: 1.7 },
+      { t: "path", d: "M21 15l-5-5L5 21" },
+    ],
     x: [
       { t: "path", d: "M18 6 6 18" },
       { t: "path", d: "m6 6 12 12" },

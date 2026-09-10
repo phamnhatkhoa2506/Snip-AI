@@ -7,7 +7,7 @@
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Icon from "$lib/Icon.svelte";
   import { QUICK_PROMPTS, VIDEO_PROMPTS, PROMPT_EXPLAIN, PROMPT_VIDEO_EXPLAIN, type QuickPrompt } from "$lib/config";
-  import { currentModel, loadSettings } from "$lib/settings";
+  import { currentModel, loadSettings, type Settings } from "$lib/settings";
   import { askAIStream, type ChatTurn } from "$lib/aiClient";
   import { renderMarkdown, markdownToPlainText } from "$lib/markdown";
 
@@ -156,6 +156,19 @@
     return () => unlisten?.();
   });
 
+  /** Lưu lịch sử SAU MỖI lượt AI trả lời thành công — lần gọi đầu của cửa sổ
+   * này tạo bản ghi mới (Rust tự copy ảnh/video từ AppState ra đĩa), các lần
+   * sau chỉ cập nhật lại `turns`. Cố tình KHÔNG `await`/không chặn UI và nuốt
+   * lỗi im lặng — đây là tính năng PHỤ, không được làm hỏng luồng hỏi-đáp
+   * chính nếu lỡ ghi đĩa thất bại (hết dung lượng, quyền file, v.v.). */
+  function saveHistoryTurn(settings: Settings) {
+    invoke("history_save_turn", {
+      windowLabel: getCurrentWindow().label,
+      model: currentModel(settings),
+      turns: history,
+    }).catch((e) => console.warn("[snip-ai] Lưu lịch sử thất bại (bỏ qua):", e));
+  }
+
   async function scrollToBottom() {
     await tick();
     transcriptEl?.scrollTo({ top: transcriptEl.scrollHeight, behavior: "smooth" });
@@ -185,6 +198,7 @@
         (s) => (statusLine = s),
       );
       history = [...history, { role: "assistant", content: answer }];
+      saveHistoryTurn(settings);
     } catch (e) {
       // Luôn hiện lỗi + không bao giờ để `busy` treo mãi (bug đã gặp trước đây:
       // UI đứng im ở trạng thái đang chờ mà không báo gì).

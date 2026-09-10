@@ -443,3 +443,32 @@ pub fn get_crop_image_base64(state: State<'_, AppState>, window_label: String) -
         .ok_or("Không tìm thấy ảnh cho phiên này (cửa sổ có thể đã bị đóng/dọn dẹp)")?;
     Ok(STANDARD.encode(bytes))
 }
+
+/// Label SINGLETON — chỉ 1 cửa sổ Lịch sử tại 1 thời điểm, gọi lại thì show
+/// + focus cửa sổ cũ thay vì tạo cửa sổ mới chồng lên (khác cửa sổ "Kết quả
+/// AI", vốn cố tình cho phép nhiều cái mở song song).
+const HISTORY_LABEL: &str = "history";
+
+/// `async fn` — cùng lý do với `trigger_capture`: lệnh này có thể phải TẠO
+/// cửa sổ mới, gọi trực tiếp trong 1 command đồng bộ dễ tự-deadlock trên
+/// Windows/WebView2 (xem giải thích chi tiết ở `trigger_capture`).
+#[tauri::command]
+pub async fn open_history_window(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window(HISTORY_LABEL) {
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let win = WebviewWindowBuilder::new(&app, HISTORY_LABEL, WebviewUrl::App("history".into()))
+        .title("Lịch sử")
+        .decorations(true)
+        .inner_size(760.0, 560.0)
+        .min_inner_size(480.0, 360.0)
+        .resizable(true)
+        .build()
+        .map_err(|e| format!("Không mở được cửa sổ lịch sử: {e}"))?;
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}

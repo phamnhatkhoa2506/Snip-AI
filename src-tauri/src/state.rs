@@ -90,6 +90,16 @@ pub struct AppState {
     /// NGAY (rồi nạp ảnh sau), video phải đợi quay xong mới có gì để hiện nên
     /// cửa sổ kết quả chỉ mở ở bước cuối.
     pub recording_pending: Mutex<Option<PendingRecordResult>>,
+
+    /// Lịch sử ảnh/video + hội thoại — nạp 1 lần từ đĩa lúc app khởi động
+    /// (xem history.rs::init), sau đó mọi lệnh history_* đọc/ghi thẳng trên
+    /// bản trong RAM này, không parse lại index.json mỗi lần gọi.
+    pub history_index: Mutex<Vec<crate::history::HistoryItem>>,
+    /// window_label -> id bản ghi lịch sử TƯƠNG Ứng, chỉ tồn tại trong lúc
+    /// cửa sổ "Kết quả AI" của phiên đó còn mở (dọn khi cửa sổ đóng, xem
+    /// on_window_event trong lib.rs) — để các lượt "hỏi tiếp" trong CÙNG 1
+    /// cửa sổ cập nhật lại đúng 1 bản ghi thay vì tạo bản ghi mới mỗi câu hỏi.
+    pub history_ids: Mutex<HashMap<String, String>>,
 }
 
 #[derive(Clone, Copy, Debug)]

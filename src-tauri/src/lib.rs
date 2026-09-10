@@ -1,6 +1,7 @@
 mod ai;
 mod capture;
 mod commands;
+mod history;
 mod hotkey;
 mod oauth;
 mod record;
@@ -63,6 +64,7 @@ pub fn run() {
                     let state = window.state::<AppState>();
                     state.crop_sessions.lock().unwrap().remove(window.label());
                     state.video_sessions.lock().unwrap().remove(window.label());
+                    state.history_ids.lock().unwrap().remove(window.label());
                 }
             }
         })
@@ -91,6 +93,12 @@ pub fn run() {
             oauth::logout,
             record::stop_recording,
             record::get_recording_base64,
+            commands::open_history_window,
+            history::history_save_turn,
+            history::history_list,
+            history::history_get,
+            history::history_delete,
+            history::history_clear_all,
         ])
         .setup(|app| {
             // Phím tắt giờ tuỳ chỉnh được (đọc từ file cấu hình đã lưu, mặc
@@ -233,6 +241,11 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Nạp lịch sử đã lưu (nếu có) + dọn theo hạn dùng ngay lúc khởi
+            // động — app có thể đã tắt rất lâu, quy tắc "14 ngày" phải áp
+            // dụng được cả khi app không chạy, không chỉ lúc đang mở.
+            history::init(&app.handle());
 
             Ok(())
         })

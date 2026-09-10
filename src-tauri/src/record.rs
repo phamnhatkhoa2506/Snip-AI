@@ -429,7 +429,9 @@ pub fn get_recording_base64(state: tauri::State<'_, AppState>, window_label: Str
 
 /// ID ngẫu nhiên đủ dùng để đặt tên file tạm không trùng nhau — không cần cả
 /// crate `uuid` chỉ để làm việc này.
-fn uuid_like() -> String {
+// `pub(crate)` — dùng lại ở history.rs để sinh id bản ghi lịch sử, tránh có
+// 2 hàm sinh id na ná nhau nằm rải rác 2 nơi.
+pub(crate) fn uuid_like() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     format!("{nanos:x}")
