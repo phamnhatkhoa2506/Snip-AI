@@ -43,13 +43,14 @@ const FIRST_RESPONSE_TIMEOUT: Duration = Duration::from_secs(150);
 /// lấy từ prompt — dù ảnh không hề nói về chủ đề đó). Rút gọn tối đa + thêm
 /// quy tắc chống bịa rõ ràng để giảm rủi ro này.
 const SYSTEM_PROMPT: &str = "\
-Bạn là trợ lý AI phân tích ảnh, tích hợp trong app Snap AI.
+Bạn là trợ lý AI phân tích ảnh/video, tích hợp trong app Snap AI.
 
 QUY TẮC (bắt buộc):
-1. CHỈ mô tả/trả lời dựa trên những gì THỰC SỰ thấy trong ảnh. Nếu ảnh mờ, quá nhỏ, \
-hoặc không đọc rõ được nội dung, PHẢI nói thẳng điều đó (VD \"Ảnh quá mờ để đọc chữ\") \
-— TUYỆT ĐỐI không bịa/đoán nội dung để có câu trả lời nghe hợp lý.
-2. Vào thẳng nội dung, không mở đầu bằng \"Chắc chắn rồi\", \"Dưới đây là\", \"Trong ảnh \
+1. CHỈ mô tả/trả lời dựa trên những gì THỰC SỰ thấy (video KHÔNG có âm thanh — không đoán/ \
+bịa về âm thanh/lời thoại). Nếu ảnh/video mờ, quá nhỏ, hoặc không rõ nội dung, PHẢI nói \
+thẳng điều đó (VD \"Ảnh quá mờ để đọc chữ\") — TUYỆT ĐỐI không bịa/đoán nội dung để có câu \
+trả lời nghe hợp lý.
+2. Vào thẳng nội dung, không mở đầu bằng \"Chắc chắn rồi\", \"Dưới đây là\", \"Trong ảnh/video \
 này tôi thấy\" hay bất kỳ lời dẫn nào. Không nhắc lại yêu cầu của người dùng. Không thêm \
 lời kết thừa kiểu \"Hy vọng giúp ích\".
 3. Trả lời bằng tiếng Việt, TRỪ KHI người dùng yêu cầu ngôn ngữ khác, hoặc yêu cầu trích \
@@ -78,6 +79,21 @@ fn get_crop_base64(state: &State<'_, AppState>, window_label: &str) -> Result<St
         .get(window_label)
         .ok_or("Không tìm thấy ảnh cho phiên này (cửa sổ có thể đã bị đóng)")?;
     Ok(STANDARD.encode(bytes))
+}
+
+/// Giống `get_crop_base64` nhưng chấp nhận CẢ ẢNH LẪN VIDEO — 1 cửa sổ "Kết
+/// quả AI" là phiên ảnh (snip) hoặc phiên video (quay màn hình), không bao
+/// giờ cả hai, nên chỉ 1 trong 2 map (`crop_sessions`/`video_sessions`) có
+/// entry khớp `window_label`. Trả về (base64, mime_type) — chỉ dùng cho
+/// Gemini, provider DUY NHẤT trong app hỗ trợ input video.
+fn get_media_base64(state: &State<'_, AppState>, window_label: &str) -> Result<(String, &'static str), String> {
+    if let Some(bytes) = state.crop_sessions.lock().unwrap().get(window_label) {
+        return Ok((STANDARD.encode(bytes), "image/png"));
+    }
+    if let Some(bytes) = state.video_sessions.lock().unwrap().get(window_label) {
+        return Ok((STANDARD.encode(bytes), "video/mp4"));
+    }
+    Err("Không tìm thấy ảnh/video cho phiên này (cửa sổ có thể đã bị đóng)".into())
 }
 
 async fn send_with_timeout(req: reqwest::RequestBuilder) -> Result<reqwest::Response, String> {
@@ -423,9 +439,11 @@ pub async fn ask_ai_gemini(
         Err(_) => GeminiAuth::Direct { api_key: secrets::read_api_key("gemini")? },
     };
     let model = model.trim();
-    let img_b64 = get_crop_base64(&state, &window_label)?;
+    // Chấp nhận cả ảnh (snip) lẫn video (quay màn hình) — 1 cửa sổ chỉ là 1
+    // trong 2, `get_media_base64` tự tìm đúng loại và trả kèm mime_type.
+    let (media_b64, mime_type) = get_media_base64(&state, &window_label)?;
 
-    // Chỉ đính ảnh vào lượt user GẦN NHẤT — xem giải thích chi tiết ở
+    // Chỉ đính ảnh/video vào lượt user GẦN NHẤT — xem giải thích chi tiết ở
     // ask_openai_compatible phía trên (tránh phình payload theo cấp số cộng
     // khi hội thoại dài).
     let last_user_idx = history.iter().rposition(|t| t.role == "user");
@@ -437,7 +455,7 @@ pub async fn ask_ai_gemini(
             let mut parts = vec![serde_json::json!({"text": turn.content})];
             if turn.role == "user" && Some(i) == last_user_idx {
                 parts.push(serde_json::json!({
-                    "inline_data": {"mime_type": "image/png", "data": img_b64}
+                    "inline_data": {"mime_type": mime_type, "data": media_b64}
                 }));
             }
             serde_json::json!({"role": role, "parts": parts})
@@ -498,6 +516,28 @@ pub async fn ask_ai_gemini(
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
+        let via = match &auth {
+            GeminiAuth::Backend { .. } => "backend",
+            GeminiAuth::Direct { .. } => "API key trực tiếp",
+        };
+        eprintln!("[snip-ai][ai] Gemini lỗi HTTP {status} (qua {via}): {text}");
+
+        // Lỗi chặn theo VÙNG ĐỊA LÝ — thông báo gốc của Google ("User location
+        // is not supported for the API use") khiến người dùng tưởng MÁY MÌNH ở
+        // vùng bị cấm và loay hoay bật VPN, trong khi thật ra Google đang xét
+        // IP của BÊN GỌI: khi đã đăng nhập thì bên gọi là Cloudflare Worker,
+        // không phải máy người dùng. Worker có thể bị route sang colo nằm
+        // trong vùng Google chặn -> lỗi này xuất hiện lúc có lúc không dù
+        // người dùng ngồi yên một chỗ. Dịch lại cho đúng bản chất.
+        if text.contains("User location is not supported") {
+            return Err(match auth {
+                GeminiAuth::Backend { .. } => "Máy chủ trung gian đang bị Google chặn theo vùng (không phải do máy hoặc mạng của bạn). Thử lại sau ít phút — sự cố này thường tự hết khi request được định tuyến lại."
+                    .to_string(),
+                GeminiAuth::Direct { .. } => "Google không hỗ trợ Gemini API ở vị trí mạng hiện tại của bạn. Thử đăng nhập bằng Google để dùng máy chủ của app thay cho API key riêng."
+                    .to_string(),
+            });
+        }
+
         return Err(friendly_error("Gemini", status, &text));
     }
 

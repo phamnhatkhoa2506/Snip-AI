@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability cho tất cả cửa sổ của app (main/settings, overlay, result)",
-  "windows": ["main", "overlay", "result-*"],
+  "description": "Capability cho tất cả cửa sổ của app (main/settings, overlay, result, record-*)",
+  "windows": ["main", "overlay", "result-*", "record-*"],
   "permissions": [
     "core:default",
     "core:window:allow-set-position",

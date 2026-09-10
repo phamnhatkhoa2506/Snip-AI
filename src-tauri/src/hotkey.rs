@@ -1,36 +1,50 @@
-//! Phím tắt chụp màn hình có thể tuỳ chỉnh (trước đây cố định Ctrl+PrintScreen).
+//! Phím tắt có thể tuỳ chỉnh — dùng cho CẢ 2 mục đích: chụp màn hình (mặc
+//! định `Ctrl+PrintScreen`) VÀ quay video màn hình (mặc định
+//! `Ctrl+Shift+PrintScreen`, xem record.rs). 2 phím tắt độc lập hoàn toàn —
+//! đổi 1 cái không ảnh hưởng cái kia.
 //!
 //! - Lưu dưới dạng chuỗi "accelerator" (VD "Ctrl+PrintScreen", "Ctrl+Alt+S")
 //!   vào 1 file text trong thư mục config của app — không cần database.
-//! - `set_hotkey` unregister phím cũ + register phím mới; nếu phím mới đăng
-//!   ký thất bại (VD đã bị app khác/Windows chiếm), TỰ ĐỘNG rollback lại phím
-//!   cũ để không bao giờ làm app mất hẳn khả năng chụp màn hình.
+//! - `set_hotkey`/`set_record_hotkey` unregister phím cũ + register phím
+//!   mới; nếu phím mới đăng ký thất bại (VD đã bị app khác/Windows chiếm),
+//!   TỰ ĐỘNG rollback lại phím cũ để không bao giờ mất hẳn tính năng.
+//!
+//! Các hàm dùng chung (`load_saved_accelerator`, `register_initial`...) nhận
+//! `file_name`/`default` làm tham số thay vì hardcode, để tái dùng được cho
+//! cả 2 loại phím tắt mà không phải chép code 2 lần.
 
 use std::fs;
+use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
-use crate::state::HotkeyState;
+use crate::state::{HotkeyState, RecordHotkeyState};
 
 pub const DEFAULT_ACCELERATOR: &str = "Ctrl+PrintScreen";
-const CONFIG_FILE_NAME: &str = "hotkey.txt";
+pub const CONFIG_FILE_NAME: &str = "hotkey.txt";
 
-fn config_file_path(app: &AppHandle) -> Option<std::path::PathBuf> {
-    app.path().app_config_dir().ok().map(|d| d.join(CONFIG_FILE_NAME))
+/// Mặc định lệch hẳn với phím snip ảnh (thêm Shift) — cùng "họ" PrintScreen
+/// cho dễ nhớ, nhưng không trùng để bấm nhầm giữa 2 tính năng.
+pub const DEFAULT_RECORD_ACCELERATOR: &str = "Ctrl+Shift+PrintScreen";
+pub const RECORD_CONFIG_FILE_NAME: &str = "record-hotkey.txt";
+
+fn config_file_path(app: &AppHandle, file_name: &str) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join(file_name))
 }
 
 /// Đọc accelerator đã lưu trên đĩa; trả về mặc định nếu chưa có file/lỗi đọc.
-pub fn load_saved_accelerator(app: &AppHandle) -> String {
-    config_file_path(app)
+pub fn load_saved_accelerator(app: &AppHandle, file_name: &str, default: &str) -> String {
+    config_file_path(app, file_name)
         .and_then(|p| fs::read_to_string(p).ok())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_ACCELERATOR.to_string())
+        .unwrap_or_else(|| default.to_string())
 }
 
-fn save_accelerator(app: &AppHandle, accel: &str) -> Result<(), String> {
-    let path = config_file_path(app).ok_or("Không xác định được thư mục cấu hình")?;
+fn save_accelerator(app: &AppHandle, file_name: &str, accel: &str) -> Result<(), String> {
+    let path = config_file_path(app, file_name).ok_or("Không xác định được thư mục cấu hình")?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Không tạo được thư mục cấu hình: {e}"))?;
     }
@@ -45,15 +59,15 @@ fn parse_accelerator(accel: &str) -> Result<Shortcut, String> {
 
 /// Parse accelerator đã lưu; nếu lỗi (VD file bị sửa tay sai định dạng) thì
 /// rơi về mặc định thay vì crash app lúc khởi động.
-pub fn resolve_initial_shortcut(app: &AppHandle) -> (Shortcut, String) {
-    let saved = load_saved_accelerator(app);
+pub fn resolve_initial_shortcut(app: &AppHandle, file_name: &str, default: &str) -> (Shortcut, String) {
+    let saved = load_saved_accelerator(app, file_name, default);
     match parse_accelerator(&saved) {
         Ok(shortcut) => (shortcut, saved),
         Err(err) => {
-            eprintln!("[snip-ai] Phím tắt đã lưu không hợp lệ ({err}), dùng mặc định.");
-            let default = parse_accelerator(DEFAULT_ACCELERATOR)
-                .expect("DEFAULT_ACCELERATOR phải luôn parse được — lỗi code, không phải lỗi người dùng");
-            (default, DEFAULT_ACCELERATOR.to_string())
+            eprintln!("[snip-ai] Phím tắt đã lưu ({file_name}) không hợp lệ ({err}), dùng mặc định.");
+            let default_shortcut = parse_accelerator(default)
+                .expect("Giá trị mặc định phải luôn parse được — lỗi code, không phải lỗi người dùng");
+            (default_shortcut, default.to_string())
         }
     }
 }
@@ -74,36 +88,31 @@ pub fn resolve_initial_shortcut(app: &AppHandle) -> (Shortcut, String) {
 /// KHÔNG có phím tắt nào cả (vẫn mở được qua tray icon để tự chọn combo khác).
 ///
 /// Trả về `(shortcut, accelerator, đã_đăng_ký_thành_công)`.
-pub fn register_initial(app: &AppHandle) -> (Shortcut, String, bool) {
+pub fn register_initial(app: &AppHandle, file_name: &str, default: &str) -> (Shortcut, String, bool) {
     let gs = app.global_shortcut();
-    let (shortcut, accel) = resolve_initial_shortcut(app);
+    let (shortcut, accel) = resolve_initial_shortcut(app, file_name, default);
 
     if gs.register(shortcut).is_ok() {
         return (shortcut, accel, true);
     }
     eprintln!("[snip-ai] Không đăng ký được phím tắt đã lưu \"{accel}\" — có thể đã bị Windows hoặc app khác chiếm.");
 
-    if accel != DEFAULT_ACCELERATOR {
-        let default_shortcut = parse_accelerator(DEFAULT_ACCELERATOR)
-            .expect("DEFAULT_ACCELERATOR phải luôn parse được — lỗi code, không phải lỗi người dùng");
+    if accel != default {
+        let default_shortcut = parse_accelerator(default)
+            .expect("Giá trị mặc định phải luôn parse được — lỗi code, không phải lỗi người dùng");
         if gs.register(default_shortcut).is_ok() {
-            eprintln!("[snip-ai] Đã dùng phím tắt mặc định thay thế: {DEFAULT_ACCELERATOR}");
-            return (default_shortcut, DEFAULT_ACCELERATOR.to_string(), true);
+            eprintln!("[snip-ai] Đã dùng phím tắt mặc định thay thế: {default}");
+            return (default_shortcut, default.to_string(), true);
         }
         eprintln!("[snip-ai] Phím tắt mặc định cũng không đăng ký được trên máy này.");
     }
 
-    eprintln!("[snip-ai] Chưa có phím tắt nào hoạt động — mở Cài đặt qua icon khay hệ thống để tự chọn tổ hợp khác.");
+    eprintln!("[snip-ai] Chưa có phím tắt nào hoạt động cho \"{file_name}\" — mở Cài đặt qua icon khay hệ thống để tự chọn tổ hợp khác.");
     (shortcut, accel, false)
 }
 
-#[tauri::command]
-pub fn get_hotkey(state: State<'_, HotkeyState>) -> String {
-    state.current.lock().unwrap().to_string()
-}
-
-#[tauri::command]
-pub fn set_hotkey(app: AppHandle, state: State<'_, HotkeyState>, accelerator: String) -> Result<String, String> {
+/// Đổi phím tắt — logic dùng chung cho cả `set_hotkey` và `set_record_hotkey`.
+fn set_shortcut(app: &AppHandle, current: &Mutex<Shortcut>, file_name: &str, accelerator: &str) -> Result<String, String> {
     let accelerator = accelerator.trim();
     if accelerator.is_empty() {
         return Err("Tổ hợp phím rỗng".into());
@@ -111,7 +120,7 @@ pub fn set_hotkey(app: AppHandle, state: State<'_, HotkeyState>, accelerator: St
     let new_shortcut = parse_accelerator(accelerator)?;
 
     let gs = app.global_shortcut();
-    let mut guard = state.current.lock().unwrap();
+    let mut guard = current.lock().unwrap();
     let old_shortcut = *guard;
 
     if old_shortcut == new_shortcut {
@@ -120,8 +129,8 @@ pub fn set_hotkey(app: AppHandle, state: State<'_, HotkeyState>, accelerator: St
 
     let _ = gs.unregister(old_shortcut);
     if let Err(e) = gs.register(new_shortcut) {
-        // Rollback ngay để không bao giờ mất hẳn khả năng chụp màn hình chỉ vì
-        // 1 lần đổi phím tắt thất bại (VD phím đó đã bị app khác/Windows chiếm).
+        // Rollback ngay để không bao giờ mất hẳn khả năng dùng tính năng chỉ
+        // vì 1 lần đổi phím tắt thất bại (VD phím đó đã bị app khác/Windows chiếm).
         let _ = gs.register(old_shortcut);
         // Lỗi này KHÔNG phải bug của app — Windows chỉ cho phép 1 app giữ mỗi
         // tổ hợp phím tắt toàn cục tại 1 thời điểm, và một số tổ hợp còn bị
@@ -139,6 +148,26 @@ pub fn set_hotkey(app: AppHandle, state: State<'_, HotkeyState>, accelerator: St
     let result_str = new_shortcut.to_string();
     drop(guard);
 
-    save_accelerator(&app, accelerator)?;
+    save_accelerator(app, file_name, accelerator)?;
     Ok(result_str)
+}
+
+#[tauri::command]
+pub fn get_hotkey(state: State<'_, HotkeyState>) -> String {
+    state.current.lock().unwrap().to_string()
+}
+
+#[tauri::command]
+pub fn set_hotkey(app: AppHandle, state: State<'_, HotkeyState>, accelerator: String) -> Result<String, String> {
+    set_shortcut(&app, &state.current, CONFIG_FILE_NAME, &accelerator)
+}
+
+#[tauri::command]
+pub fn get_record_hotkey(state: State<'_, RecordHotkeyState>) -> String {
+    state.current.lock().unwrap().to_string()
+}
+
+#[tauri::command]
+pub fn set_record_hotkey(app: AppHandle, state: State<'_, RecordHotkeyState>, accelerator: String) -> Result<String, String> {
+    set_shortcut(&app, &state.current, RECORD_CONFIG_FILE_NAME, &accelerator)
 }

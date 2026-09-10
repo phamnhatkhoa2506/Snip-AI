@@ -11,6 +11,12 @@
   let curY = $state(0);
   let error = $state("");
 
+  // Cửa sổ overlay DÙNG CHUNG cho cả snip ảnh lẫn quay video — nhận biết qua
+  // query param `?mode=record` (xem commands.rs::trigger_recording). Nhờ
+  // vậy màu khung chọn vùng/hiệu ứng giống HỆT nhau giữa 2 tính năng, không
+  // phải tự tay đồng bộ màu ở 2 nơi khác nhau.
+  const isRecordMode = new URLSearchParams(window.location.search).get("mode") === "record";
+
   // Rect đã chuẩn hoá (x,y luôn là góc trên-trái) theo đơn vị CSS/logical px.
   const rect = $derived({
     x: Math.min(startX, curX),
@@ -80,7 +86,11 @@
     const physH = Math.round(rect.h * dpr);
 
     try {
-      await invoke("crop_and_open_result", { x: physX, y: physY, width: physW, height: physH });
+      if (isRecordMode) {
+        await invoke("start_region_recording", { x: physX, y: physY, width: physW, height: physH });
+      } else {
+        await invoke("crop_and_open_result", { x: physX, y: physY, width: physW, height: physH });
+      }
     } catch (e) {
       error = String(e);
     }
@@ -129,7 +139,27 @@
     class="absolute top-7 left-1/2 -translate-x-1/2 text-[13px] text-white/90 px-4 py-2 rounded-full pointer-events-none glass border border-border flex items-center gap-2"
   >
     <span class="w-1.5 h-1.5 rounded-full bg-accent"></span>
-    Kéo chuột để chọn vùng · <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-[11px]">Esc</kbd> để huỷ
+    Kéo chuột để chọn vùng {isRecordMode ? "quay" : ""} ·
+    <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-[11px]">Esc</kbd> để huỷ
+    <span class="w-px h-4 bg-white/20"></span>
+    <!--
+      Nút huỷ bấm được. Thanh gợi ý bọc ngoài để `pointer-events-none` (để
+      không chắn thao tác kéo chọn vùng bên dưới nó), nên nút phải tự bật lại
+      `pointer-events-auto`. `stopPropagation` ở mousedown là BẮT BUỘC: div
+      phủ toàn màn hình phía dưới bắt mousedown để bắt đầu kéo vùng chọn, nếu
+      không chặn thì cú bấm vào nút X vừa huỷ vừa khởi tạo một vùng chọn mới.
+    -->
+    <button
+      type="button"
+      aria-label="Huỷ"
+      class="pointer-events-auto -mr-1.5 w-6 h-6 grid place-items-center rounded-full text-white/70 transition-colors hover:bg-white/15 hover:text-white cursor-pointer"
+      onmousedown={(e) => e.stopPropagation()}
+      onclick={() => invoke("cancel_overlay")}
+    >
+      <svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <path d="M6 6l12 12M18 6L6 18" />
+      </svg>
+    </button>
   </div>
 
   {#if error}

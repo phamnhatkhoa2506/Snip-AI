@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU32;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU32};
+use std::sync::{Arc, Mutex};
 use tauri_plugin_global_shortcut::Shortcut;
 
 /// Phím tắt chụp màn hình đang hoạt động — tách khỏi `AppState` vì `Shortcut`
@@ -8,6 +8,12 @@ use tauri_plugin_global_shortcut::Shortcut;
 /// thủ công trong `setup()` (lib.rs) sau khi đọc giá trị đã lưu trên đĩa (hoặc
 /// mặc định), rồi `.manage()` riêng.
 pub struct HotkeyState {
+    pub current: Mutex<Shortcut>,
+}
+
+/// Phím tắt QUAY VIDEO — tách hẳn khỏi `HotkeyState` (phím tắt chụp ảnh), 2
+/// tổ hợp hoàn toàn độc lập, đổi cái này không ảnh hưởng cái kia. Xem record.rs.
+pub struct RecordHotkeyState {
     pub current: Mutex<Shortcut>,
 }
 
@@ -65,6 +71,33 @@ pub struct AppState {
     /// overlay đóng (nếu người dùng tự ẩn Settings từ trước, không nên tự ý
     /// hiện lại).
     pub main_hidden_for_snip: Mutex<bool>,
+
+    /// Video MP4 đã quay xong, theo từng phiên (key = label cửa sổ "Kết quả
+    /// AI" của phiên đó) — cùng cơ chế với `crop_sessions` nhưng cho video.
+    pub video_sessions: Mutex<HashMap<String, Vec<u8>>>,
+    /// Cờ báo dừng của phiên quay đang chạy (nếu có) — `stop_recording` set
+    /// cờ này thành `true` để dừng sớm trước mốc 30s tự động. `None` nghĩa là
+    /// không có phiên quay nào đang chạy.
+    pub recording_stop_flag: Mutex<Option<Arc<AtomicBool>>>,
+    /// Cờ HUỶ (khác dừng) — bấm nút "X" trên thanh công cụ nổi lúc đang quay
+    /// sẽ set cờ này TRƯỚC KHI set `recording_stop_flag`, để khi quay dừng lại
+    /// biết là huỷ bỏ (không mở cửa sổ "Kết quả AI", không giữ video) thay vì
+    /// dừng bình thường (mở cửa sổ kết quả như thường lệ).
+    pub recording_discard: Mutex<bool>,
+    /// Thông tin cần để mở cửa sổ "Kết quả AI" SAU KHI quay xong — lưu tạm từ
+    /// lúc bắt đầu quay (`start_region_recording`), tiêu thụ 1 lần khi phiên
+    /// quay kết thúc (xem record.rs). Khác luồng ảnh: ảnh mở cửa sổ kết quả
+    /// NGAY (rồi nạp ảnh sau), video phải đợi quay xong mới có gì để hiện nên
+    /// cửa sổ kết quả chỉ mở ở bước cuối.
+    pub recording_pending: Mutex<Option<PendingRecordResult>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PendingRecordResult {
+    pub monitor: MonitorBounds,
+    pub anchor_x: i32,
+    pub anchor_y: i32,
+    pub session_id: u32,
 }
 
 #[derive(Clone, Copy, Debug)]

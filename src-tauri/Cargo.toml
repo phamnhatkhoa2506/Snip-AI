@@ -60,17 +60,34 @@ tokio = { version = "1", features = ["time"] }
 sha2 = "0.10"
 rand = "0.8"
 url = "2"
+# Quay video màn hình (tính năng "Quay + hỏi AI", tận dụng việc Gemini hỗ trợ
+# input video) — dùng Windows Graphics Capture API thuần, KHÔNG phụ thuộc
+# ffmpeg (không phải đóng gói thêm binary ~50-100MB vào bộ cài). Crate này tự
+# lo cả việc capture LẪN encode ra MP4 (H264, tăng tốc phần cứng qua Media
+# Foundation) — chỉ cần gọi, không phải tự viết pipeline COM/MFT thủ công.
+windows-capture = "2"
 
 
 # Ép crate `image` LUÔN build tối ưu (opt-level=3) dù đang ở profile "dev"
 # (không tối ưu) — việc resize ảnh (Lanczos3) test thấy khựng rõ khi chạy
 # `npm run tauri dev` (build debug, không tối ưu hoá cho các phép toán trên
-# từng pixel), nhưng mượt trong bản release. Debug build không tối ưu code
-# CỦA APP để giữ compile nhanh + debug info đầy đủ, nhưng crate xử lý ảnh
-# nặng CPU như `image` thì nên tối ưu riêng — cách này giữ code app debug
-# bình thường, chỉ tăng tốc đúng phần xử lý ảnh trong lúc dev.
+# từng pixel), nhưng mượt trong bản release. Cách này chỉ tối ưu được crate
+# PHỤ THUỘC (`image`) — KHÔNG áp dụng được cho code của chính app (`record.rs`
+# nằm trong crate gốc `snip-ai-tauri`, Cargo không cho override opt-level
+# riêng cho crate gốc qua `[profile.dev.package.<tên>]`).
 [profile.dev.package.image]
 opt-level = 3
+
+# opt-level=1 cho TOÀN BỘ code app ở chế độ dev — cần thiết vì vòng lặp cắt
+# từng khung hình video (record.rs, copy hàng chục lần/giây) chạy ở
+# opt-level=0 (mặc định debug) chậm tới mức bị coi là "treo": khung hình dồn ứ
+# không kịp xử lý, callback không bao giờ bắt kịp mốc 30s hay cờ dừng, giống
+# hệt bug đã gặp với resize ảnh Lanczos3 ở trên — nhưng lần này KHÔNG né được
+# bằng cách override 1 crate phụ thuộc vì code nằm ngay trong crate gốc.
+# opt-level=1 (thay vì 3) để vẫn giữ thời gian compile tăng dần (incremental)
+# không chậm đi quá nhiều so với opt-level=0.
+[profile.dev]
+opt-level = 1
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

@@ -59,9 +59,18 @@
    class (bg-accent, text-accent...) 1 lần — không lồng được trong @media.
    Cách chuẩn để đổi theo theme: override thẳng biến CSS ở đây; các utility
    class đã sinh ra vẫn tự động dùng giá trị mới vì chúng tham chiếu qua
-   var(--color-...) ở tầng dưới. */
+   var(--color-...) ở tầng dưới.
+
+   3 chế độ (xem lib/theme.ts + công tắc trong Settings):
+   - "Hệ thống" (mặc định, không set gì): theo `prefers-color-scheme` của
+     Windows — khối @media dưới đây, chỉ áp khi KHÔNG có data-theme="light"
+     ép cứng đè lên.
+   - "Sáng": set `data-theme="light"` trên <html> — chặn khối @media áp dụng
+     dù Windows đang ở chế độ tối.
+   - "Tối": set `data-theme="dark"` — áp cùng bộ giá trị dark dù Windows đang
+     ở chế độ sáng (khối riêng bên dưới, ngoài @media nên luôn có hiệu lực). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-bg: #17181b;
     --color-bg-soft: #1d1f22;
     --color-bg-elevated: #222427;
@@ -87,6 +96,33 @@
     --code-text: #a9e86a;
     --pre-bg: #101114;
   }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #17181b;
+  --color-bg-soft: #1d1f22;
+  --color-bg-elevated: #222427;
+  --color-card: #1b1d20;
+  --color-accent: #86e01e;
+  --color-accent-2: #22d3a6;
+  --color-accent-hover: #9bf03a;
+  --color-accent-soft: #14210a;
+  --color-accent-text: #0c1a04;
+  --color-border: #2b2e33;
+  --color-border-soft: #232529;
+  --color-user: #5cc8ff;
+  --color-ai: #86e01e;
+  --color-text: #eceef0;
+  --color-text-muted: #9298a1;
+  --color-heading: #f5f6f7;
+  --color-placeholder: #5f6772;
+  --color-danger: #f87171;
+  --surface-1: rgba(255, 255, 255, 0.035);
+  --surface-2: rgba(255, 255, 255, 0.055);
+  --surface-hover: rgba(255, 255, 255, 0.08);
+  --code-bg: rgba(134, 224, 30, 0.12);
+  --code-text: #a9e86a;
+  --pre-bg: #101114;
 }
 
 html {
@@ -186,6 +222,51 @@ textarea,
   box-shadow: none;
 }
 
+/* Nút hành động chính "+ New" — là thứ duy nhất người dùng cần bấm ở màn hình
+   chờ, nên được ưu ái hơn `.btn-accent` thường: bóng đổ dày hơn, hover nhấc
+   lên thay vì chỉ sáng lên, và có một vệt sáng quét ngang lúc rê chuột. */
+.btn-new {
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 8px 24px -8px color-mix(in srgb, var(--color-accent) 70%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.28);
+}
+.btn-new:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 12px 30px -8px color-mix(in srgb, var(--color-accent) 80%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.34);
+}
+.btn-new:active:not(:disabled) {
+  transform: translateY(1px);
+}
+/* Vệt sáng: một dải gradient nghiêng nằm sẵn ngoài mép trái, hover thì trượt
+   qua hết bề ngang rồi dừng ở ngoài mép phải. `pointer-events: none` để lớp
+   này không nuốt cú bấm của nút. */
+.btn-new::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 35%,
+    rgb(255 255 255 / 0.4) 50%,
+    transparent 65%
+  );
+  transform: translateX(-120%);
+  transition: transform 0.6s ease;
+}
+.btn-new:hover:not(:disabled)::after {
+  transform: translateX(120%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-new::after {
+    display: none;
+  }
+}
+
 .btn-ghost {
   background: var(--surface-1);
   border: 1px solid var(--color-border);
@@ -199,6 +280,25 @@ textarea,
   color: var(--color-text);
   border-color: color-mix(in srgb, var(--color-text) 30%, var(--color-border));
   background: var(--surface-hover);
+}
+
+/* Nút tròn nhỏ nền accent (VD công tắc theme, avatar tài khoản) — hover
+   nảy nhẹ + sáng lên + đổ bóng, tạo cảm giác "bấm được" rõ ràng hơn là chỉ
+   đổi màu phẳng. */
+.icon-btn-accent {
+  transition:
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 0.2s ease,
+    box-shadow 0.2s ease;
+  box-shadow: 0 2px 8px -3px color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+.icon-btn-accent:hover {
+  filter: brightness(1.08);
+  transform: scale(1.1);
+  box-shadow: 0 5px 16px -4px color-mix(in srgb, var(--color-accent) 65%, transparent);
+}
+.icon-btn-accent:active {
+  transform: scale(0.94);
 }
 
 /* Chip gợi ý */

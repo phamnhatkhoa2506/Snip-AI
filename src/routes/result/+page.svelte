@@ -6,15 +6,31 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Icon from "$lib/Icon.svelte";
-  import { QUICK_PROMPTS, PROMPT_EXPLAIN, type QuickPrompt } from "$lib/config";
+  import { QUICK_PROMPTS, VIDEO_PROMPTS, PROMPT_EXPLAIN, PROMPT_VIDEO_EXPLAIN, type QuickPrompt } from "$lib/config";
   import { currentModel, loadSettings } from "$lib/settings";
   import { askAIStream, type ChatTurn } from "$lib/aiClient";
   import { renderMarkdown, markdownToPlainText } from "$lib/markdown";
 
   type Phase = "ask" | "chat";
 
+  // Cửa sổ này dùng chung 1 route cho CẢ 2 loại phiên: snip ảnh (label
+  // "result-N") và quay video (label "record-N") — tự nhận biết qua tiền tố
+  // label, xem commands.rs (RESULT_LABEL_PREFIX/RECORD_LABEL_PREFIX). Khác
+  // ảnh: cửa sổ video chỉ được TẠO SAU KHI quay xong (xem
+  // record.rs::start_recording) — video LUÔN đã có sẵn trong `video_sessions`
+  // ngay từ lúc cửa sổ này mount, không cần chờ/nghe event gì thêm.
+  const isVideoSession = getCurrentWindow().label.startsWith("record-");
+
+  // Bộ chip gợi ý khác nhau giữa 2 chế độ. Không chỉ là đổi chữ "ảnh" thành
+  // "video": video có trục thời gian và bị Gemini lấy mẫu thưa (~1 khung/giây)
+  // nên câu hỏi phải đặt khác hẳn — xem giải thích đầy đủ ở config.ts, ngay
+  // trên PROMPT_VIDEO_OCR.
+  const quickPrompts = isVideoSession ? VIDEO_PROMPTS : QUICK_PROMPTS;
+
   let phase = $state<Phase>("ask");
-  let cropB64 = $state("");
+  /** Base64 của ảnh (PNG) hoặc video (MP4) tuỳ loại phiên — tên chung
+   * "mediaB64" thay vì "cropB64" vì giờ không còn chỉ là ảnh crop nữa. */
+  let mediaB64 = $state("");
   let question = $state("");
   let history = $state<ChatTurn[]>([]);
   let busy = $state(false);
@@ -42,14 +58,15 @@
 
   let transcriptEl = $state<HTMLDivElement | undefined>();
 
-  /** `silent`: KHÔNG hiện lỗi nếu ảnh chưa có — dùng cho lần thử đầu tiên lúc
-   * mới mount, vì giờ cửa sổ này được mở NGAY (trước khi ảnh xử lý xong) để
-   * người dùng thấy phản hồi tức thì, nên có thể ảnh CHƯA kịp nạp vào
-   * `crop_sessions` phía Rust — đó là chuyện bình thường, không phải lỗi.
-   * Ảnh sẽ tự nạp lại khi nhận event "ai:crop-ready" (xem onMount bên dưới). */
-  async function loadCropImage(silent: boolean) {
+  /** `silent`: KHÔNG hiện lỗi nếu ảnh/video chưa có — dùng cho lần thử đầu
+   * tiên lúc mới mount, vì cửa sổ này được mở NGAY (trước khi ảnh/video xử
+   * lý xong) để phản hồi tức thì, nên có thể CHƯA kịp nạp vào
+   * `crop_sessions`/`video_sessions` phía Rust — đó là chuyện bình thường,
+   * không phải lỗi. Sẽ tự nạp lại khi nhận event "ai:crop-ready"/
+   * "recording:ready" (xem onMount bên dưới). */
+  async function loadMedia(silent: boolean) {
     try {
-      cropB64 = await invoke<string>("get_crop_image_base64", {
+      mediaB64 = await invoke<string>(isVideoSession ? "get_recording_base64" : "get_crop_image_base64", {
         windowLabel: getCurrentWindow().label,
       });
     } catch (e) {
@@ -58,18 +75,25 @@
   }
 
   onMount(() => {
-    // Cửa sổ này luôn được TẠO MỚI mỗi lần snip (xem commands.rs), nên onMount
-    // chạy fresh mỗi lần — không cần lắng nghe event reset.
-    //
-    // Cửa sổ giờ mở NGAY khi vừa chọn xong vùng (trước khi crop/resize ảnh
-    // xong) để phản hồi tức thì thay vì "chờ mù" — nên thử nạp ảnh ngay (silent,
-    // phòng trường hợp ảnh đã kịp xử lý xong), đồng thời lắng nghe event
-    // "ai:crop-ready" từ Rust để nạp lại khi ảnh THẬT SỰ sẵn sàng.
+    // Cửa sổ này luôn được TẠO MỚI mỗi lần snip/quay (xem commands.rs), nên
+    // onMount chạy fresh mỗi lần — không cần lắng nghe event reset.
     let unlisten: (() => void) | undefined;
-    loadCropImage(true);
-    listen("ai:crop-ready", () => loadCropImage(false)).then((fn) => (unlisten = fn));
     const s = loadSettings();
     modelLabel = currentModel(s);
+
+    if (isVideoSession) {
+      // Phiên video: cửa sổ chỉ mở SAU KHI quay xong, video đã sẵn sàng ngay
+      // từ đầu — nạp thẳng, không cần silent/event gì cả.
+      loadMedia(false);
+    } else {
+      // Phiên ảnh: cửa sổ mở NGAY khi vừa chọn xong vùng (trước khi crop/resize
+      // ảnh xong) để phản hồi tức thì thay vì "chờ mù" — nên thử nạp ảnh ngay
+      // (silent, phòng trường hợp ảnh đã kịp xử lý xong), đồng thời lắng nghe
+      // event "ai:crop-ready" từ Rust để nạp lại khi ảnh THẬT SỰ sẵn sàng.
+      loadMedia(true);
+      listen("ai:crop-ready", () => loadMedia(false)).then((fn) => (unlisten = fn));
+    }
+
     return () => unlisten?.();
   });
 
@@ -116,7 +140,7 @@
   }
 
   async function handleAsk() {
-    const q = question.trim() || PROMPT_EXPLAIN;
+    const q = question.trim() || (isVideoSession ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
     history = [{ role: "user", content: q }];
     phase = "chat";
     await scrollToBottom();
@@ -186,28 +210,40 @@
 
 <div class="app-bg h-screen flex flex-col text-text overflow-hidden">
   {#if phase === "ask"}
-    <!-- ── Giai đoạn 1: xem ảnh + đặt câu hỏi ── -->
+    <!-- ── Giai đoạn 1: xem ảnh/video + đặt câu hỏi ── -->
     <div class="flex-1 min-h-0 p-3 pb-0 flex items-center justify-center">
-      {#if cropB64}
-        <img
-          src={`data:image/png;base64,${cropB64}`}
-          alt="Vùng đã chụp"
-          class="max-w-full max-h-full object-contain rounded-xl border border-border shadow-lg"
-          transition:fade={{ duration: 180 }}
-        />
+      {#if mediaB64}
+        {#if isVideoSession}
+          <video
+            src={`data:video/mp4;base64,${mediaB64}`}
+            controls
+            autoplay
+            muted
+            loop
+            class="max-w-full max-h-full rounded-xl border border-border shadow-lg"
+            transition:fade={{ duration: 180 }}
+          ></video>
+        {:else}
+          <img
+            src={`data:image/png;base64,${mediaB64}`}
+            alt="Vùng đã chụp"
+            class="max-w-full max-h-full object-contain rounded-xl border border-border shadow-lg"
+            transition:fade={{ duration: 180 }}
+          />
+        {/if}
       {:else if !error}
-        <!-- Cửa sổ mở ngay khi vừa chọn xong vùng, ảnh còn đang xử lý (resize/
-        encode) ở backend — hiện loading thay vì để khoảng trống im lặng. -->
+        <!-- Cửa sổ mở ngay khi vừa chọn xong vùng/quay xong, ảnh/video còn
+        đang xử lý ở backend — hiện loading thay vì để khoảng trống im lặng. -->
         <div class="flex flex-col items-center gap-2 text-text-muted" transition:fade={{ duration: 140 }}>
           <span class="thinking-dots inline-flex items-center h-4"><span></span><span></span><span></span></span>
-          <span class="text-[11px]">Đang xử lý ảnh…</span>
+          <span class="text-[11px]">{isVideoSession ? "Đang xử lý video…" : "Đang xử lý ảnh…"}</span>
         </div>
       {/if}
     </div>
 
     <div class="shrink-0 px-3 pt-3 flex flex-wrap gap-1.5">
-      {#each QUICK_PROMPTS as chip (chip.label)}
-        <button class="chip disabled:opacity-40" disabled={!cropB64} onclick={() => askWithPrompt(chip)}>
+      {#each quickPrompts as chip (chip.id)}
+        <button class="chip disabled:opacity-40" disabled={!mediaB64} onclick={() => askWithPrompt(chip)}>
           <Icon name={chip.icon} size={13} />
           {chip.label}
         </button>
@@ -218,14 +254,18 @@
       <input
         type="text"
         bind:value={question}
-        disabled={!cropB64}
-        placeholder={cropB64 ? "Hỏi bất kỳ điều gì về vùng đã chụp…" : "Đang xử lý ảnh…"}
+        disabled={!mediaB64}
+        placeholder={mediaB64
+          ? `Hỏi bất kỳ điều gì về ${isVideoSession ? "video" : "vùng"} đã ${isVideoSession ? "quay" : "chụp"}…`
+          : isVideoSession
+            ? "Đang xử lý video…"
+            : "Đang xử lý ảnh…"}
         class="field selectable flex-1 disabled:opacity-50"
         onkeydown={(e) => e.key === "Enter" && handleAsk()}
       />
       <button
         onclick={handleAsk}
-        disabled={!cropB64}
+        disabled={!mediaB64}
         class="btn-accent px-4 rounded-lg text-[13px] flex items-center gap-1.5 disabled:opacity-40"
       >
         <Icon name="send" size={15} strokeWidth={2.2} />
@@ -234,14 +274,18 @@
   {:else}
     <!-- ── Giai đoạn 2: hội thoại ── -->
     <div class="glass shrink-0 h-12 flex items-center px-3 gap-2.5">
-      {#if cropB64}
+      {#if mediaB64}
         <button
           type="button"
           onclick={() => (showImagePreview = true)}
           class="shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-border hover:border-accent/60 transition-colors relative group"
-          title="Xem lại ảnh đã chụp"
+          title={isVideoSession ? "Xem lại video đã quay" : "Xem lại ảnh đã chụp"}
         >
-          <img src={`data:image/png;base64,${cropB64}`} alt="Vùng đã chụp" class="w-full h-full object-cover" />
+          {#if isVideoSession}
+            <video src={`data:video/mp4;base64,${mediaB64}`} muted class="w-full h-full object-cover"></video>
+          {:else}
+            <img src={`data:image/png;base64,${mediaB64}`} alt="Vùng đã chụp" class="w-full h-full object-cover" />
+          {/if}
           <span
             class="absolute inset-0 bg-black/0 group-hover:bg-black/35 flex items-center justify-center transition-colors"
           >
@@ -369,7 +413,7 @@
     </div>
   {/if}
 
-  {#if showImagePreview && cropB64}
+  {#if showImagePreview && mediaB64}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
@@ -377,11 +421,25 @@
       onclick={() => (showImagePreview = false)}
       transition:fade={{ duration: 140 }}
     >
-      <img
-        src={`data:image/png;base64,${cropB64}`}
-        alt="Vùng đã chụp (phóng to)"
-        class="max-w-full max-h-full object-contain rounded-xl border border-border shadow-2xl"
-      />
+      {#if isVideoSession}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <!-- Video tự quay bằng app này KHÔNG có track âm thanh (đã tắt hẳn ở
+        record.rs) nên không có gì để phụ đề — cảnh báo a11y này không áp dụng được. -->
+        <video
+          src={`data:video/mp4;base64,${mediaB64}`}
+          controls
+          autoplay
+          onclick={(e) => e.stopPropagation()}
+          class="max-w-full max-h-full rounded-xl border border-border shadow-2xl"
+        ></video>
+      {:else}
+        <img
+          src={`data:image/png;base64,${mediaB64}`}
+          alt="Vùng đã chụp (phóng to)"
+          class="max-w-full max-h-full object-contain rounded-xl border border-border shadow-2xl"
+        />
+      {/if}
       <button
         onclick={() => (showImagePreview = false)}
         class="absolute top-4 right-4 btn-ghost p-2 rounded-lg"

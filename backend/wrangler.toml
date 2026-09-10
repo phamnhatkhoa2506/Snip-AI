@@ -12,3 +12,22 @@ GEMINI_MODEL = "gemini-3.6-flash"
 # Auth Platform > Clients) — KHÔNG bí mật, được nhúng thẳng vào app desktop
 # để mở URL đăng nhập Google, an toàn để commit lên git.
 GOOGLE_CLIENT_ID = "172316423385-jn5bi3gq5trh5jvloiaba0jep2vnipra.apps.googleusercontent.com"
+
+# Ép Cloudflare chạy Worker này ở colo GẦN GOOGLE thay vì colo gần người dùng.
+#
+# Lý do KHÔNG phải tốc độ mà là bị CHẶN THẲNG: Gemini API kiểm tra vị trí theo
+# IP của BÊN GỌI, mà bên gọi ở đây là Cloudflare chứ không phải máy người dùng.
+# Worker mặc định chạy ở data center gần người dùng nhất, và Cloudflare có thể
+# route sang colo nằm trong vùng Google không cho phép (EU...) -> Google trả
+# HTTP 400 "User location is not supported for the API use" dù người dùng đang
+# ngồi ở Việt Nam (vùng ĐƯỢC hỗ trợ). Đây là lỗi đã gặp thật, và cũng giải
+# thích vì sao lúc chạy được lúc không: colo thay đổi theo thời điểm/định
+# tuyến, không phải do code hay API key.
+#
+# Smart Placement phân tích độ trễ tới backend (ở đây là
+# generativelanguage.googleapis.com, đặt tại Mỹ) rồi dời chỗ CHẠY của Worker
+# về gần đó — tiện thể giảm luôn độ trễ trả lời. Miễn phí ở mọi gói Workers,
+# nhưng cần tới ~15 phút và một lượng traffic nhất định để Cloudflare học được
+# nên KHÔNG có tác dụng ngay lập tức sau khi deploy.
+[placement]
+mode = "smart"

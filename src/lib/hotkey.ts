@@ -15,6 +15,16 @@ export async function setHotkey(accelerator: string): Promise<string> {
   return invoke<string>("set_hotkey", { accelerator });
 }
 
+// Phím tắt QUAY VIDEO — độc lập hoàn toàn với phím tắt snip ảnh ở trên (2
+// tổ hợp riêng biệt phía Rust, xem hotkey.rs).
+export async function getRecordHotkey(): Promise<string> {
+  return invoke<string>("get_record_hotkey");
+}
+
+export async function setRecordHotkey(accelerator: string): Promise<string> {
+  return invoke<string>("set_record_hotkey", { accelerator });
+}
+
 const MODIFIER_CODES = new Set([
   "ControlLeft",
   "ControlRight",

@@ -75,6 +75,22 @@
       { t: "path", d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" },
     ],
     check: [{ t: "path", d: "M20 6 9 17l-5-5" }],
+    // Dấu cộng vẽ bằng SVG (không dùng ký tự "+" của font): ký tự văn bản có
+    // đường baseline riêng nên luôn lệch nhẹ so với chữ bên cạnh, và độ dày
+    // nét đổi theo font hệ thống. Vẽ bằng path thì luôn cân giữa và cùng
+    // stroke-width với mọi icon khác.
+    plus: [
+      { t: "path", d: "M12 5v14" },
+      { t: "path", d: "M5 12h14" },
+    ],
+    // Vòng xoay chờ — cung hở 3/4 để khi quay (animate-spin) nhìn thấy rõ
+    // chuyển động; vòng tròn kín thì quay mà trông như đứng yên.
+    loader: [{ t: "path", d: "M21 12a9 9 0 1 1-6.22-8.56" }],
+    // Con trỏ chuột — chip "Thao tác" của phiên video (mô tả các bước đã làm)
+    "mouse-pointer": [
+      { t: "path", d: "M3 3l7.07 16.97 2.51-7.39 7.39-2.51z" },
+      { t: "path", d: "M13 13l6 6" },
+    ],
     x: [
       { t: "path", d: "M18 6 6 18" },
       { t: "path", d: "m6 6 12 12" },
@@ -126,6 +142,10 @@
       { t: "path", d: "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z" },
       { t: "circle", cx: 12, cy: 13, r: 3 },
     ],
+    video: [
+      { t: "path", d: "m22 8-6 4 6 4V8Z" },
+      { t: "rect", x: 2, y: 6, w: 14, h: 12, rx: 2 },
+    ],
     globe: [
       { t: "circle", cx: 12, cy: 12, r: 10 },
       { t: "path", d: "M2 12h20" },
@@ -153,6 +173,24 @@
     edit: [
       { t: "path", d: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" },
       { t: "path", d: "M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z" },
+    ],
+    // 3 icon cho công tắc theme sáng/tối/hệ thống
+    sun: [
+      { t: "circle", cx: 12, cy: 12, r: 4 },
+      { t: "path", d: "M12 2v2" },
+      { t: "path", d: "M12 20v2" },
+      { t: "path", d: "m4.9 4.9 1.4 1.4" },
+      { t: "path", d: "m17.7 17.7 1.4 1.4" },
+      { t: "path", d: "M2 12h2" },
+      { t: "path", d: "M20 12h2" },
+      { t: "path", d: "m6.3 17.7-1.4 1.4" },
+      { t: "path", d: "m19.1 4.9-1.4 1.4" },
+    ],
+    moon: [{ t: "path", d: "M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" }],
+    monitor: [
+      { t: "rect", x: 2, y: 4, w: 20, h: 13, rx: 2 },
+      { t: "path", d: "M8 21h8" },
+      { t: "path", d: "M12 17v4" },
     ],
   };
 

@@ -3,9 +3,57 @@
   import { fade } from "svelte/transition";
   import { invoke } from "@tauri-apps/api/core";
   import Icon from "$lib/Icon.svelte";
-  import { captureCombo, formatKeyLabel, getHotkey, setHotkey } from "$lib/hotkey";
+  import {
+    captureCombo,
+    formatKeyLabel,
+    getHotkey,
+    getRecordHotkey,
+    setHotkey,
+    setRecordHotkey,
+  } from "$lib/hotkey";
+  import { loadTheme, setTheme, type ThemeMode } from "$lib/theme";
 
   let toast = $state<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  // ── Chế độ Ảnh/Video — 2 nút kiểu Snipping Tool, bấm chuyển qua lại xem
+  // phím tắt nào (chỉ đổi PHẦN HIỂN THỊ trong Cài đặt, không tắt phím tắt còn
+  // lại — cả 2 phím tắt vẫn hoạt động song song lúc dùng thật). ─────────────
+  type CaptureMode = "snip" | "record";
+  let captureMode = $state<CaptureMode>("snip");
+
+  // ── Chế độ sáng/tối/hệ thống ─────────────────────────────────────────
+  let themeMode = $state<ThemeMode>("system");
+  const THEME_OPTIONS: { mode: ThemeMode; icon: string; title: string }[] = [
+    { mode: "light", icon: "sun", title: "Sáng" },
+    { mode: "system", icon: "monitor", title: "Theo hệ thống" },
+    { mode: "dark", icon: "moon", title: "Tối" },
+  ];
+  const currentThemeOption = $derived(THEME_OPTIONS.find((o) => o.mode === themeMode) ?? THEME_OPTIONS[1]);
+
+  // ── Nút "+ New" — bấm trực tiếp để snip/quay (thay vì phải nhớ bấm phím
+  // tắt). Chạy đúng hành động theo `captureMode` đang chọn ở toggle header. ──
+  let newActionBusy = $state(false);
+  let newActionError = $state("");
+  async function handleNewAction() {
+    newActionBusy = true;
+    newActionError = "";
+    try {
+      await invoke(captureMode === "snip" ? "trigger_capture" : "trigger_recording_from_ui");
+    } catch (e) {
+      newActionError = String(e);
+    } finally {
+      newActionBusy = false;
+    }
+  }
+
+  /** Bấm 1 nút để chuyển vòng qua từng chế độ theo đúng thứ tự trong
+   * THEME_OPTIONS, quay lại đầu khi hết — không cần hiện cả 3 lựa chọn cùng lúc. */
+  function cycleTheme() {
+    const i = THEME_OPTIONS.findIndex((o) => o.mode === themeMode);
+    const next = THEME_OPTIONS[(i + 1) % THEME_OPTIONS.length];
+    themeMode = next.mode;
+    setTheme(next.mode);
+  }
 
   // ── Đăng nhập Google — DUY NHẤT cách dùng AI trong app, không còn mục
   // "nhà cung cấp AI nâng cao" / tự nhập API key nữa (quá phức tạp với đối
@@ -58,7 +106,7 @@
 
   // ── Phím tắt ──────────────────────────────────────────────────────────
   let hotkeyParts = $state<string[]>(["Ctrl", "PrintScreen"]);
-  let recordingHotkey = $state(false);
+  let capturingHotkey = $state(false);
   let hotkeyBusy = $state(false);
   let hotkeyError = $state("");
 
@@ -76,7 +124,7 @@
     e.stopPropagation();
 
     if (e.key === "Escape") {
-      stopRecording();
+      stopHotkeyCapture();
       return;
     }
     if (e.repeat) return;
@@ -84,7 +132,7 @@
     const combo = captureCombo(e);
     if (!combo) return; // mới bấm modifier, hoặc phím chưa nhận diện được -> chờ tiếp
 
-    stopRecording();
+    stopHotkeyCapture();
     applyHotkey(combo.accelerator, combo.parts);
   }
 
@@ -103,15 +151,73 @@
     }
   }
 
-  function startRecording() {
-    recordingHotkey = true;
+  function startHotkeyCapture() {
+    capturingHotkey = true;
     hotkeyError = "";
     window.addEventListener("keydown", onHotkeyKeydown, { capture: true });
   }
 
-  function stopRecording() {
-    recordingHotkey = false;
+  function stopHotkeyCapture() {
+    capturingHotkey = false;
     window.removeEventListener("keydown", onHotkeyKeydown, { capture: true });
+  }
+
+  // ── Phím tắt QUAY VIDEO — độc lập với phím snip ảnh ở trên ────────────
+  let videoHotkeyParts = $state<string[]>(["Ctrl", "Shift", "PrintScreen"]);
+  let capturingVideoHotkey = $state(false);
+  let videoHotkeyBusy = $state(false);
+  let videoHotkeyError = $state("");
+
+  async function loadVideoHotkey() {
+    try {
+      const accel = await getRecordHotkey();
+      videoHotkeyParts = accel.split("+").map(formatKeyLabel);
+    } catch (e) {
+      videoHotkeyError = String(e);
+    }
+  }
+
+  function onVideoHotkeyKeydown(e: KeyboardEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.key === "Escape") {
+      stopVideoHotkeyCapture();
+      return;
+    }
+    if (e.repeat) return;
+
+    const combo = captureCombo(e);
+    if (!combo) return;
+
+    stopVideoHotkeyCapture();
+    applyVideoHotkey(combo.accelerator, combo.parts);
+  }
+
+  async function applyVideoHotkey(accelerator: string, parts: string[]) {
+    videoHotkeyBusy = true;
+    videoHotkeyError = "";
+    try {
+      const confirmed = await setRecordHotkey(accelerator);
+      videoHotkeyParts = confirmed.split("+").map(formatKeyLabel);
+      flash("ok", `Đã đổi phím tắt quay video: ${videoHotkeyParts.join(" + ")}`);
+    } catch (e) {
+      videoHotkeyError = String(e);
+      videoHotkeyParts = parts;
+    } finally {
+      videoHotkeyBusy = false;
+    }
+  }
+
+  function startVideoHotkeyCapture() {
+    capturingVideoHotkey = true;
+    videoHotkeyError = "";
+    window.addEventListener("keydown", onVideoHotkeyKeydown, { capture: true });
+  }
+
+  function stopVideoHotkeyCapture() {
+    capturingVideoHotkey = false;
+    window.removeEventListener("keydown", onVideoHotkeyKeydown, { capture: true });
   }
 
   function flash(kind: "ok" | "err", text: string) {
@@ -124,14 +230,19 @@
     // nên tách phần load dữ liệu ra 1 hàm async gọi rời, còn onMount chỉ trả
     // thẳng cleanup function.
     loadHotkey();
+    loadVideoHotkey();
     refreshLoginStatus();
-    return () => stopRecording(); // dọn listener nếu rời trang giữa lúc đang ghi phím
+    themeMode = loadTheme();
+    return () => {
+      stopHotkeyCapture();
+      stopVideoHotkeyCapture();
+    }; // dọn listener nếu rời trang giữa lúc đang ghi phím
   });
 </script>
 
 <main class="app-bg min-h-screen text-text flex flex-col">
   <!-- Top bar -->
-  <header class="glass sticky top-0 z-10 px-5 py-3.5 flex items-center gap-3">
+  <header class="glass sticky top-0 z-10 px-4 py-3.5 flex items-center gap-2">
     <div
       class="w-8 h-8 rounded-xl flex items-center justify-center text-accent-text shrink-0"
       style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
@@ -143,29 +254,46 @@
       <p class="text-[11px] text-text-muted leading-tight">Chụp màn hình · Hỏi AI</p>
     </div>
 
+    <!-- Công tắc sáng/tối/hệ thống — 1 nút bấm để chuyển vòng qua từng chế
+    độ (Sáng -> Hệ thống -> Tối -> Sáng...), thay vì hiện cả 3 lựa chọn dàn
+    trải cùng lúc. -->
+    <button
+      onclick={cycleTheme}
+      title={`Giao diện: ${currentThemeOption.title} (bấm để đổi)`}
+      aria-label="Đổi chế độ sáng/tối"
+      class="icon-btn-accent w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-accent-text"
+      style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
+    >
+      <Icon name={currentThemeOption.icon} size={13} strokeWidth={2.2} />
+    </button>
+
     <!-- Tài khoản — góc trên bên phải, avatar thật nếu có ảnh Google -->
     <div class="relative shrink-0">
       {#if loginStatus}
         <button
           onclick={() => (showAccountMenu = !showAccountMenu)}
-          class="flex items-center gap-1.5 rounded-full pl-1 pr-1.5 py-1 hover:bg-[var(--surface-hover)] transition-colors"
+          class="group flex items-center gap-1.5 rounded-full pl-1 pr-1.5 py-1 hover:bg-[var(--surface-hover)] transition-colors"
         >
           {#if loginStatus.picture}
             <img
               src={loginStatus.picture}
               alt=""
               referrerpolicy="no-referrer"
-              class="w-7 h-7 rounded-full object-cover border border-border"
+              class="w-7 h-7 rounded-full object-cover border border-border transition-transform duration-150 group-hover:scale-110"
             />
           {:else}
             <div
-              class="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold text-accent-text shrink-0"
+              class="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold text-accent-text shrink-0 transition-transform duration-150 group-hover:scale-110"
               style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
             >
               {loginStatus.email.charAt(0).toUpperCase()}
             </div>
           {/if}
-          <Icon name="chevronDown" size={12} class="text-text-muted" />
+          <Icon
+            name="chevronDown"
+            size={12}
+            class="text-text-muted transition-transform duration-150 {showAccountMenu ? 'rotate-180' : ''}"
+          />
         </button>
 
         {#if showAccountMenu}
@@ -207,6 +335,36 @@
     </div>
   </header>
 
+  <!-- Toggle Ảnh/Video kiểu Snipping Tool — mép trên sát ngay đường viền dưới
+  header (không đè lên), dùng CHUNG cho cả 2 trạng thái đăng nhập/chưa, chỉ
+  đổi PHẦN HIỂN THỊ phím tắt bên dưới — không tắt phím tắt còn lại (cả 2 vẫn
+  hoạt động song song lúc dùng thật). -->
+  <div class="relative z-20 flex justify-center">
+    <div
+      class="flex items-center rounded-full p-0.5 shadow-md"
+      style="background: var(--color-card); border: 1px solid var(--color-border);"
+    >
+      {#each [{ mode: "snip", icon: "camera" }, { mode: "record", icon: "video" }] as m (m.mode)}
+        <button
+          onclick={() => (captureMode = m.mode as CaptureMode)}
+          class="relative w-9 h-8 rounded-full flex items-center justify-center transition-colors {captureMode ===
+          m.mode
+            ? 'text-accent'
+            : 'text-text-muted hover:text-text'}"
+        >
+          <Icon name={m.icon} size={15} />
+          {#if captureMode === m.mode}
+            <span
+              class="absolute left-2.5 right-2.5 -bottom-0.5 h-0.5 rounded-full"
+              style="background: var(--color-accent);"
+              transition:fade={{ duration: 120 }}
+            ></span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+  </div>
+
   {#if !loginStatus}
     <!-- Chưa đăng nhập: lời mời gọi hành động rõ ràng — bắt buộc phải đăng
     nhập mới dùng được AI (không còn đường lùi "tự nhập API key" nữa). Giữ
@@ -241,59 +399,136 @@
         {/if}
       </div>
 
-      <button
-        onclick={() => (recordingHotkey ? stopRecording() : startRecording())}
-        disabled={hotkeyBusy}
-        class="btn-ghost self-center px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
-      >
-        {#if recordingHotkey}
-          <span class="text-accent animate-pulse">Nhấn tổ hợp phím mới…</span>
-        {:else}
-          <Icon name="keyboard" size={12} />
-          {hotkeyParts.join(" + ")}
-          <Icon name="edit" size={11} class="text-text-muted" />
+      {#if captureMode === "snip"}
+        <button
+          onclick={() => (capturingHotkey ? stopHotkeyCapture() : startHotkeyCapture())}
+          disabled={hotkeyBusy}
+          class="btn-ghost self-center px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
+        >
+          {#if capturingHotkey}
+            <span class="text-accent animate-pulse">Nhấn tổ hợp phím mới…</span>
+          {:else}
+            <Icon name="keyboard" size={12} />
+            {hotkeyParts.join(" + ")}
+            <Icon name="edit" size={11} class="text-text-muted" />
+          {/if}
+        </button>
+        {#if hotkeyError}
+          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center" transition:fade={{ duration: 140 }}>
+            {hotkeyError}
+          </p>
         {/if}
-      </button>
-      {#if hotkeyError}
-        <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center" transition:fade={{ duration: 140 }}>
-          {hotkeyError}
-        </p>
+      {:else}
+        <button
+          onclick={() => (capturingVideoHotkey ? stopVideoHotkeyCapture() : startVideoHotkeyCapture())}
+          disabled={videoHotkeyBusy}
+          class="btn-ghost self-center px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
+        >
+          {#if capturingVideoHotkey}
+            <span class="text-accent animate-pulse">Nhấn tổ hợp phím mới…</span>
+          {:else}
+            <Icon name="video" size={12} />
+            {videoHotkeyParts.join(" + ")}
+            <Icon name="edit" size={11} class="text-text-muted" />
+          {/if}
+        </button>
+        {#if videoHotkeyError}
+          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center" transition:fade={{ duration: 140 }}>
+            {videoHotkeyError}
+          </p>
+        {/if}
       {/if}
     </div>
   {:else}
-    <!-- Đã đăng nhập: giống màn hình chờ của Snipping Tool — chỉ 1 dòng nhắc
-    phím tắt ở giữa cửa sổ, không còn UI thừa nào khác (không cần đăng nhập
-    lại/chọn hành động gì thêm, mọi thứ đã sẵn sàng dùng ngay). -->
+    <!-- Đã đăng nhập: giống màn hình chờ của Snipping Tool — nút "+ New" to,
+    dễ bấm ở giữa (cho người không nhớ/không quen phím tắt), kèm 1 dòng chú
+    thích phím tắt tương ứng ngay bên dưới. Toggle Ảnh/Video nằm ở header
+    (gắn trên đường viền), không phải ở đây. -->
     <div class="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center" transition:fade={{ duration: 160 }}>
-      <p class="text-[13.5px] text-text-muted leading-relaxed">
-        {#if recordingHotkey}
-          <span class="text-accent font-medium animate-pulse">Nhấn tổ hợp phím mới…</span>
-        {:else}
-          Nhấn
-          {#each hotkeyParts as part, i (i)}
-            {#if i > 0}<span class="mx-1 text-text-muted">+</span>{/if}
-            <kbd class="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-[12px] text-text font-mono align-middle"
-              >{part}</kbd
-            >
-          {/each}
-          để bắt đầu snip
-        {/if}
-      </p>
       <button
-        onclick={() => (recordingHotkey ? stopRecording() : startRecording())}
-        disabled={hotkeyBusy}
-        class="btn-ghost px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
+        onclick={handleNewAction}
+        disabled={newActionBusy}
+        class="btn-accent btn-new px-7 py-3 rounded-full text-[14.5px] font-semibold tracking-[0.01em] flex items-center gap-2.5 disabled:opacity-60"
       >
-        {#if recordingHotkey}
-          <Icon name="x" size={12} /> Huỷ
+        {#if newActionBusy}
+          <Icon name="loader" size={16} class="animate-spin" />
+          Đang mở…
         {:else}
-          <Icon name="edit" size={12} /> Đổi phím tắt
+          <!-- Dấu cộng đặt trong đĩa tròn mờ: vừa ghim nó thẳng hàng với chữ
+          (icon SVG cân giữa sẵn, khác ký tự "+" lệch baseline trước đây), vừa
+          tạo điểm nhấn thị giác cho nút hành động chính. -->
+          <span class="grid place-items-center w-5 h-5 rounded-full bg-[color:var(--color-accent-text)]/15">
+            <Icon name="plus" size={13} strokeWidth={2.75} />
+          </span>
+          New
         {/if}
       </button>
-      {#if hotkeyError}
-        <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed" transition:fade={{ duration: 140 }}>
-          {hotkeyError}
+      {#if newActionError}
+        <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed">{newActionError}</p>
+      {/if}
+
+      {#if captureMode === "snip"}
+        <p class="text-[13.5px] text-text-muted leading-relaxed">
+          {#if capturingHotkey}
+            <span class="text-accent font-medium animate-pulse">Nhấn tổ hợp phím mới…</span>
+          {:else}
+            Nhấn
+            {#each hotkeyParts as part, i (i)}
+              {#if i > 0}<span class="mx-1 text-text-muted">+</span>{/if}
+              <kbd class="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-[12px] text-text font-mono align-middle"
+                >{part}</kbd
+              >
+            {/each}
+            để bắt đầu snip
+          {/if}
         </p>
+        <button
+          onclick={() => (capturingHotkey ? stopHotkeyCapture() : startHotkeyCapture())}
+          disabled={hotkeyBusy}
+          class="btn-ghost px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
+        >
+          {#if capturingHotkey}
+            <Icon name="x" size={12} /> Huỷ
+          {:else}
+            <Icon name="edit" size={12} /> Đổi phím tắt
+          {/if}
+        </button>
+        {#if hotkeyError}
+          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed" transition:fade={{ duration: 140 }}>
+            {hotkeyError}
+          </p>
+        {/if}
+      {:else}
+        <p class="text-[13.5px] text-text-muted leading-relaxed">
+          {#if capturingVideoHotkey}
+            <span class="text-accent font-medium animate-pulse">Nhấn tổ hợp phím mới…</span>
+          {:else}
+            Nhấn
+            {#each videoHotkeyParts as part, i (i)}
+              {#if i > 0}<span class="mx-1 text-text-muted">+</span>{/if}
+              <kbd class="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-[12px] text-text font-mono align-middle"
+                >{part}</kbd
+              >
+            {/each}
+            để quay video (tối đa 30s)
+          {/if}
+        </p>
+        <button
+          onclick={() => (capturingVideoHotkey ? stopVideoHotkeyCapture() : startVideoHotkeyCapture())}
+          disabled={videoHotkeyBusy}
+          class="btn-ghost px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
+        >
+          {#if capturingVideoHotkey}
+            <Icon name="x" size={12} /> Huỷ
+          {:else}
+            <Icon name="edit" size={12} /> Đổi phím tắt
+          {/if}
+        </button>
+        {#if videoHotkeyError}
+          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed" transition:fade={{ duration: 140 }}>
+            {videoHotkeyError}
+          </p>
+        {/if}
       {/if}
     </div>
   {/if}

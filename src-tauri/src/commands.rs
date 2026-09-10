@@ -5,14 +5,23 @@ use tauri::{
 };
 
 use crate::capture;
-use crate::state::{AppState, MonitorBounds};
+use crate::state::{AppState, MonitorBounds, PendingRecordResult};
 
 const OVERLAY_LABEL: &str = "overlay";
+/// Label cửa sổ thanh công cụ nổi lúc đang quay video (Start/Stop/timer,
+/// giống Snipping Tool) — cũng là SINGLETON như overlay, hợp lý vì chỉ quay
+/// được 1 phiên tại 1 thời điểm (đã enforce ở `state.recording_stop_flag`).
+const TOOLBAR_LABEL: &str = "record-toolbar";
 /// Tiền tố label cho MỌI cửa sổ "Kết quả AI" — mỗi lần snip tạo 1 label MỚI
 /// (VD "result-3"), không dùng chung 1 label cố định như trước nữa. Nhờ vậy
 /// snip nhiều lần liên tiếp mà không đóng popup cũ sẽ mở NHIỀU cửa sổ độc
 /// lập, thay vì cửa sổ mới đóng mất cửa sổ cũ (bug đã gặp thực tế).
 pub const RESULT_LABEL_PREFIX: &str = "result-";
+/// Tiền tố label cho cửa sổ "Kết quả AI" của 1 phiên QUAY VIDEO — dùng CHUNG
+/// route "result" (result/+page.svelte tự nhận biết mình đang ở phiên video
+/// hay ảnh qua tiền tố label, xem `getCurrentWindow().label` ở đó), chỉ khác
+/// tiền tố để lib.rs biết dọn đúng session map lúc đóng cửa sổ.
+pub const RECORD_LABEL_PREFIX: &str = "record-";
 
 // Lưu ý đơn vị: TOÀN BỘ toạ độ/kích thước trong file này là PHYSICAL pixel
 // (khớp trực tiếp pixel ảnh chụp từ `xcap`), KHÔNG phải logical pixel của
@@ -26,7 +35,13 @@ pub const RESULT_LABEL_PREFIX: &str = "result-";
 /// Overlay vẫn là SINGLETON (chỉ 1 cửa sổ chọn-vùng tại 1 thời điểm) — hợp lý
 /// vì 1 chuột không kéo-chọn được 2 vùng cùng lúc. Khác với cửa sổ "Kết quả
 /// AI" bên dưới, cái đó mới cần multi-instance.
-pub fn capture_and_open_overlay(app: &AppHandle) -> Result<(), String> {
+///
+/// Dùng CHUNG cho cả snip ảnh LẪN quay video — 2 tính năng đều cần "kéo chọn
+/// vùng trên nền ảnh chụp đã làm tối" giống hệt nhau, chỉ khác BƯỚC SAU khi
+/// thả chuột (ảnh: crop ngay; video: bắt đầu quay theo vùng đó). `overlay_url`
+/// quyết định overlay/+page.svelte biết mình đang ở chế độ nào (query param
+/// `?mode=record`) để gọi đúng lệnh lúc thả chuột.
+pub fn capture_and_open_overlay(app: &AppHandle, overlay_url: &str) -> Result<(), String> {
     let t0 = std::time::Instant::now();
 
     // Ẩn cửa sổ Settings ("main") trước khi chụp — nếu đang mở, nó sẽ che mất
@@ -79,7 +94,7 @@ pub fn capture_and_open_overlay(app: &AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = win.close();
     }
-    let win = WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("overlay".into()))
+    let win = WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App(overlay_url.into()))
         .title("Snap AI Overlay")
         .decorations(false)
         .always_on_top(true)
@@ -116,7 +131,14 @@ pub fn capture_and_open_overlay(app: &AppHandle) -> Result<(), String> {
 /// command thao tác cửa sổ.
 #[tauri::command]
 pub async fn trigger_capture(app: AppHandle) -> Result<(), String> {
-    capture_and_open_overlay(&app)
+    capture_and_open_overlay(&app, "overlay")
+}
+
+/// Cho phép kích hoạt quay video thủ công từ UI, không chỉ qua phím tắt —
+/// cùng lý do với `trigger_capture` phía trên.
+#[tauri::command]
+pub async fn trigger_recording_from_ui(app: AppHandle) -> Result<(), String> {
+    trigger_recording(&app)
 }
 
 #[tauri::command]
@@ -234,8 +256,12 @@ pub async fn crop_and_open_result(
     Ok(())
 }
 
+/// `pub(crate)` (không phải `pub` toàn bộ, không phải riêng file này) — cần
+/// gọi được từ `record.rs` (mở cửa sổ "Kết quả AI" SAU KHI quay video xong,
+/// xem giải thích ở `start_region_recording`), nhưng không cần expose ra
+/// ngoài crate.
 #[allow(clippy::too_many_arguments)]
-fn open_result_window(
+pub(crate) fn open_result_window(
     app: &AppHandle,
     monitor: MonitorBounds,
     window_label: &str,
@@ -293,6 +319,116 @@ fn open_result_window(
     eprintln!("[snip-ai] result window ({window_label}) đã show");
 
     Ok(())
+}
+
+/// Bấm phím tắt QUAY VIDEO — giống hệt snip ảnh ở bước ĐẦU (mở overlay, kéo
+/// chọn vùng trên nền ảnh chụp đã làm tối, cùng màu khung chọn vùng), chỉ
+/// khác Ở BƯỚC SAU khi thả chuột: overlay/+page.svelte tự biết gọi
+/// `start_region_recording` thay vì `crop_and_open_result` nhờ query param
+/// `?mode=record` trên URL overlay.
+pub fn trigger_recording(app: &AppHandle) -> Result<(), String> {
+    capture_and_open_overlay(app, "overlay?mode=record")
+}
+
+/// Người dùng đã kéo chọn xong vùng MUỐN QUAY trong overlay (chế độ
+/// `?mode=record`). Khác `crop_and_open_result`: KHÔNG mở cửa sổ "Kết quả AI"
+/// ngay — video chưa quay thì chưa có gì để hiện. Thay vào đó mở 1 thanh công
+/// cụ nổi nhỏ (giống Snipping Tool: nút Dừng + đồng hồ đếm giờ + nút Huỷ),
+/// video quay xong (đủ 30s hoặc bấm Dừng) thì thanh công cụ tự đóng và cửa sổ
+/// "Kết quả AI" mới mở ra (xem `record.rs::start_recording` + cách nó gọi lại
+/// `open_result_window` ở CUỐI phiên quay, không phải lúc bắt đầu).
+#[tauri::command]
+pub async fn start_region_recording(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let monitor = {
+        let guard = state.monitor_bounds.lock().unwrap();
+        guard.ok_or("Chưa có thông tin màn hình")?
+    };
+
+    if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = win.close();
+    }
+
+    let session_id = state.next_session_id.fetch_add(1, Ordering::Relaxed);
+    let anchor_x = monitor.x + x as i32;
+    let anchor_y = monitor.y + y as i32;
+
+    open_recording_toolbar(&app, monitor, anchor_x, anchor_y)?;
+    *state.recording_pending.lock().unwrap() =
+        Some(PendingRecordResult { monitor, anchor_x, anchor_y, session_id });
+    *state.recording_discard.lock().unwrap() = false;
+
+    restore_main_after_snip(&app);
+
+    eprintln!("[snip-ai] bắt đầu quay video vùng x={x} y={y} w={width} h={height} (session={session_id})");
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = crate::record::start_recording(app_clone.clone(), Some((x, y, width, height))).await {
+            eprintln!("[snip-ai] Lỗi bắt đầu quay: {e}");
+            let _ = app_clone.emit_to(TOOLBAR_LABEL, "recording:error", e);
+        }
+    });
+
+    Ok(())
+}
+
+/// Thanh công cụ nổi lúc đang quay — nhỏ, không viền, luôn nổi trên cùng,
+/// đặt Ở GIỮA - SÁT MÉP TRÊN màn hình chính (giống vị trí thanh công cụ của
+/// Windows Snipping Tool khi quay) — KHÔNG bám theo vùng vừa chọn, luôn cùng
+/// 1 chỗ dễ tìm dù chọn vùng ở đâu trên màn hình.
+fn open_recording_toolbar(
+    app: &AppHandle,
+    monitor: MonitorBounds,
+    _anchor_x: i32,
+    _anchor_y: i32,
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let scale = *state.scale_factor.lock().unwrap();
+    let scale = if scale > 0.0 { scale } else { 1.0 };
+
+    let win_w = (220.0_f64 * scale).round();
+    let win_h = (56.0_f64 * scale).round();
+    let top_gap = (14.0_f64 * scale).round();
+
+    let pos_x = monitor.x as f64 + (monitor.width as f64 - win_w) / 2.0;
+    let pos_y = monitor.y as f64 + top_gap;
+
+    if let Some(win) = app.get_webview_window(TOOLBAR_LABEL) {
+        let _ = win.close();
+    }
+    let win = WebviewWindowBuilder::new(app, TOOLBAR_LABEL, WebviewUrl::App("record-toolbar".into()))
+        .title("Đang quay")
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(true)
+        .transparent(true)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("Không mở được thanh công cụ quay: {e}"))?;
+    let _ = win.set_size(PhysicalSize::new(win_w, win_h));
+    let _ = win.set_position(PhysicalPosition::new(pos_x, pos_y));
+    let _ = win.show();
+    let _ = win.set_focus();
+
+    Ok(())
+}
+
+/// Bấm nút "X" trên thanh công cụ — HUỶ HẲN (khác nút Dừng: vẫn giữ video).
+/// Set cờ huỷ TRƯỚC rồi mới báo dừng — record.rs kiểm tra cờ này lúc quay
+/// vừa kết thúc để biết KHÔNG mở cửa sổ "Kết quả AI"/KHÔNG giữ video.
+#[tauri::command]
+pub fn cancel_recording(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    *state.recording_discard.lock().unwrap() = true;
+    crate::record::stop_recording(app)
 }
 
 /// `window_label`: label của cửa sổ "Kết quả AI" đang gọi lệnh này (frontend
