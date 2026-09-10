@@ -376,6 +376,61 @@ textarea,
   color: var(--color-placeholder);
 }
 
+/* Thanh chọn khoảng thời gian trong video (2 tay cầm) — kỹ thuật dual-range
+   kinh điển: 2 thẻ <input type=range> XẾP CHỒNG lên nhau trong cùng 1 khối
+   `position: relative`, mỗi input tự quản lý 1 tay cầm độc lập. Track (rãnh)
+   của cả 2 phải TRONG SUỐT và input phải fill hết chiều rộng khối cha — dải
+   màu người dùng thực sự thấy là 1 <div> tô sẵn riêng, canh theo % của
+   rangeStart/rangeEnd (xem markup). Không dùng track mặc định của trình
+   duyệt vì mỗi input sẽ tự vẽ 1 rãnh riêng, chồng lên nhau trông rối mắt. */
+.range-thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  pointer-events: none; /* chỉ tay cầm mới bắt chuột được, xem thumb bên dưới */
+}
+.range-thumb::-webkit-slider-runnable-track {
+  background: transparent;
+}
+.range-thumb::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 0;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 2px solid var(--surface-1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+  transition: transform 0.12s ease;
+}
+.range-thumb::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.range-thumb::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.05);
+}
+.range-thumb::-moz-range-track {
+  background: transparent;
+}
+.range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 2px solid var(--surface-1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+}
+
 /* ── Hiệu ứng ── */
 @keyframes blink-cursor {
   0%,

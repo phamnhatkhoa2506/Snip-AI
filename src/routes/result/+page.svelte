@@ -42,6 +42,65 @@
   let modelLabel = $state("");
   let showImagePreview = $state(false);
 
+  // ── Chỉ định giây/khoảng để hỏi (chỉ áp dụng cho phiên VIDEO) ───────────
+  // Không cắt file video thật (đã kiểm chứng field `video_metadata` của
+  // Gemini bị model mới lờ đi — xem ghi chú trong ai.rs). Thay vào đó gửi
+  // NGUYÊN video như cũ, chỉ thêm 1 câu chỉ dẫn bằng lời vào cuối câu hỏi.
+  // Đã kiểm chứng thực tế: hỏi thẳng "tại giây thứ N có gì" trên video KHÔNG
+  // cắt vẫn cho Gemini trả lời đúng tuyệt đối (model tự gắn timestamp theo
+  // từng khung lấy mẫu) — rẻ hơn nhiều so với tự dựng bộ cắt MP4 mà vẫn đáng
+  // tin cậy ngang nhau.
+  let videoEl = $state<HTMLVideoElement | null>(null);
+  let videoDuration = $state(0);
+  let rangeStart = $state(0);
+  let rangeEnd = $state(0);
+  /** false = chưa động vào thanh chọn -> không giới hạn gì, hỏi cả video. */
+  let rangeTouched = $state(false);
+
+  function formatClock(totalSec: number): string {
+    const s = Math.max(0, Math.round(totalSec));
+    const m = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, "0");
+    return `${m}:${ss}`;
+  }
+
+  /** true nếu 2 tay cầm gần như trùng nhau -> coi là "1 thời điểm" thay vì
+   * "1 khoảng" (chênh dưới 1s, khó kéo trùng tuyệt đối bằng chuột). */
+  const isTimePoint = $derived(rangeEnd - rangeStart < 1);
+
+  const timeRangeLabel = $derived(
+    isTimePoint ? formatClock(rangeStart) : `${formatClock(rangeStart)}–${formatClock(rangeEnd)}`,
+  );
+
+  /** Câu chỉ dẫn nối vào CUỐI nội dung thật gửi cho AI (không hiện lên bong
+   * bóng chat) khi người dùng đã chỉ định thời điểm/khoảng. Rỗng nếu chưa
+   * chỉnh gì -> hành vi giữ nguyên như trước (hỏi cả video). */
+  const timeContextSuffix = $derived(
+    !rangeTouched
+      ? ""
+      : isTimePoint
+        ? `\n\n(Chỉ tập trung vào đúng thời điểm ${formatClock(rangeStart)} trong video, không phải toàn bộ video.)`
+        : `\n\n(Chỉ tập trung vào đoạn video từ ${formatClock(rangeStart)} đến ${formatClock(rangeEnd)}, không phải toàn bộ video.)`,
+  );
+
+  function onVideoLoadedMetadata() {
+    if (!videoEl || !Number.isFinite(videoEl.duration)) return;
+    videoDuration = videoEl.duration;
+    rangeEnd = videoEl.duration;
+  }
+
+  /** Kéo tay cầm thì tua luôn video xem trước đúng thời điểm đó — cho người
+   * dùng thấy ngay "giây này có gì" thay vì phải đoán bằng số giây suông. */
+  function seekPreview(t: number) {
+    if (videoEl) videoEl.currentTime = t;
+  }
+
+  function clearTimeRange() {
+    rangeTouched = false;
+    rangeStart = 0;
+    rangeEnd = videoDuration;
+  }
+
   // Hiệu ứng "reveal" chữ giống ChatGPT/Claude: tách từng đoạn AI trả về thành
   // các mẩu nhỏ (từ + khoảng trắng), mỗi mẩu fade-in riêng thay vì bật cả cục.
   interface Chunk {
@@ -139,18 +198,29 @@
     }
   }
 
+  /** Hậu tố "(00:05)" / "(00:05–00:12)" gắn vào displayLabel khi có chỉ định
+   * thời điểm — để bong bóng chat TỰ ghi lại đã hỏi trong phạm vi nào, không
+   * cần người dùng nhớ lại. Chỉ áp dụng phiên video. */
+  const timeBadgeSuffix = $derived(isVideoSession && rangeTouched ? ` (${timeRangeLabel})` : "");
+
   async function handleAsk() {
-    const q = question.trim() || (isVideoSession ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
-    history = [{ role: "user", content: q }];
+    const typed = question.trim();
+    const q = typed || (isVideoSession ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
+    const displayLabel = timeBadgeSuffix ? `${typed || "Giải thích nội dung"}${timeBadgeSuffix}` : undefined;
+    history = [{ role: "user", content: q + timeContextSuffix, displayLabel }];
     phase = "chat";
     await scrollToBottom();
     runTurn();
   }
 
   /** Gửi thẳng 1 chip gợi ý — bong bóng chat hiện `chip.chatLabel` ngắn gọn,
-   * còn `chip.prompt` (đầy đủ, chi tiết) mới là thứ thực sự gửi cho AI. */
+   * còn `chip.prompt` (đầy đủ, chi tiết) mới là thứ thực sự gửi cho AI. Có
+   * chỉ định thời điểm thì nối thêm `timeContextSuffix` vào nội dung thật
+   * (AI đọc) và `timeBadgeSuffix` vào nhãn hiển thị (người dùng thấy). */
   async function askWithPrompt(chip: QuickPrompt) {
-    history = [{ role: "user", content: chip.prompt, displayLabel: chip.chatLabel }];
+    history = [
+      { role: "user", content: chip.prompt + timeContextSuffix, displayLabel: chip.chatLabel + timeBadgeSuffix },
+    ];
     phase = "chat";
     await scrollToBottom();
     runTurn();
@@ -160,7 +230,8 @@
     const q = followupText.trim();
     if (!q || busy) return;
     followupText = "";
-    history = [...history, { role: "user", content: q }];
+    const displayLabel = timeBadgeSuffix ? `${q}${timeBadgeSuffix}` : undefined;
+    history = [...history, { role: "user", content: q + timeContextSuffix, displayLabel }];
     scrollToBottom();
     runTurn();
   }
@@ -215,6 +286,8 @@
       {#if mediaB64}
         {#if isVideoSession}
           <video
+            bind:this={videoEl}
+            onloadedmetadata={onVideoLoadedMetadata}
             src={`data:video/mp4;base64,${mediaB64}`}
             controls
             autoplay
@@ -240,6 +313,65 @@
         </div>
       {/if}
     </div>
+
+    {#if isVideoSession && videoDuration > 0}
+      <!-- Thanh chọn thời điểm/khoảng — 2 thanh <input type=range> chồng lên
+      nhau (kỹ thuật dual-range kinh điển: mỗi input tự lo 1 tay cầm, CSS cho
+      track trong suốt để chỉ thấy phần "đã tô" ở giữa). Kéo trùng 2 tay cầm
+      thì thành "1 thời điểm" thay vì "1 khoảng" (xem isTimePoint). -->
+      <div class="shrink-0 px-3 pt-2.5">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-[10.5px] text-text-muted flex items-center gap-1">
+            <Icon name="target" size={11} />
+            {rangeTouched ? `Đang hỏi về ${isTimePoint ? "thời điểm" : "khoảng"} ${timeRangeLabel}` : "Kéo để hỏi về 1 thời điểm/khoảng cụ thể"}
+          </span>
+          {#if rangeTouched}
+            <button
+              type="button"
+              onclick={clearTimeRange}
+              class="text-[10.5px] text-text-muted hover:text-text transition-colors flex items-center gap-0.5"
+            >
+              <Icon name="x" size={10} /> Bỏ chọn
+            </button>
+          {/if}
+        </div>
+        <div class="relative h-4 flex items-center">
+          <div class="absolute inset-x-0 h-1 rounded-full bg-bg-elevated"></div>
+          <div
+            class="absolute h-1 rounded-full"
+            style="left:{(rangeStart / videoDuration) * 100}%; right:{100 - (rangeEnd / videoDuration) * 100}%; background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));"
+          ></div>
+          <input
+            type="range"
+            min="0"
+            max={videoDuration}
+            step="0.1"
+            value={rangeStart}
+            class="range-thumb"
+            oninput={(e) => {
+              const v = Math.min(Number(e.currentTarget.value), rangeEnd);
+              rangeStart = v;
+              rangeTouched = true;
+              seekPreview(v);
+            }}
+          />
+          <input
+            type="range"
+            min="0"
+            max={videoDuration}
+            step="0.1"
+            value={rangeEnd}
+            class="range-thumb"
+            oninput={(e) => {
+              const v = Math.max(Number(e.currentTarget.value), rangeStart);
+              rangeEnd = v;
+              rangeTouched = true;
+              seekPreview(v);
+            }}
+          />
+        </div>
+      </div>
+    {/if}
 
     <div class="shrink-0 px-3 pt-3 flex flex-wrap gap-1.5">
       {#each quickPrompts as chip (chip.id)}
@@ -391,6 +523,17 @@
     </div>
 
     <div class="shrink-0 px-3 pb-3 pt-1 flex flex-col gap-1.5">
+      {#if isVideoSession && rangeTouched}
+        <!-- Khoảng chọn vẫn còn hiệu lực cho câu hỏi tiếp theo (sticky) —
+        nhắc lại ở đây để người dùng không quên đang giới hạn phạm vi hỏi. -->
+        <div class="flex items-center gap-1.5 text-[10.5px] text-accent px-0.5">
+          <Icon name="target" size={11} />
+          Đang hỏi về {isTimePoint ? "thời điểm" : "khoảng"} {timeRangeLabel}
+          <button type="button" onclick={clearTimeRange} class="text-text-muted hover:text-text transition-colors ml-0.5">
+            <Icon name="x" size={10} />
+          </button>
+        </div>
+      {/if}
       {#if busy && statusLine}
         <div class="text-[10.5px] text-text-muted flex items-center gap-1.5 px-0.5" transition:fade={{ duration: 140 }}>
           <span class="truncate">{statusLine}</span>

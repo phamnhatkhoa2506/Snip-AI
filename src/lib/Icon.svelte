@@ -91,6 +91,12 @@
       { t: "path", d: "M3 3l7.07 16.97 2.51-7.39 7.39-2.51z" },
       { t: "path", d: "M13 13l6 6" },
     ],
+    // Mục tiêu — thanh chọn thời điểm/khoảng cụ thể trong video
+    target: [
+      { t: "circle", cx: 12, cy: 12, r: 9 },
+      { t: "circle", cx: 12, cy: 12, r: 5 },
+      { t: "circle", cx: 12, cy: 12, r: 1 },
+    ],
     x: [
       { t: "path", d: "M18 6 6 18" },
       { t: "path", d: "m6 6 12 12" },
