@@ -310,12 +310,17 @@
         {#if showAccountMenu}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <button
-            class="fixed inset-0 z-10 cursor-default"
+            class="fixed inset-0 z-30 cursor-default"
             style="background: transparent;"
             onclick={() => (showAccountMenu = false)}
             aria-label="Đóng menu tài khoản"
           ></button>
-          <div class="absolute right-0 top-full mt-2 w-56 card p-1.5 z-20" transition:fade={{ duration: 120 }}>
+          <!-- z-40: PHẢI cao hơn thanh toggle Ảnh/Video bên dưới header
+          (cũng z-20) — cùng z-index thì phần tử đứng SAU trong DOM (toggle)
+          vẽ đè lên trên, che mất menu này dù về mặt UX nó phải là popover nổi
+          trên cùng (bug thực tế đã gặp: mở menu tài khoản bị thanh toggle
+          che mất nửa dưới). -->
+          <div class="absolute right-0 top-full mt-2 w-56 card p-1.5 z-40" transition:fade={{ duration: 120 }}>
             <div class="px-2.5 py-2">
               <div class="text-[12px] font-semibold truncate">{loginStatus.email}</div>
               <div class="text-[10.5px] text-text-muted">Đã đăng nhập bằng Google</div>
