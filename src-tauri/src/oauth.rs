@@ -69,6 +69,16 @@ pub fn read_session_token() -> Result<String, String> {
         .map_err(|_| "Chưa đăng nhập. Mở Cài đặt để đăng nhập Google.".to_string())
 }
 
+/// Kiểm tra nhanh có đăng nhập hay chưa — dùng để CHẶN TỪ ĐẦU việc chụp/quay
+/// (xem `commands::capture_and_open_overlay`), không để người dùng đi hết cả
+/// luồng chọn vùng rồi mới biết bị chặn ở bước hỏi AI cuối cùng. Đơn giản hoá
+/// có chủ đích cho người dùng phổ thông: đăng nhập Google là đường DUY NHẤT
+/// để dùng AI hiện tại — không còn lối tự nhập API key riêng (tính năng đó
+/// dành cho bản "nâng cao" sau này, chưa cần bây giờ).
+pub fn is_logged_in() -> bool {
+    read_session_token().is_ok()
+}
+
 fn read_session_email() -> Option<String> {
     session_entry("email").ok().and_then(|e| e.get_password().ok())
 }

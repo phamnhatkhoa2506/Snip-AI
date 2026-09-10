@@ -42,6 +42,23 @@ pub const RECORD_LABEL_PREFIX: &str = "record-";
 /// quyết định overlay/+page.svelte biết mình đang ở chế độ nào (query param
 /// `?mode=record`) để gọi đúng lệnh lúc thả chuột.
 pub fn capture_and_open_overlay(app: &AppHandle, overlay_url: &str) -> Result<(), String> {
+    // CHẶN TỪ ĐẦU nếu chưa đăng nhập — không mở overlay/cho chọn vùng gì cả.
+    // Trước đây chỉ chặn ở cửa sổ Settings (không có nút "+ New"), nhưng phím
+    // tắt toàn cục lại KHÔNG đi qua cửa sổ đó nên vẫn lọt: người dùng bấm
+    // phím tắt, chọn vùng xong xuôi, mở cửa sổ "Kết quả AI", gõ câu hỏi rồi
+    // MỚI biết bị chặn (lỗi "chưa có API key" trỏ tới 1 tính năng đã bị gỡ
+    // khỏi UI — ngõ cụt thật sự). Chặn ở đây vì đây là điểm DUY NHẤT cả phím
+    // tắt lẫn nút bấm UI đều đi qua trước khi mở bất kỳ cửa sổ chọn vùng nào.
+    if !crate::oauth::is_logged_in() {
+        // Hiện lại cửa sổ Settings để người dùng thấy ngay màn hình "Đăng
+        // nhập để bắt đầu" thay vì im lặng không có gì xảy ra khi bấm phím tắt.
+        if let Some(main_win) = app.get_webview_window(crate::MAIN_LABEL) {
+            let _ = main_win.show();
+            let _ = main_win.set_focus();
+        }
+        return Err("Cần đăng nhập Google trước khi dùng AI.".into());
+    }
+
     let t0 = std::time::Instant::now();
 
     // Ẩn cửa sổ Settings ("main") trước khi chụp — nếu đang mở, nó sẽ che mất

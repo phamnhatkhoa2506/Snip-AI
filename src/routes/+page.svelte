@@ -403,7 +403,7 @@
         <div>
           <h2 class="text-[14px] font-bold">Đăng nhập để bắt đầu</h2>
           <p class="text-[12px] text-text-muted leading-relaxed mt-1 max-w-[280px]">
-            Đăng nhập bằng tài khoản Google — dùng AI ngay, không cần tự tạo hay nhập bất kỳ API key nào.
+            Đăng nhập bằng tài khoản Google để dùng AI ngay!
           </p>
         </div>
         <button
