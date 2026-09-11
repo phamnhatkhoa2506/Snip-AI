@@ -4,6 +4,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { LogicalSize } from "@tauri-apps/api/dpi";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import Icon from "$lib/Icon.svelte";
@@ -133,7 +134,7 @@
       const ts = Number(tsBtn.dataset.ts);
       if (Number.isFinite(ts)) {
         pendingSeekTime = ts;
-        showImagePreview = true;
+        openMediaPreview();
       }
       return;
     }
@@ -191,12 +192,41 @@
     rangeEnd = videoDuration;
   }
 
+  /** Cửa sổ "Kết quả AI" mặc định khá nhỏ (480x340, vừa đủ cho khung chat
+   * gọn) — nhưng ảnh lớn + dải thumbnail nhiều bước (chuỗi snip) thì chật.
+   * Mở ảnh/video phóng to LUÔN kèm việc đảm bảo cửa sổ đủ rộng để xem thoải
+   * mái. CHỈ PHÌNH TO, không bao giờ tự thu nhỏ lại — tôn trọng nếu người
+   * dùng đã tự kéo cửa sổ nhỏ hơn theo ý mình trước đó. */
+  const COMFORTABLE_PREVIEW_SIZE = { width: 640, height: 620 };
+  async function ensureRoomyWindow() {
+    try {
+      const win = getCurrentWindow();
+      const scale = await win.scaleFactor();
+      const current = (await win.innerSize()).toLogical(scale);
+      if (current.width < COMFORTABLE_PREVIEW_SIZE.width || current.height < COMFORTABLE_PREVIEW_SIZE.height) {
+        await win.setSize(
+          new LogicalSize(
+            Math.max(current.width, COMFORTABLE_PREVIEW_SIZE.width),
+            Math.max(current.height, COMFORTABLE_PREVIEW_SIZE.height),
+          ),
+        );
+      }
+    } catch (e) {
+      console.warn("[snip-ai] Không tự phình được cửa sổ:", e);
+    }
+  }
+
+  function openMediaPreview() {
+    showImagePreview = true;
+    ensureRoomyWindow();
+  }
+
   /** Mở ảnh phóng to KÈM thanh kéo bên trong — dùng lúc đang chat (chọn/
    * chỉnh khoảng thời gian). Xem lại được video trong lúc kéo, thay vì kéo
    * "mù" ngay trong khung hội thoại chật hẹp. */
   function openRangeSliderModal() {
     showRangeSliderInChat = true;
-    showImagePreview = true;
+    openMediaPreview();
   }
 
   /** Đóng ảnh phóng to — LUÔN dọn kèm `showRangeSliderInChat` dù đóng bằng
@@ -670,7 +700,7 @@
       {#if mediaB64}
         <button
           type="button"
-          onclick={() => (showImagePreview = true)}
+          onclick={openMediaPreview}
           class="shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-border hover:border-accent/60 transition-colors relative group"
           title={isVideoSession ? "Xem lại video đã quay" : "Xem lại ảnh đã chụp"}
         >
@@ -753,7 +783,7 @@
                 hơn hẳn. Bấm vào vẫn mở được ảnh phóng to như bình thường. -->
                 <button
                   type="button"
-                  onclick={() => (showImagePreview = true)}
+                  onclick={openMediaPreview}
                   class="self-start rounded-xl overflow-hidden border border-border hover:border-accent/60 transition-colors"
                   title="Xem ảnh phóng to"
                 >
