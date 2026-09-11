@@ -2,9 +2,20 @@
   import { onMount } from "svelte";
   import { fade } from "svelte/transition";
   import { invoke } from "@tauri-apps/api/core";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import Icon from "$lib/Icon.svelte";
   import ScrollArea from "$lib/ScrollArea.svelte";
   import { renderMarkdown } from "$lib/markdown";
+
+  /** Link trong câu trả lời đã lưu (VD nguồn trích dẫn) — mở bằng trình
+   * duyệt hệ thống thay vì để WebView2 điều hướng nguyên cửa sổ app sang
+   * trang đó (không có cách quay lại). */
+  function handleAnswerLinkClick(e: MouseEvent) {
+    const link = (e.target as HTMLElement).closest<HTMLAnchorElement>("a[href]");
+    if (!link) return;
+    e.preventDefault();
+    openUrl(link.href).catch((err) => console.warn("[snip-ai] Không mở được link:", err));
+  }
 
   // Cửa sổ Lịch sử — SINGLETON, riêng biệt hẳn với "Kết quả AI" (result-N).
   // Chỉ XEM + XOÁ trong bản này, không hỏi tiếp được ngay tại đây (media của
@@ -296,7 +307,15 @@
                   >
                     <Icon name="sparkles" size={12} strokeWidth={2.3} />
                   </div>
-                  <div class="markdown-body card max-w-[88%] rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[12.5px]">
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <!-- Chặn link tự điều hướng nguyên cửa sổ app sang trang
+                  web (WebView2 mặc định làm vậy) — mở bằng trình duyệt hệ
+                  thống thay vào đó. Cùng lý do/cách làm với result/+page.svelte. -->
+                  <div
+                    class="markdown-body card max-w-[88%] rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[12.5px]"
+                    onclick={handleAnswerLinkClick}
+                  >
                     {@html renderMarkdown(turn.content)}
                   </div>
                 </div>

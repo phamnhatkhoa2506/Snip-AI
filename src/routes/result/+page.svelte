@@ -5,6 +5,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import Icon from "$lib/Icon.svelte";
   import ScrollArea from "$lib/ScrollArea.svelte";
   import BoxedImage from "$lib/BoxedImage.svelte";
@@ -116,13 +117,32 @@
   let pendingSeekTime = $state<number | null>(null);
   let modalVideoEl = $state<HTMLVideoElement | null>(null);
 
-  function handleTimestampClick(e: MouseEvent) {
-    const btn = (e.target as HTMLElement).closest<HTMLElement>(".ts-link");
-    if (!btn) return;
-    const ts = Number(btn.dataset.ts);
-    if (!Number.isFinite(ts)) return;
-    pendingSeekTime = ts;
-    showImagePreview = true;
+  /** 1 listener DUY NHẤT cho cả bong bóng trả lời — xử lý cả mốc giờ video
+   * (`.ts-link`) lẫn link nguồn trích dẫn (`<a href>` từ "Nguồn: ..." khi
+   * bật tra cứu web, xem GEMINI_SEARCH_INSTRUCTION trong ai.rs). */
+  function handleAnswerClick(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+
+    const tsBtn = target.closest<HTMLElement>(".ts-link");
+    if (tsBtn) {
+      const ts = Number(tsBtn.dataset.ts);
+      if (Number.isFinite(ts)) {
+        pendingSeekTime = ts;
+        showImagePreview = true;
+      }
+      return;
+    }
+
+    // Link trong câu trả lời (VD nguồn trích dẫn) — BẮT BUỘC chặn hành vi
+    // mặc định rồi tự mở bằng trình duyệt HỆ THỐNG. Không chặn thì WebView2
+    // sẽ ĐIỀU HƯỚNG NGUYÊN CỬA SỔ APP sang trang đó (thay hẳn giao diện
+    // "Kết quả AI" bằng trang web, không có cách nào quay lại) — lỗi thực tế
+    // đã gặp: bấm vào 1 link nguồn, mất luôn cửa sổ, phải đóng app lại.
+    const link = target.closest<HTMLAnchorElement>("a[href]");
+    if (link) {
+      e.preventDefault();
+      openUrl(link.href).catch((err) => console.warn("[snip-ai] Không mở được link:", err));
+    }
   }
 
   function onModalVideoReady() {
@@ -681,7 +701,7 @@
                 vào chuỗi HTML vì DOMPurify đã xoá sạch onclick lúc sanitize. -->
                 <div
                   class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[12.5px]"
-                  onclick={handleTimestampClick}
+                  onclick={handleAnswerClick}
                 >
                   {@html renderMarkdown(isVideoSession ? linkifyTimestamps(turn.content) : turn.content)}
                 </div>
