@@ -209,6 +209,27 @@
       { t: "path", d: "M8 21h8" },
       { t: "path", d: "M12 17v4" },
     ],
+    // Dấu trích dẫn — ví dụ câu trong sơ đồ từ vựng
+    quote: [
+      { t: "path", d: "M9 6H5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h3v1c0 1.5-1 2.5-2.5 2.5" },
+      { t: "path", d: "M19 6h-4a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h3v1c0 1.5-1 2.5-2.5 2.5" },
+    ],
+    // Kính lúp có dấu "+" — nút phóng to sơ đồ từ vựng
+    zoomIn: [
+      { t: "circle", cx: 11, cy: 11, r: 7 },
+      { t: "path", d: "m21 21-4.3-4.3" },
+      { t: "path", d: "M11 8v6" },
+      { t: "path", d: "M8 11h6" },
+    ],
+    // Mạng lưới nút liên kết — chip "Sơ đồ từ vựng"
+    network: [
+      { t: "circle", cx: 12, cy: 5, r: 2.5 },
+      { t: "circle", cx: 5, cy: 19, r: 2.5 },
+      { t: "circle", cx: 19, cy: 19, r: 2.5 },
+      { t: "path", d: "M12 7.5v6" },
+      { t: "path", d: "M10.2 12 6.8 17" },
+      { t: "path", d: "M13.8 12l3.4 5" },
+    ],
   };
 
   const shapes = $derived(ICONS[name] ?? []);

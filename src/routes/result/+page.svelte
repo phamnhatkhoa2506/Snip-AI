@@ -12,8 +12,9 @@
   import BoxedImage from "$lib/BoxedImage.svelte";
   import { QUICK_PROMPTS, VIDEO_PROMPTS, PROMPT_EXPLAIN, PROMPT_VIDEO_EXPLAIN, type QuickPrompt } from "$lib/config";
   import { currentModel, loadSettings, type Settings } from "$lib/settings";
-  import { askAIStream, type ChatTurn } from "$lib/aiClient";
+  import { askAIStream, askAIDiagram, type ChatTurn, type VocabDiagramData } from "$lib/aiClient";
   import { renderMarkdown, markdownToPlainText, linkifyTimestamps } from "$lib/markdown";
+  import VocabDiagram from "$lib/VocabDiagram.svelte";
 
   type Phase = "ask" | "chat";
 
@@ -359,6 +360,45 @@
    * nơi chỉ có 1 chỗ hiển thị chung cho cả cuộc hội thoại. */
   let latestBox = $derived<Box2d | null>(turnBoxes[history.length - 1] ?? null);
 
+  // ── "Sơ đồ từ vựng" — thay modal văn xuôi phẳng bằng 1 sơ đồ liên kết từ
+  // (xem VocabDiagram.svelte). KHÁC HẲN các chip khác: không đi qua
+  // askAIStream/runTurn (không streaming, không phụ thuộc `settings.provider`
+  // — luôn dùng Gemini, xem giải thích ở askAIDiagram). Lưu kết quả riêng
+  // theo index lượt trả lời (giống turnBoxes), vì `history[i].content` của
+  // lượt này chỉ là bản tóm tắt dự phòng (hiện ở Lịch sử/khi copy), không
+  // phải thứ hiển thị chính trong cửa sổ này.
+  let turnDiagrams = $state<Record<number, VocabDiagramData>>({});
+  let diagramBusy = $state(false);
+
+  function diagramToFallbackText(data: VocabDiagramData): string {
+    const lines = data.related.map((r) => `- **${r.term}** (${r.relation}): ${r.translation} — _${r.example}_`);
+    return `**${data.mainTerm}** — ${data.translation}\n${lines.join("\n")}`;
+  }
+
+  async function askDiagram() {
+    if (busy || diagramBusy || !mediaB64) return;
+    diagramBusy = true;
+    busy = true;
+    error = "";
+    history = [...history, { role: "user", content: "Vẽ sơ đồ từ vựng cho ảnh này", displayLabel: "Sơ đồ từ vựng" }];
+    phase = "chat";
+    await scrollToBottom();
+    try {
+      const settings = loadSettings();
+      const data = await askAIDiagram(settings.geminiModel);
+      const assistantIndex = history.length;
+      turnDiagrams = { ...turnDiagrams, [assistantIndex]: data };
+      history = [...history, { role: "assistant", content: diagramToFallbackText(data) }];
+      saveHistoryTurn(settings);
+    } catch (e) {
+      error = String(e).replace(/^Error:\s*/, "");
+    } finally {
+      diagramBusy = false;
+      busy = false;
+      await scrollToBottom();
+    }
+  }
+
   /** Vùng đang chờ hỏi thêm (bấm "Hỏi thêm" trên khung trong ảnh phóng to) —
    * dùng 1 LẦN cho câu hỏi tiếp theo rồi tự xoá, không "dính" mãi như khoảng
    * thời gian video (giữ tối giản: 1 nút, 1 lần dùng, không cần thêm state
@@ -529,9 +569,23 @@
   function onPreviewKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") closeImagePreview();
   }
+
+  // ── Phóng to sơ đồ từ vựng — bong bóng chat khá hẹp (max-w 88% của cửa sổ
+  // vốn đã nhỏ), chữ trong sơ đồ dễ bị nhỏ khó đọc. Modal riêng (không dùng
+  // chung showImagePreview — đó là cho ảnh/video gốc, khác hẳn nội dung).
+  let zoomedDiagramIndex = $state<number | null>(null);
+  function openDiagramZoom(i: number) {
+    zoomedDiagramIndex = i;
+    ensureRoomyWindow(); // cửa sổ mặc định khá nhỏ — phình ra cho sơ đồ đủ chỗ, xem giải thích ở ensureRoomyWindow
+  }
+  function onDiagramZoomKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") zoomedDiagramIndex = null;
+  }
 </script>
 
-<svelte:window onkeydown={showImagePreview ? onPreviewKeydown : undefined} />
+<svelte:window
+  onkeydown={showImagePreview ? onPreviewKeydown : zoomedDiagramIndex !== null ? onDiagramZoomKeydown : undefined}
+/>
 
 <div class="app-bg h-screen flex flex-col text-text overflow-hidden">
   {#snippet chainThumbnails()}
@@ -693,6 +747,15 @@
           {chip.label}
         </button>
       {/each}
+      {#if !isVideoSession}
+        <!-- Riêng biệt với chip "Dịch" — dịch phẳng nguyên đoạn văn vẫn giữ
+        nguyên, đây là 1 hướng khác hẳn: sơ đồ liên kết từ vựng, dành cho ảnh
+        chụp 1 từ/cụm từ muốn học sâu hơn (xem VocabDiagram.svelte). -->
+        <button class="chip disabled:opacity-40" disabled={!mediaB64} onclick={askDiagram}>
+          <Icon name="network" size={13} />
+          Sơ đồ từ vựng
+        </button>
+      {/if}
     </div>
 
     <div class="shrink-0 p-3 flex gap-2">
@@ -830,17 +893,39 @@
                 </button>
               {/if}
               <div class="relative">
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- 1 listener DUY NHẤT bọc ngoài, tự dò đúng nút mốc giờ vừa
-                bấm (xem handleTimestampClick) — không gắn onclick trực tiếp
-                vào chuỗi HTML vì DOMPurify đã xoá sạch onclick lúc sanitize. -->
-                <div
-                  class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[12.5px]"
-                  onclick={handleAnswerClick}
-                >
-                  {@html renderMarkdown(isVideoSession ? linkifyTimestamps(turn.content) : turn.content)}
-                </div>
+                {#if turnDiagrams[i]}
+                  <!-- Sơ đồ liên kết từ vựng — thay hẳn bong bóng markdown
+                  phẳng cho ĐÚNG lượt trả lời này (xem askDiagram). Bong bóng
+                  chat khá hẹp nên có sẵn nút phóng to (modal riêng, xem
+                  zoomedDiagramIndex). -->
+                  <div class="card rounded-2xl rounded-tl-md px-3.5 py-3 relative">
+                    <VocabDiagram data={turnDiagrams[i]} />
+                    <!-- right-8 (không phải right-2): tránh chồng lên nút "Chép"
+                    của cả bong bóng, nằm NGAY BÊN NGOÀI div này (absolute cùng
+                    gốc .relative) — 2 nút góc trên-phải đè lên nhau nếu để
+                    chung 1 vị trí (lỗi thực tế đã gặp). -->
+                    <button
+                      type="button"
+                      onclick={() => openDiagramZoom(i)}
+                      class="absolute top-2 right-8 p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-white/8 transition-colors"
+                      title="Phóng to sơ đồ"
+                    >
+                      <Icon name="zoomIn" size={13} />
+                    </button>
+                  </div>
+                {:else}
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <!-- 1 listener DUY NHẤT bọc ngoài, tự dò đúng nút mốc giờ vừa
+                  bấm (xem handleTimestampClick) — không gắn onclick trực tiếp
+                  vào chuỗi HTML vì DOMPurify đã xoá sạch onclick lúc sanitize. -->
+                  <div
+                    class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[12.5px]"
+                    onclick={handleAnswerClick}
+                  >
+                    {@html renderMarkdown(isVideoSession ? linkifyTimestamps(turn.content) : turn.content)}
+                  </div>
+                {/if}
               <button
                 onclick={() => handleCopyTurn(i, turn.content)}
                 class="absolute top-1.5 right-1.5 p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-white/8 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -953,6 +1038,17 @@
             <Icon name="plus" size={15} />
           {/if}
         </button>
+        {#if !isVideoSession}
+          <button
+            type="button"
+            onclick={askDiagram}
+            disabled={busy}
+            title="Vẽ sơ đồ từ vựng cho ảnh này"
+            class="btn-ghost rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40"
+          >
+            <Icon name="network" size={15} />
+          </button>
+        {/if}
         <button
           type="button"
           onclick={() => (searchEnabled = !searchEnabled)}
@@ -1044,6 +1140,34 @@
         </div>
       {/if}
       <button onclick={closeImagePreview} class="absolute top-4 right-4 btn-ghost p-2 rounded-lg" title="Đóng (Esc)">
+        <Icon name="x" size={18} />
+      </button>
+    </div>
+  {/if}
+
+  {#if zoomedDiagramIndex !== null && turnDiagrams[zoomedDiagramIndex]}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
+      role="presentation"
+      onclick={() => (zoomedDiagramIndex = null)}
+      transition:fade={{ duration: 140 }}
+    >
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div
+        class="card px-4 py-4 max-w-[85vw] max-h-[85vh] overflow-y-auto"
+        onclick={(e) => e.stopPropagation()}
+      >
+        <div class="w-[440px] max-w-full">
+          <VocabDiagram data={turnDiagrams[zoomedDiagramIndex]} />
+        </div>
+      </div>
+      <button
+        onclick={() => (zoomedDiagramIndex = null)}
+        class="absolute top-4 right-4 btn-ghost p-2 rounded-lg"
+        title="Đóng (Esc)"
+      >
         <Icon name="x" size={18} />
       </button>
     </div>

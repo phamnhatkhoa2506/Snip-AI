@@ -96,3 +96,26 @@ export async function askAIStream(
     unlisten?.();
   }
 }
+
+export interface VocabDiagramTerm {
+  term: string;
+  translation: string;
+  relation: string;
+  example: string;
+}
+export interface VocabDiagramData {
+  mainTerm: string;
+  translation: string;
+  related: VocabDiagramTerm[];
+}
+
+/** "Sơ đồ từ vựng" — KHÁC HẲN askAIStream: không streaming (JSON ép cấu trúc
+ * không có gì để "hiện dần"), luôn dùng Gemini bất kể `settings.provider`
+ * đang chọn gì (giống cách nút "Tra cứu web" luôn hiện nhưng chỉ thật sự có
+ * tác dụng khi dùng Gemini — ở đây rõ ràng hơn: báo lỗi thẳng thay vì im lặng
+ * bỏ qua, vì đây là 1 hành động CHỦ ĐỘNG bấm ra, không phải tham số phụ đính
+ * kèm câu hỏi thường). */
+export async function askAIDiagram(model: string): Promise<VocabDiagramData> {
+  const windowLabel = getCurrentWindow().label;
+  return invoke<VocabDiagramData>("ask_ai_diagram", { windowLabel, model });
+}

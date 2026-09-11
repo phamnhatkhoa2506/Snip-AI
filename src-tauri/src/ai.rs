@@ -701,3 +701,128 @@ pub async fn ask_ai_gemini(
 
     Ok(answer)
 }
+
+// ── "Sơ đồ từ vựng" — dịch ảnh thành 1 mạng liên kết từ vựng, KHÁC HẲN chip
+// "Dịch" (dịch phẳng nguyên đoạn văn). Chỉ Gemini hỗ trợ (dùng
+// `response_schema` ép cấu trúc JSON — đã kiểm chứng thực nghiệm bằng binary
+// test tạm: hoạt động ĐÚNG cả khi kèm ảnh qua `inline_data` LẪN qua
+// streamGenerateContent?alt=sse, nên tái dùng được y hệt đường gọi/luồng auth
+// của ask_ai_gemini, không cần thêm route backend mới). Chỉ áp dụng cho ẢNH —
+// khái niệm "từ vựng trong ảnh" rõ nghĩa, còn "từ vựng trong video" mơ hồ
+// (từ nào, xuất hiện lúc nào) nên KHÔNG bật cho phiên video (giống chip "Mã /
+// Lỗi" không có bản video).
+const DIAGRAM_PROMPT: &str = "\
+Đọc từ/cụm từ chính xuất hiện trong ảnh (thường là 1 từ vựng nổi bật, có thể kèm ngữ cảnh câu). \
+Xác định nghĩa của nó và các từ LIÊN QUAN thật sự hữu ích để học (đồng nghĩa, trái nghĩa, hoặc \
+từ cùng nhóm nghĩa/thường đi cùng) — 3 đến 5 từ liên quan. Với MỖI từ liên quan, cho 1 câu ví dụ \
+ngắn, tự nhiên, dễ hiểu.";
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DiagramTerm {
+    pub term: String,
+    pub translation: String,
+    /// VD "synonym", "antonym", "related concept" — hiển thị lại làm nhãn
+    /// đường nối trên sơ đồ, không dịch cứng thành enum để model tự do diễn
+    /// đạt quan hệ chính xác hơn (thử enum cố định dễ ép model chọn sai loại
+    /// gần đúng nhất thay vì đúng nhất).
+    pub relation: String,
+    pub example: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagramData {
+    pub main_term: String,
+    pub translation: String,
+    pub related: Vec<DiagramTerm>,
+}
+
+fn diagram_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "OBJECT",
+        "properties": {
+            "mainTerm": {"type": "STRING"},
+            "translation": {"type": "STRING"},
+            "related": {
+                "type": "ARRAY",
+                "minItems": 3,
+                "maxItems": 5,
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "term": {"type": "STRING"},
+                        "translation": {"type": "STRING"},
+                        "relation": {"type": "STRING"},
+                        "example": {"type": "STRING"}
+                    },
+                    "required": ["term", "translation", "relation", "example"]
+                }
+            }
+        },
+        "required": ["mainTerm", "translation", "related"]
+    })
+}
+
+#[tauri::command]
+pub async fn ask_ai_diagram(app: AppHandle, state: State<'_, AppState>, window_label: String, model: String) -> Result<DiagramData, String> {
+    let auth = match crate::oauth::read_session_token() {
+        Ok(token) => GeminiAuth::Backend { token },
+        Err(_) => GeminiAuth::Direct { api_key: secrets::read_api_key("gemini")? },
+    };
+    let model = model.trim();
+
+    // Chỉ ảnh MỚI NHẤT trong chuỗi — sơ đồ từ vựng là tra cứu 1-lần cho 1
+    // từ/cụm từ cụ thể đang thấy, không phải hội thoại nhiều lượt, nên không
+    // cần cả chuỗi media như ask_ai_gemini.
+    let img_b64 = get_crop_base64(&state, &window_label)?;
+
+    let body = serde_json::json!({
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"inline_data": {"mime_type": "image/png", "data": img_b64}},
+                {"text": DIAGRAM_PROMPT},
+            ],
+        }],
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            "response_schema": diagram_schema(),
+        },
+    });
+
+    let endpoint = match &auth {
+        GeminiAuth::Backend { .. } => format!("{}/v1/gemini/stream", crate::oauth::backend_base_url()),
+        GeminiAuth::Direct { .. } => {
+            format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse")
+        }
+    };
+
+    let client = &app.state::<HttpClientState>().client;
+    let req = client.post(&endpoint).header("Accept", "text/event-stream").json(&body);
+    let req = match &auth {
+        GeminiAuth::Backend { token } => req.bearer_auth(token),
+        GeminiAuth::Direct { api_key } => req.header("x-goog-api-key", api_key.as_str()),
+    };
+    let resp = send_with_timeout(req).await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        eprintln!("[snip-ai][ai] Gemini (sơ đồ từ vựng) lỗi HTTP {status}: {text}");
+        return Err(friendly_error("Gemini", status, &text));
+    }
+
+    // Không cần "reveal" theo mẩu nhỏ như câu trả lời văn xuôi — JSON dở dang
+    // giữa chừng không có gì để hiển thị hợp lý, nên bỏ qua on_piece (no-op),
+    // chỉ lấy full text sau khi stream đọc xong.
+    let full = stream_sse(
+        resp.bytes_stream(),
+        |_piece| {},
+        |json| json["candidates"][0]["content"]["parts"][0]["text"].as_str().map(|s| s.to_string()),
+    )
+    .await?;
+
+    serde_json::from_str::<DiagramData>(full.trim())
+        .map_err(|e| format!("AI trả về dữ liệu không đúng cấu trúc mong đợi ({e}). Thử lại xem sao."))
+}

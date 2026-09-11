@@ -83,6 +83,7 @@ pub fn run() {
             ai::ask_ai_openai,
             ai::ask_ai_anthropic,
             ai::ask_ai_gemini,
+            ai::ask_ai_diagram,
             secrets::save_api_key,
             secrets::delete_api_key,
             secrets::api_key_statuses,
