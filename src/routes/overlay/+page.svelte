@@ -16,6 +16,10 @@
   // vậy màu khung chọn vùng/hiệu ứng giống HỆT nhau giữa 2 tính năng, không
   // phải tự tay đồng bộ màu ở 2 nơi khác nhau.
   const isRecordMode = new URLSearchParams(window.location.search).get("mode") === "record";
+  // "+ Chụp thêm bước" (chuỗi snip có dẫn dắt) — có giá trị thì đây là 1 lượt
+  // CHỤP THÊM vào phiên đang mở (label cửa sổ đó), không phải chụp mới hoàn
+  // toàn. Xem commands.rs::trigger_capture_for_session/trigger_recording_for_session.
+  const appendTo = new URLSearchParams(window.location.search).get("appendTo");
 
   // Rect đã chuẩn hoá (x,y luôn là góc trên-trái) theo đơn vị CSS/logical px.
   const rect = $derived({
@@ -87,7 +91,15 @@
 
     try {
       if (isRecordMode) {
-        await invoke("start_region_recording", { x: physX, y: physY, width: physW, height: physH });
+        await invoke("start_region_recording", {
+          x: physX,
+          y: physY,
+          width: physW,
+          height: physH,
+          appendTo: appendTo ?? null,
+        });
+      } else if (appendTo) {
+        await invoke("append_capture_to_session", { windowLabel: appendTo, x: physX, y: physY, width: physW, height: physH });
       } else {
         await invoke("crop_and_open_result", { x: physX, y: physY, width: physW, height: physH });
       }

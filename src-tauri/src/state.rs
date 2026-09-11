@@ -58,10 +58,13 @@ pub struct AppState {
     pub scale_factor: Mutex<f64>,
 
     /// Ảnh PNG đã crop, theo từng phiên (key = label cửa sổ "Kết quả AI" của
-    /// phiên đó, VD "result-3"). Dọn dẹp entry tương ứng khi cửa sổ đó đóng
-    /// (xem `on_window_event` trong lib.rs) — tránh rò rỉ bộ nhớ khi dùng app
-    /// lâu, snip nhiều lần.
-    pub crop_sessions: Mutex<HashMap<String, Vec<u8>>>,
+    /// phiên đó, VD "result-3"). MỘT phiên có thể có NHIỀU ảnh theo đúng thứ
+    /// tự đã chụp — tính năng "Chụp thêm bước" (chuỗi snip có dẫn dắt): người
+    /// dùng bấm "+ Chụp thêm bước" ngay trong lúc chat, ảnh mới PUSH thêm vào
+    /// đúng phiên đang mở thay vì tạo phiên/cửa sổ mới, AI nhìn thấy toàn bộ
+    /// chuỗi cùng lúc. Dọn dẹp cả entry khi cửa sổ đó đóng (xem `on_window_event`
+    /// trong lib.rs) — tránh rò rỉ bộ nhớ khi dùng app lâu, snip nhiều lần.
+    pub crop_sessions: Mutex<HashMap<String, Vec<Vec<u8>>>>,
     /// Bộ đếm tăng dần để sinh label cửa sổ "Kết quả AI" không trùng nhau.
     pub next_session_id: AtomicU32,
 
@@ -73,8 +76,9 @@ pub struct AppState {
     pub main_hidden_for_snip: Mutex<bool>,
 
     /// Video MP4 đã quay xong, theo từng phiên (key = label cửa sổ "Kết quả
-    /// AI" của phiên đó) — cùng cơ chế với `crop_sessions` nhưng cho video.
-    pub video_sessions: Mutex<HashMap<String, Vec<u8>>>,
+    /// AI" của phiên đó) — cùng cơ chế với `crop_sessions` (kể cả việc 1 phiên
+    /// có thể có NHIỀU video theo thứ tự, xem giải thích ở đó).
+    pub video_sessions: Mutex<HashMap<String, Vec<Vec<u8>>>>,
     /// Cờ báo dừng của phiên quay đang chạy (nếu có) — `stop_recording` set
     /// cờ này thành `true` để dừng sớm trước mốc 30s tự động. `None` nghĩa là
     /// không có phiên quay nào đang chạy.
@@ -102,12 +106,22 @@ pub struct AppState {
     pub history_ids: Mutex<HashMap<String, String>>,
 }
 
-#[derive(Clone, Copy, Debug)]
+/// Trần số lượng media (ảnh HOẶC video) cho phép gom vào CÙNG 1 chuỗi/phiên —
+/// tránh chuỗi dài vô hạn làm payload gọi AI phình to, chậm và tốn quota vô
+/// tội vạ. Xem "Chụp thêm bước" (append_capture_to_session/start_region_recording).
+pub const MAX_CHAIN_ITEMS: usize = 8;
+
+#[derive(Clone, Debug)]
 pub struct PendingRecordResult {
     pub monitor: MonitorBounds,
     pub anchor_x: i32,
     pub anchor_y: i32,
     pub session_id: u32,
+    /// `Some(label)` = quay THÊM vào phiên đang mở (label cửa sổ đó), KHÔNG
+    /// mở cửa sổ "Kết quả AI" mới khi quay xong — chỉ push video vào đúng
+    /// `video_sessions[label]` rồi báo cho cửa sổ đó tự nạp lại. `None` = hành
+    /// vi cũ (quay xong mở cửa sổ kết quả mới).
+    pub append_to: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]

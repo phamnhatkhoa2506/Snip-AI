@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder};
 use windows_capture::frame::Frame;
@@ -380,11 +380,28 @@ pub async fn start_recording(app: AppHandle, region: CropRegion) -> Result<(), S
             };
             let _ = std::fs::remove_file(&out_path_clone); // đã đọc vào RAM, xoá file tạm
 
+            let state = app_clone.state::<AppState>();
+
+            // "+ Chụp thêm bước" ở 1 phiên video — PUSH vào chuỗi của cửa sổ
+            // ĐANG MỞ đó, không mở cửa sổ mới.
+            if let Some(label) = pending.append_to {
+                eprintln!("[snip-ai] Quay xong, {} bytes MP4 -> thêm vào chuỗi ({label})", bytes.len());
+                {
+                    let mut sessions = state.video_sessions.lock().unwrap();
+                    let list = sessions.entry(label.clone()).or_default();
+                    list.push(bytes);
+                    while list.len() > crate::state::MAX_CHAIN_ITEMS {
+                        list.remove(0);
+                    }
+                }
+                let _ = app_clone.emit_to(&label, "ai:chain-updated", ());
+                return;
+            }
+
             let window_label = format!("{RECORD_LABEL_PREFIX}{}", pending.session_id);
             eprintln!("[snip-ai] Quay xong, {} bytes MP4 -> mở cửa sổ kết quả ({window_label})", bytes.len());
 
-            let state = app_clone.state::<AppState>();
-            state.video_sessions.lock().unwrap().insert(window_label.clone(), bytes);
+            state.video_sessions.lock().unwrap().insert(window_label.clone(), vec![bytes]);
 
             if let Err(e) = commands::open_result_window(
                 &app_clone,
@@ -417,14 +434,29 @@ pub fn stop_recording(app: AppHandle) -> Result<(), String> {
     }
 }
 
+/// 1 phiên có thể có NHIỀU video (chuỗi quay) — trả về video MỚI NHẤT (dùng
+/// cho preview chính); muốn cả chuỗi thì dùng `get_recording_chain_base64`.
 #[tauri::command]
 pub fn get_recording_base64(state: tauri::State<'_, AppState>, window_label: String) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     let sessions = state.video_sessions.lock().unwrap();
-    let bytes = sessions
+    let list = sessions
         .get(&window_label)
         .ok_or("Không tìm thấy video cho phiên này (cửa sổ có thể đã bị đóng)")?;
+    let bytes = list.last().ok_or("Phiên này chưa có video nào")?;
     Ok(STANDARD.encode(bytes))
+}
+
+/// Toàn bộ chuỗi video đã quay cho phiên này, ĐÚNG THỨ TỰ — xem
+/// `get_crop_chain_base64` (tương đương cho ảnh) để hiểu ngữ cảnh dùng.
+#[tauri::command]
+pub fn get_recording_chain_base64(state: tauri::State<'_, AppState>, window_label: String) -> Result<Vec<String>, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let sessions = state.video_sessions.lock().unwrap();
+    let list = sessions
+        .get(&window_label)
+        .ok_or("Không tìm thấy video cho phiên này (cửa sổ có thể đã bị đóng)")?;
+    Ok(list.iter().map(|b| STANDARD.encode(b)).collect())
 }
 
 /// ID ngẫu nhiên đủ dùng để đặt tên file tạm không trùng nhau — không cần cả

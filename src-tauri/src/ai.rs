@@ -58,7 +58,12 @@ xuất/giữ nguyên văn bản gốc (khi đó giữ đúng ngôn ngữ gốc).
 4. Dùng Markdown để cấu trúc câu trả lời: **in đậm** cho ý chính, danh sách gạch đầu dòng \
 cho nhiều ý, `code` cho mã/lệnh/tên file/giá trị kỹ thuật, khối ```code``` cho đoạn mã \
 nhiều dòng, bảng Markdown khi dữ liệu có dạng bảng.
-5. Ngắn gọn, đúng trọng tâm — độ dài tương xứng với nội dung, không dài dòng.";
+5. Ngắn gọn, đúng trọng tâm — độ dài tương xứng với nội dung, không dài dòng.
+6. Nếu ảnh/video hiện tại KHÔNG ĐỦ để trả lời chắc chắn (VD: đang xử lý sự cố \
+nhiều bước, cần thấy bước tiếp theo/kết quả sau khi làm gì đó mới biết đúng-sai), hãy NÓI \
+THẲNG điều đó và gợi ý người dùng chụp/quay thêm bước tiếp theo — chỉ cần nói bằng lời văn \
+thường (VD \"Bạn thử chụp thêm màn hình sau khi bấm nút Chạy xem sao\"), KHÔNG cần định dạng \
+đặc biệt gì.";
 
 /// Chỉ dẫn thêm cho Gemini khi phiên đang hỏi là ẢNH (không áp dụng cho
 /// video — 1 khung toạ độ không rõ "thuộc khung hình nào" trên video, để
@@ -108,23 +113,29 @@ struct DeltaPayload {
 /// lúc, mỗi cửa sổ 1 ảnh riêng — xem giải thích ở `AppState::crop_sessions`).
 fn get_crop_base64(state: &State<'_, AppState>, window_label: &str) -> Result<String, String> {
     let sessions = state.crop_sessions.lock().unwrap();
-    let bytes = sessions
+    let list = sessions
         .get(window_label)
         .ok_or("Không tìm thấy ảnh cho phiên này (cửa sổ có thể đã bị đóng)")?;
+    // 1 phiên có thể có NHIỀU ảnh (chuỗi snip) — NVIDIA/OpenAI/Anthropic (gọi
+    // hàm này) chưa hỗ trợ đính nhiều ảnh, nên chỉ lấy ảnh MỚI NHẤT. Chỉ
+    // Gemini (get_media_chain_base64 bên dưới) đính được cả chuỗi.
+    let bytes = list.last().ok_or("Phiên này chưa có ảnh nào")?;
     Ok(STANDARD.encode(bytes))
 }
 
 /// Giống `get_crop_base64` nhưng chấp nhận CẢ ẢNH LẪN VIDEO — 1 cửa sổ "Kết
 /// quả AI" là phiên ảnh (snip) hoặc phiên video (quay màn hình), không bao
 /// giờ cả hai, nên chỉ 1 trong 2 map (`crop_sessions`/`video_sessions`) có
-/// entry khớp `window_label`. Trả về (base64, mime_type) — chỉ dùng cho
-/// Gemini, provider DUY NHẤT trong app hỗ trợ input video.
-fn get_media_base64(state: &State<'_, AppState>, window_label: &str) -> Result<(String, &'static str), String> {
-    if let Some(bytes) = state.crop_sessions.lock().unwrap().get(window_label) {
-        return Ok((STANDARD.encode(bytes), "image/png"));
+/// entry khớp `window_label`. Trả về TOÀN BỘ chuỗi media của phiên (mỗi phần
+/// tử: base64, mime_type), ĐÚNG THỨ TỰ đã chụp — chỉ Gemini (provider DUY
+/// NHẤT hỗ trợ video, và cũng là nơi duy nhất cần đính nhiều ảnh/video) dùng
+/// hàm này; 3 provider còn lại vẫn dùng `get_crop_base64` (1 ảnh mới nhất).
+fn get_media_chain_base64(state: &State<'_, AppState>, window_label: &str) -> Result<Vec<(String, &'static str)>, String> {
+    if let Some(list) = state.crop_sessions.lock().unwrap().get(window_label) {
+        return Ok(list.iter().map(|b| (STANDARD.encode(b), "image/png")).collect());
     }
-    if let Some(bytes) = state.video_sessions.lock().unwrap().get(window_label) {
-        return Ok((STANDARD.encode(bytes), "video/mp4"));
+    if let Some(list) = state.video_sessions.lock().unwrap().get(window_label) {
+        return Ok(list.iter().map(|b| (STANDARD.encode(b), "video/mp4")).collect());
     }
     Err("Không tìm thấy ảnh/video cho phiên này (cửa sổ có thể đã bị đóng)".into())
 }
@@ -483,24 +494,35 @@ pub async fn ask_ai_gemini(
     };
     let model = model.trim();
     // Chấp nhận cả ảnh (snip) lẫn video (quay màn hình) — 1 cửa sổ chỉ là 1
-    // trong 2, `get_media_base64` tự tìm đúng loại và trả kèm mime_type.
-    let (media_b64, mime_type) = get_media_base64(&state, &window_label)?;
+    // trong 2, `get_media_chain_base64` tự tìm đúng loại và trả về TOÀN BỘ
+    // chuỗi (1 phiên có thể có nhiều ảnh/video nhờ "+ Chụp thêm bước", xem
+    // AppState::crop_sessions), đúng thứ tự đã chụp.
+    let mut media_chain = get_media_chain_base64(&state, &window_label)?;
+    if media_chain.is_empty() {
+        return Err("Phiên này chưa có ảnh/video nào".into());
+    }
+    let mime_type = media_chain[0].1;
 
     // Có `region` VÀ đang là ảnh (không áp dụng cho video) -> cắt tạm đúng
     // vùng đó để gửi CHO LƯỢT NÀY, không đụng gì tới ảnh gốc lưu trong
     // `crop_sessions` (các câu hỏi khác trong cùng phiên vẫn thấy toàn ảnh).
-    let media_b64 = match region {
-        Some([ymin, xmin, ymax, xmax]) if mime_type.starts_with("image/") => {
-            let raw = STANDARD.decode(&media_b64).map_err(|e| format!("Lỗi giải mã ảnh: {e}"))?;
-            let cropped = crate::capture::crop_by_normalized_box(&raw, ymin, xmin, ymax, xmax)?;
-            STANDARD.encode(cropped)
+    // Áp dụng cho ảnh MỚI NHẤT trong chuỗi (khung khoanh vùng luôn vẽ theo
+    // ảnh mới nhất, xem GEMINI_BBOX_INSTRUCTION + result/+page.svelte).
+    if let Some([ymin, xmin, ymax, xmax]) = region {
+        if mime_type.starts_with("image/") {
+            if let Some(last) = media_chain.last_mut() {
+                let raw = STANDARD.decode(&last.0).map_err(|e| format!("Lỗi giải mã ảnh: {e}"))?;
+                let cropped = crate::capture::crop_by_normalized_box(&raw, ymin, xmin, ymax, xmax)?;
+                last.0 = STANDARD.encode(cropped);
+            }
         }
-        _ => media_b64,
-    };
+    }
 
     // Chỉ đính ảnh/video vào lượt user GẦN NHẤT — xem giải thích chi tiết ở
     // ask_openai_compatible phía trên (tránh phình payload theo cấp số cộng
-    // khi hội thoại dài).
+    // khi hội thoại dài). Đính CẢ CHUỖI (không chỉ 1 media) vào ĐÚNG lượt đó —
+    // mỗi ảnh/video 1 "inline_data" riêng, Gemini tự hiểu đây là nhiều tấm
+    // ảnh/nhiều đoạn video liên quan tới cùng 1 câu hỏi.
     let last_user_idx = history.iter().rposition(|t| t.role == "user");
     let contents: Vec<serde_json::Value> = history
         .iter()
@@ -509,20 +531,23 @@ pub async fn ask_ai_gemini(
             let role = if turn.role == "assistant" { "model" } else { "user" };
             let mut parts = vec![serde_json::json!({"text": turn.content})];
             if turn.role == "user" && Some(i) == last_user_idx {
-                parts.push(serde_json::json!({
-                    "inline_data": {"mime_type": mime_type, "data": media_b64}
-                }));
+                for (b64, mime) in &media_chain {
+                    parts.push(serde_json::json!({
+                        "inline_data": {"mime_type": mime, "data": b64}
+                    }));
+                }
             }
             serde_json::json!({"role": role, "parts": parts})
         })
         .collect();
 
-    // Lượt hỏi có `region` (đã cắt ảnh cho ĐÚNG lượt này) thì KHÔNG kèm chỉ
-    // dẫn box_2d nữa — toạ độ model trả về lúc này sẽ tính theo ẢNH ĐÃ CẮT,
-    // trong khi frontend luôn vẽ khung theo ẢNH GỐC đầy đủ đang hiển thị ->
-    // vẽ sai vị trí nếu không chặn. Bỏ hẳn field ở đây, đơn giản hơn là phải
-    // remap toạ độ qua lại giữa 2 hệ quy chiếu.
-    let mut system_text = if mime_type.starts_with("image/") && region.is_none() {
+    // Lượt hỏi có `region` (đã cắt ảnh cho ĐÚNG lượt này) HOẶC phiên có TỪ 2
+    // ẢNH TRỞ LÊN thì KHÔNG kèm chỉ dẫn box_2d nữa: toạ độ model trả về lúc
+    // này sẽ tính theo ẢNH ĐÃ CẮT (khác hệ quy chiếu với ảnh gốc đang hiển
+    // thị), còn với chuỗi nhiều ảnh thì KHÔNG RÕ toạ độ trả về thuộc về ẢNH
+    // NÀO trong chuỗi — cả 2 trường hợp frontend đều có thể vẽ khung sai chỗ
+    // nếu không chặn. Đơn giản hoá: chỉ bật box_2d khi phiên có ĐÚNG 1 ảnh.
+    let mut system_text = if mime_type.starts_with("image/") && region.is_none() && media_chain.len() <= 1 {
         format!("{SYSTEM_PROMPT}{GEMINI_BBOX_INSTRUCTION}")
     } else {
         SYSTEM_PROMPT.to_string()

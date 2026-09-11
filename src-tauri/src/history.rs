@@ -225,14 +225,21 @@ pub fn history_save_turn(
         // trong lúc phiên vẫn đang mở) -> rơi xuống dưới, tạo lại như mới.
     }
 
+    // 1 phiên có thể có NHIỀU ảnh/video (chuỗi "+ Chụp thêm bước") — Lịch sử
+    // (tính năng riêng, đơn giản hơn) chỉ lưu ẢNH/VIDEO MỚI NHẤT của chuỗi,
+    // không lưu cả chuỗi. Xem lại đầy đủ chuỗi thì mở lại đúng cửa sổ "Kết
+    // quả AI" đó trong lúc còn mở — Lịch sử chỉ là ảnh chụp nhanh lúc lưu.
     let (bytes, kind, ext) = {
         let crop = state.crop_sessions.lock().unwrap();
-        if let Some(b) = crop.get(&window_label) {
-            (b.clone(), "image", "png")
+        if let Some(list) = crop.get(&window_label) {
+            match list.last() {
+                Some(b) => (b.clone(), "image", "png"),
+                None => return Err("Phiên này chưa có ảnh nào để lưu lịch sử".into()),
+            }
         } else {
             drop(crop);
             let video = state.video_sessions.lock().unwrap();
-            match video.get(&window_label) {
+            match video.get(&window_label).and_then(|list| list.last()) {
                 Some(b) => (b.clone(), "video", "mp4"),
                 None => return Err("Không tìm thấy ảnh/video của phiên này để lưu lịch sử".into()),
             }

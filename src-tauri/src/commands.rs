@@ -5,7 +5,7 @@ use tauri::{
 };
 
 use crate::capture;
-use crate::state::{AppState, MonitorBounds, PendingRecordResult};
+use crate::state::{AppState, MonitorBounds, PendingRecordResult, MAX_CHAIN_ITEMS};
 
 const OVERLAY_LABEL: &str = "overlay";
 /// Label cửa sổ thanh công cụ nổi lúc đang quay video (Start/Stop/timer,
@@ -259,7 +259,7 @@ pub async fn crop_and_open_result(
         .map_err(|e| format!("Lỗi nội bộ khi xử lý ảnh: {e}"))??;
     eprintln!("[snip-ai] crop xong, {} bytes PNG", cropped.len());
 
-    state.crop_sessions.lock().unwrap().insert(window_label.clone(), cropped);
+    state.crop_sessions.lock().unwrap().insert(window_label.clone(), vec![cropped]);
 
     // Cửa sổ kết quả đã mở TỪ TRƯỚC lúc ảnh chưa có trong `crop_sessions` —
     // báo cho nó biết ảnh vừa sẵn sàng để tự gọi lại `get_crop_image_base64`
@@ -351,6 +351,13 @@ pub fn trigger_recording(app: &AppHandle) -> Result<(), String> {
     capture_and_open_overlay(app, "overlay?mode=record")
 }
 
+/// Bấm "+ Chụp thêm bước" trong lúc đang chat ở 1 phiên VIDEO — cùng ý tưởng
+/// với `trigger_capture_for_session` nhưng cho quay video.
+#[tauri::command]
+pub async fn trigger_recording_for_session(app: AppHandle, window_label: String) -> Result<(), String> {
+    capture_and_open_overlay(&app, &format!("overlay?mode=record&appendTo={window_label}"))
+}
+
 /// Người dùng đã kéo chọn xong vùng MUỐN QUAY trong overlay (chế độ
 /// `?mode=record`). Khác `crop_and_open_result`: KHÔNG mở cửa sổ "Kết quả AI"
 /// ngay — video chưa quay thì chưa có gì để hiện. Thay vào đó mở 1 thanh công
@@ -366,6 +373,11 @@ pub async fn start_region_recording(
     y: u32,
     width: u32,
     height: u32,
+    // `Some(label)` = quay THÊM vào phiên đang mở (bấm "+ Chụp thêm bước" ở
+    // 1 phiên video) — quay xong KHÔNG mở cửa sổ mới, chỉ push vào chuỗi của
+    // đúng cửa sổ đó (xem finish() trong record.rs). `Option` nên luồng quay
+    // bình thường (không truyền) vẫn y hệt trước đây.
+    append_to: Option<String>,
 ) -> Result<(), String> {
     let monitor = {
         let guard = state.monitor_bounds.lock().unwrap();
@@ -382,7 +394,7 @@ pub async fn start_region_recording(
 
     open_recording_toolbar(&app, monitor, anchor_x, anchor_y)?;
     *state.recording_pending.lock().unwrap() =
-        Some(PendingRecordResult { monitor, anchor_x, anchor_y, session_id });
+        Some(PendingRecordResult { monitor, anchor_x, anchor_y, session_id, append_to });
     *state.recording_discard.lock().unwrap() = false;
 
     restore_main_after_snip(&app);
@@ -455,14 +467,82 @@ pub fn cancel_recording(app: AppHandle) -> Result<(), String> {
 /// `window_label`: label của cửa sổ "Kết quả AI" đang gọi lệnh này (frontend
 /// tự đọc qua `getCurrentWindow().label` rồi truyền vào) — xác định đúng ảnh
 /// của PHIÊN đó, vì giờ nhiều cửa sổ có thể mở cùng lúc, mỗi cửa sổ 1 ảnh
-/// khác nhau.
+/// khác nhau. 1 phiên có thể có NHIỀU ảnh (chuỗi snip) — trả về ảnh MỚI NHẤT
+/// (dùng cho preview chính); muốn cả chuỗi thì dùng `get_crop_chain_base64`.
 #[tauri::command]
 pub fn get_crop_image_base64(state: State<'_, AppState>, window_label: String) -> Result<String, String> {
     let sessions = state.crop_sessions.lock().unwrap();
-    let bytes = sessions
+    let list = sessions
         .get(&window_label)
         .ok_or("Không tìm thấy ảnh cho phiên này (cửa sổ có thể đã bị đóng/dọn dẹp)")?;
+    let bytes = list.last().ok_or("Phiên này chưa có ảnh nào")?;
     Ok(STANDARD.encode(bytes))
+}
+
+/// Toàn bộ chuỗi ảnh đã chụp cho phiên này, ĐÚNG THỨ TỰ đã chụp — dùng để vẽ
+/// dải thumbnail nhiều ảnh khi phiên có từ 2 ảnh trở lên (xem "Chụp thêm bước").
+#[tauri::command]
+pub fn get_crop_chain_base64(state: State<'_, AppState>, window_label: String) -> Result<Vec<String>, String> {
+    let sessions = state.crop_sessions.lock().unwrap();
+    let list = sessions
+        .get(&window_label)
+        .ok_or("Không tìm thấy ảnh cho phiên này (cửa sổ có thể đã bị đóng/dọn dẹp)")?;
+    Ok(list.iter().map(|b| STANDARD.encode(b)).collect())
+}
+
+/// Bấm "+ Chụp thêm bước" ngay trong lúc đang chat — mở overlay chọn vùng
+/// (dùng chung `capture_and_open_overlay`, query param `appendTo` cho
+/// overlay/+page.svelte biết gọi `append_capture_to_session` thay vì
+/// `crop_and_open_result` lúc thả chuột). Có async vì có thể tạo cửa sổ
+/// overlay mới, xem giải thích ở `trigger_capture`.
+#[tauri::command]
+pub async fn trigger_capture_for_session(app: AppHandle, window_label: String) -> Result<(), String> {
+    capture_and_open_overlay(&app, &format!("overlay?appendTo={window_label}"))
+}
+
+/// Người dùng đã kéo chọn xong vùng MUỐN THÊM vào phiên `window_label` đang
+/// mở — khác `crop_and_open_result`: KHÔNG mở cửa sổ mới, chỉ PUSH ảnh vừa
+/// crop vào đúng chuỗi đã có rồi báo cho cửa sổ đó tự nạp lại (event
+/// "ai:chain-updated", xem result/+page.svelte).
+#[tauri::command]
+pub async fn append_capture_to_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    window_label: String,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let screenshot = {
+        let guard = state.screenshot_png.lock().unwrap();
+        guard.clone().ok_or("Chưa có ảnh chụp màn hình nào")?
+    };
+
+    if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = win.close();
+    }
+    restore_main_after_snip(&app);
+
+    let cropped = tokio::task::spawn_blocking(move || capture::crop_png(&screenshot, x, y, width, height))
+        .await
+        .map_err(|e| format!("Lỗi nội bộ khi xử lý ảnh: {e}"))??;
+
+    {
+        let mut sessions = state.crop_sessions.lock().unwrap();
+        let list = sessions.entry(window_label.clone()).or_default();
+        list.push(cropped);
+        // Trần chuỗi — vượt quá thì bỏ bớt ảnh CŨ NHẤT, giữ đúng MAX_CHAIN_ITEMS
+        // ảnh gần nhất. Không chặn hẳn việc chụp thêm (khó hiểu với người dùng
+        // hơn là tự động "trượt cửa sổ" như thế này).
+        while list.len() > MAX_CHAIN_ITEMS {
+            list.remove(0);
+        }
+    }
+
+    eprintln!("[snip-ai] append_capture_to_session({window_label}): đã thêm 1 ảnh vào chuỗi");
+    let _ = app.emit_to(&window_label, "ai:chain-updated", ());
+    Ok(())
 }
 
 /// Label SINGLETON — chỉ 1 cửa sổ Lịch sử tại 1 thời điểm, gọi lại thì show

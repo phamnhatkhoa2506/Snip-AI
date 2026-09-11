@@ -31,9 +31,14 @@
   const quickPrompts = isVideoSession ? VIDEO_PROMPTS : QUICK_PROMPTS;
 
   let phase = $state<Phase>("ask");
-  /** Base64 của ảnh (PNG) hoặc video (MP4) tuỳ loại phiên — tên chung
-   * "mediaB64" thay vì "cropB64" vì giờ không còn chỉ là ảnh crop nữa. */
-  let mediaB64 = $state("");
+  /** Toàn bộ chuỗi ảnh/video của phiên này, ĐÚNG THỨ TỰ đã chụp — 1 phiên có
+   * thể có NHIỀU media nhờ "+ Chụp thêm bước" (chuỗi snip có dẫn dắt, xem
+   * triggerAppendCapture bên dưới), không chỉ 1 như trước. */
+  let mediaChain = $state<string[]>([]);
+  /** Base64 của media MỚI NHẤT trong chuỗi — dùng cho mọi chỗ trước đây chỉ
+   * biết "1 ảnh/video" (avatar thu nhỏ, disabled-state của input...). Tên
+   * giữ nguyên "mediaB64" để không phải đổi lại toàn bộ chỗ dùng cũ. */
+  let mediaB64 = $derived(mediaChain[mediaChain.length - 1] ?? "");
   let question = $state("");
   let history = $state<ChatTurn[]>([]);
   let busy = $state(false);
@@ -145,6 +150,34 @@
     }
   }
 
+  // ── "+ Chụp thêm bước" (chuỗi snip có dẫn dắt) ─────────────────────────
+  // AI có thể GỢI Ý bằng lời văn thường ("bạn thử chụp thêm bước tiếp theo
+  // xem sao") — KHÔNG cần model phát ra tín hiệu máy đọc được gì cả (đã rút
+  // kinh nghiệm từ box_2d/mốc giờ video/trích nguồn: không thể tin model
+  // tuân thủ 100% 1 định dạng đặc biệt). Nút này LUÔN có sẵn, người đọc gợi ý
+  // của AI rồi tự bấm — vẫn đúng tinh thần agentic (AI đề nghị) +
+  // human-in-the-loop (người quyết định), chỉ là không đặt cược vào việc
+  // model tuân thủ giao thức.
+  let appendCaptureBusy = $state(false);
+  async function triggerAppendCapture() {
+    appendCaptureBusy = true;
+    try {
+      await invoke(isVideoSession ? "trigger_recording_for_session" : "trigger_capture_for_session", {
+        windowLabel: getCurrentWindow().label,
+      });
+    } catch (e) {
+      error = String(e);
+    } finally {
+      appendCaptureBusy = false;
+    }
+  }
+
+  /** Đang xem MEDIA NÀO trong chuỗi ở ảnh phóng to — `null` = luôn bám theo
+   * media MỚI NHẤT (mặc định). Bấm vào 1 thumbnail cụ thể trong dải mới ghim
+   * cố định vào đúng cái đó. */
+  let previewIndex = $state<number | null>(null);
+  const previewMediaB64 = $derived(mediaChain[previewIndex ?? mediaChain.length - 1] ?? "");
+
   function onModalVideoReady() {
     if (modalVideoEl && pendingSeekTime != null) {
       modalVideoEl.currentTime = pendingSeekTime;
@@ -173,6 +206,7 @@
   function closeImagePreview() {
     showImagePreview = false;
     showRangeSliderInChat = false;
+    previewIndex = null;
   }
 
   // Hiệu ứng "reveal" chữ giống ChatGPT/Claude: tách từng đoạn AI trả về thành
@@ -197,9 +231,9 @@
    * `crop_sessions`/`video_sessions` phía Rust — đó là chuyện bình thường,
    * không phải lỗi. Sẽ tự nạp lại khi nhận event "ai:crop-ready"/
    * "recording:ready" (xem onMount bên dưới). */
-  async function loadMedia(silent: boolean) {
+  async function loadMediaChain(silent: boolean) {
     try {
-      mediaB64 = await invoke<string>(isVideoSession ? "get_recording_base64" : "get_crop_image_base64", {
+      mediaChain = await invoke<string[]>(isVideoSession ? "get_recording_chain_base64" : "get_crop_chain_base64", {
         windowLabel: getCurrentWindow().label,
       });
     } catch (e) {
@@ -210,24 +244,28 @@
   onMount(() => {
     // Cửa sổ này luôn được TẠO MỚI mỗi lần snip/quay (xem commands.rs), nên
     // onMount chạy fresh mỗi lần — không cần lắng nghe event reset.
-    let unlisten: (() => void) | undefined;
+    const unlistens: (() => void)[] = [];
     const s = loadSettings();
     modelLabel = currentModel(s);
 
     if (isVideoSession) {
       // Phiên video: cửa sổ chỉ mở SAU KHI quay xong, video đã sẵn sàng ngay
       // từ đầu — nạp thẳng, không cần silent/event gì cả.
-      loadMedia(false);
+      loadMediaChain(false);
     } else {
       // Phiên ảnh: cửa sổ mở NGAY khi vừa chọn xong vùng (trước khi crop/resize
       // ảnh xong) để phản hồi tức thì thay vì "chờ mù" — nên thử nạp ảnh ngay
       // (silent, phòng trường hợp ảnh đã kịp xử lý xong), đồng thời lắng nghe
       // event "ai:crop-ready" từ Rust để nạp lại khi ảnh THẬT SỰ sẵn sàng.
-      loadMedia(true);
-      listen("ai:crop-ready", () => loadMedia(false)).then((fn) => (unlisten = fn));
+      loadMediaChain(true);
+      listen("ai:crop-ready", () => loadMediaChain(false)).then((fn) => unlistens.push(fn));
     }
 
-    return () => unlisten?.();
+    // "+ Chụp thêm bước" đã thêm xong 1 ảnh/video vào chuỗi (xem
+    // commands.rs::append_capture_to_session / record.rs) — nạp lại chuỗi.
+    listen("ai:chain-updated", () => loadMediaChain(false)).then((fn) => unlistens.push(fn));
+
+    return () => unlistens.forEach((fn) => fn());
   });
 
   /** Lưu lịch sử SAU MỖI lượt AI trả lời thành công — lần gọi đầu của cửa sổ
@@ -450,6 +488,31 @@
 <svelte:window onkeydown={showImagePreview ? onPreviewKeydown : undefined} />
 
 <div class="app-bg h-screen flex flex-col text-text overflow-hidden">
+  {#snippet chainThumbnails()}
+    <!-- Dải thumbnail cho chuỗi nhiều ảnh/video ("+ Chụp thêm bước") — chỉ
+    hiện khi có từ 2 media trở lên, đặt trong modal (đủ chỗ hơn hẳn header
+    32px chật hẹp lúc đang chat). Bấm vào 1 cái ghim preview vào đúng cái đó. -->
+    <div class="flex gap-1.5 overflow-x-auto max-w-full pb-1">
+      {#each mediaChain as item, i (i)}
+        <button
+          type="button"
+          onclick={() => (previewIndex = i)}
+          class="shrink-0 w-12 h-12 rounded-lg overflow-hidden border-2 transition-colors {(previewIndex ?? mediaChain.length - 1) ===
+          i
+            ? 'border-accent'
+            : 'border-border hover:border-accent/50'}"
+          title={`Bước ${i + 1}`}
+        >
+          {#if isVideoSession}
+            <video src={`data:video/mp4;base64,${item}`} muted class="w-full h-full object-cover"></video>
+          {:else}
+            <img src={`data:image/png;base64,${item}`} alt={`Bước ${i + 1}`} class="w-full h-full object-cover" />
+          {/if}
+        </button>
+      {/each}
+    </div>
+  {/snippet}
+
   {#snippet timeRangeSlider(onDone?: () => void)}
     <!-- Thanh chọn thời điểm/khoảng — 2 thanh <input type=range> chồng lên
     nhau (kỹ thuật dual-range kinh điển: mỗi input tự lo 1 tay cầm, CSS cho
@@ -621,6 +684,15 @@
           >
             <Icon name="eye" size={13} class="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
           </span>
+          {#if mediaChain.length > 1}
+            <!-- Có nhiều ảnh/video (chuỗi "+ Chụp thêm bước") — báo ngay ở
+            đây, không cần mở ảnh phóng to mới biết. -->
+            <span
+              class="absolute -bottom-0.5 -right-0.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-accent text-accent-text text-[9px] font-bold flex items-center justify-center leading-none"
+            >
+              {mediaChain.length}
+            </span>
+          {/if}
         </button>
       {:else}
         <div
@@ -806,6 +878,19 @@
         />
         <button
           type="button"
+          onclick={triggerAppendCapture}
+          disabled={busy || appendCaptureBusy}
+          title={`${isVideoSession ? "Quay" : "Chụp"} thêm bước tiếp theo, thêm vào cùng cuộc hội thoại này`}
+          class="btn-ghost rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40"
+        >
+          {#if appendCaptureBusy}
+            <Icon name="loader" size={15} class="animate-spin" />
+          {:else}
+            <Icon name="plus" size={15} />
+          {/if}
+        </button>
+        <button
+          type="button"
           onclick={() => (searchEnabled = !searchEnabled)}
           disabled={busy}
           title="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
@@ -844,11 +929,14 @@
           <video
             bind:this={modalVideoEl}
             onloadedmetadata={onModalVideoReady}
-            src={`data:video/mp4;base64,${mediaB64}`}
+            src={`data:video/mp4;base64,${previewMediaB64}`}
             controls
             autoplay
             class="max-w-full max-h-[70vh] rounded-xl border border-border shadow-2xl"
           ></video>
+          {#if mediaChain.length > 1}
+            {@render chainThumbnails()}
+          {/if}
           {#if showRangeSliderInChat}
             <div class="card p-2.5 w-full">
               {@render timeRangeSlider(() => {
@@ -876,14 +964,19 @@
           không, tránh đúng bug đã gặp: ảnh hiển thị to hơn khung, bị cắt mất
           không xem được toàn bộ. Trừ hao 1 khoảng (85/80 thay vì 100) để
           không dính sát mép modal (p-6 + nút đóng ở góc). -->
-          <BoxedImage
-            src={`data:image/png;base64,${mediaB64}`}
-            box={latestBox}
-            alt="Vùng đã chụp (phóng to)"
-            class="max-w-[85vw] max-h-[80vh] object-contain rounded-xl border border-border shadow-2xl"
-            interactive
-            onAskRegion={handleAskRegion}
-          />
+          <div class="flex flex-col items-center gap-3">
+            <BoxedImage
+              src={`data:image/png;base64,${previewMediaB64}`}
+              box={previewIndex === null || previewIndex === mediaChain.length - 1 ? latestBox : null}
+              alt="Vùng đã chụp (phóng to)"
+              class="max-w-[85vw] max-h-[80vh] object-contain rounded-xl border border-border shadow-2xl"
+              interactive
+              onAskRegion={handleAskRegion}
+            />
+            {#if mediaChain.length > 1}
+              {@render chainThumbnails()}
+            {/if}
+          </div>
         </div>
       {/if}
       <button onclick={closeImagePreview} class="absolute top-4 right-4 btn-ghost p-2 rounded-lg" title="Đóng (Esc)">
