@@ -670,7 +670,14 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- Chỉ chặn nổi bọt click (đóng modal khi bấm ra ngoài ảnh) — không
         phải phần tử tương tác thật, nên không cần bàn phím điều khiển. -->
-        <div onclick={(e) => e.stopPropagation()}>
+        <!-- min-w-0/min-h-0: ĐÈ mặc định `min-width:auto` của flex item —
+        thiếu 2 dòng này, div bọc có thể to hơn cả khung modal chứa nó theo
+        kích thước ẢNH THẬT (ảnh chụp màn hình có thể rất lớn), làm ảnh bị
+        TRÀN RA NGOÀI/CẮT MẤT thay vì co lại vừa khung như class max-w-full
+        max-h-full mong muốn. Bug thực tế đã gặp: thêm lớp div chặn click này
+        làm đứt quãng chuỗi ràng buộc kích thước vốn nằm thẳng trên <img>
+        trước đây. -->
+        <div class="max-w-full max-h-full min-w-0 min-h-0" onclick={(e) => e.stopPropagation()}>
           <BoxedImage
             src={`data:image/png;base64,${mediaB64}`}
             box={latestBox}
