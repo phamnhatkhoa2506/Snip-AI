@@ -52,7 +52,10 @@ export async function askAIStream(
       onDelta(event.payload.piece);
     });
 
-    onStatus(`Đang gọi ${settings.provider} · ${model}`);
+    // KHÔNG nêu tên provider/model — người dùng phổ thông không cần biết
+    // (và không nên phải biết) đang chạy AI nào phía sau, chỉ cần biết máy
+    // đang xử lý.
+    onStatus("Đang đợi");
 
     const common = { windowLabel, model, history, region: region ?? null };
     let answer: string;
