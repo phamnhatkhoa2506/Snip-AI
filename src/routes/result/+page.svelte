@@ -97,9 +97,14 @@
   }
 
   /** Kéo tay cầm thì tua luôn video xem trước đúng thời điểm đó — cho người
-   * dùng thấy ngay "giây này có gì" thay vì phải đoán bằng số giây suông. */
+   * dùng thấy ngay "giây này có gì" thay vì phải đoán bằng số giây suông.
+   * Cập nhật CẢ HAI ref video — `videoEl` (video lớn lúc mới mở, phase=ask)
+   * lẫn `modalVideoEl` (video trong ảnh phóng to lúc đang chat) — 2 phase
+   * không bao giờ cùng hiện 1 lúc nên chỉ đúng 1 trong 2 tồn tại tại 1 thời
+   * điểm, cập nhật cả 2 vô hại và đỡ phải biết trước đang ở ngữ cảnh nào. */
   function seekPreview(t: number) {
     if (videoEl) videoEl.currentTime = t;
+    if (modalVideoEl) modalVideoEl.currentTime = t;
   }
 
   // ── Mốc giờ bấm được trong câu trả lời (xem linkifyTimestamps) — bấm 1 mốc
@@ -131,6 +136,23 @@
     rangeTouched = false;
     rangeStart = 0;
     rangeEnd = videoDuration;
+  }
+
+  /** Mở ảnh phóng to KÈM thanh kéo bên trong — dùng lúc đang chat (chọn/
+   * chỉnh khoảng thời gian). Xem lại được video trong lúc kéo, thay vì kéo
+   * "mù" ngay trong khung hội thoại chật hẹp. */
+  function openRangeSliderModal() {
+    showRangeSliderInChat = true;
+    showImagePreview = true;
+  }
+
+  /** Đóng ảnh phóng to — LUÔN dọn kèm `showRangeSliderInChat` dù đóng bằng
+   * đường nào (bấm X, bấm ra ngoài, Esc), không chỉ nút "Xong" trong thanh
+   * kéo. Thiếu bước này thì lần mở modal SAU (VD chỉ để xem lại video, không
+   * liên quan tới chọn khoảng) sẽ bị dính hiện luôn thanh kéo từ lần trước. */
+  function closeImagePreview() {
+    showImagePreview = false;
+    showRangeSliderInChat = false;
   }
 
   // Hiệu ứng "reveal" chữ giống ChatGPT/Claude: tách từng đoạn AI trả về thành
@@ -386,7 +408,7 @@
   }
 
   function onPreviewKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") showImagePreview = false;
+    if (e.key === "Escape") closeImagePreview();
   }
 </script>
 
@@ -682,17 +704,16 @@
 
     <div class="shrink-0 px-3 pb-3 pt-1 flex flex-col gap-1.5">
       {#if isVideoSession}
-        {#if showRangeSliderInChat}
-          {@render timeRangeSlider(() => (showRangeSliderInChat = false))}
-        {:else if rangeTouched}
+        <!-- Bấm vào đây MỞ LUÔN ảnh phóng to kèm thanh kéo bên trong (xem
+        modal ở cuối file) — vừa xem lại video vừa chọn khoảng dễ hơn hẳn so
+        với kéo "mù" (không thấy hình) ngay trong khung hội thoại chật hẹp. -->
+        {#if rangeTouched}
           <!-- Khoảng chọn vẫn còn hiệu lực cho câu hỏi tiếp theo (sticky) —
-          nhắc lại ở đây để người dùng không quên đang giới hạn phạm vi hỏi.
-          Bấm vào chữ để MỞ LẠI thanh kéo, chỉnh sang mốc/khoảng khác mà
-          không cần đóng cửa sổ đi snip lại từ đầu. -->
+          nhắc lại ở đây để người dùng không quên đang giới hạn phạm vi hỏi. -->
           <div class="flex items-center gap-1.5 text-[10.5px] text-accent px-0.5">
             <button
               type="button"
-              onclick={() => (showRangeSliderInChat = true)}
+              onclick={openRangeSliderModal}
               class="flex items-center gap-1.5 hover:brightness-110 transition-all"
             >
               <Icon name="target" size={11} />
@@ -703,7 +724,7 @@
             </button>
           </div>
         {:else}
-          <button type="button" onclick={() => (showRangeSliderInChat = true)} class="chip self-start">
+          <button type="button" onclick={openRangeSliderModal} class="chip self-start">
             <Icon name="target" size={12} />
             Chọn khoảng thời gian
           </button>
@@ -748,23 +769,36 @@
     <div
       class="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
       role="presentation"
-      onclick={() => (showImagePreview = false)}
+      onclick={closeImagePreview}
       transition:fade={{ duration: 140 }}
     >
       {#if isVideoSession}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_media_has_caption -->
         <!-- Video tự quay bằng app này KHÔNG có track âm thanh (đã tắt hẳn ở
-        record.rs) nên không có gì để phụ đề — cảnh báo a11y này không áp dụng được. -->
-        <video
-          bind:this={modalVideoEl}
-          onloadedmetadata={onModalVideoReady}
-          src={`data:video/mp4;base64,${mediaB64}`}
-          controls
-          autoplay
-          onclick={(e) => e.stopPropagation()}
-          class="max-w-[85vw] max-h-[80vh] rounded-xl border border-border shadow-2xl"
-        ></video>
+        record.rs) nên không có gì để phụ đề — cảnh báo a11y này không áp
+        dụng được. Bọc chung video + thanh kéo trong 1 khối chặn nổi bọt
+        click — thanh kéo nằm NGOÀI thẻ <video> nên cần chặn riêng, không
+        thì bấm vào nó sẽ đóng mất modal (tính là bấm "ra ngoài"). -->
+        <div onclick={(e) => e.stopPropagation()} class="flex flex-col items-center gap-3 max-w-[85vw]">
+          <video
+            bind:this={modalVideoEl}
+            onloadedmetadata={onModalVideoReady}
+            src={`data:video/mp4;base64,${mediaB64}`}
+            controls
+            autoplay
+            class="max-w-full max-h-[70vh] rounded-xl border border-border shadow-2xl"
+          ></video>
+          {#if showRangeSliderInChat}
+            <div class="card p-2.5 w-full">
+              {@render timeRangeSlider(() => {
+                showRangeSliderInChat = false;
+                showImagePreview = false;
+              })}
+            </div>
+          {/if}
+        </div>
       {:else}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -793,11 +827,7 @@
           />
         </div>
       {/if}
-      <button
-        onclick={() => (showImagePreview = false)}
-        class="absolute top-4 right-4 btn-ghost p-2 rounded-lg"
-        title="Đóng (Esc)"
-      >
+      <button onclick={closeImagePreview} class="absolute top-4 right-4 btn-ghost p-2 rounded-lg" title="Đóng (Esc)">
         <Icon name="x" size={18} />
       </button>
     </div>
