@@ -59,6 +59,10 @@
   let rangeEnd = $state(0);
   /** false = chưa động vào thanh chọn -> không giới hạn gì, hỏi cả video. */
   let rangeTouched = $state(false);
+  /** Thanh kéo chọn khoảng CHỈ hiện mặc định lúc mới mở (`phase === "ask"`)
+   * — lúc đang chat thì ẩn theo mặc định (tiết kiệm chỗ cho khung hội thoại),
+   * bấm nút "Chọn khoảng thời gian" mới hiện ra. */
+  let showRangeSliderInChat = $state(false);
 
   function formatClock(totalSec: number): string {
     const s = Math.max(0, Math.round(totalSec));
@@ -389,6 +393,77 @@
 <svelte:window onkeydown={showImagePreview ? onPreviewKeydown : undefined} />
 
 <div class="app-bg h-screen flex flex-col text-text overflow-hidden">
+  {#snippet timeRangeSlider(onDone?: () => void)}
+    <!-- Thanh chọn thời điểm/khoảng — 2 thanh <input type=range> chồng lên
+    nhau (kỹ thuật dual-range kinh điển: mỗi input tự lo 1 tay cầm, CSS cho
+    track trong suốt để chỉ thấy phần "đã tô" ở giữa). Kéo trùng 2 tay cầm
+    thì thành "1 thời điểm" thay vì "1 khoảng" (xem isTimePoint). Dùng chung
+    (snippet) cho cả 2 chỗ: lúc mới mở (`phase === "ask"`) VÀ lúc đang chat
+    (bấm nút "Chọn khoảng thời gian" để mở lại) — trước đây chỉ có ở chỗ đầu,
+    hỏi tiếp về 1 mốc khác trong cùng video phải đóng cửa sổ snip lại từ đầu. -->
+    <div class="shrink-0 px-3 pt-2.5">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-[10.5px] text-text-muted flex items-center gap-1">
+          <Icon name="target" size={11} />
+          {rangeTouched ? `Đang hỏi về ${isTimePoint ? "thời điểm" : "khoảng"} ${timeRangeLabel}` : "Kéo để hỏi về 1 thời điểm/khoảng cụ thể"}
+        </span>
+        <div class="flex items-center gap-2">
+          {#if rangeTouched}
+            <button
+              type="button"
+              onclick={clearTimeRange}
+              class="text-[10.5px] text-text-muted hover:text-text transition-colors flex items-center gap-0.5"
+            >
+              <Icon name="x" size={10} /> Bỏ chọn
+            </button>
+          {/if}
+          {#if onDone}
+            <!-- Chỉ có ở bản dùng TRONG CHAT (truyền onDone) — thu gọn thanh
+            lại sau khi đã chọn xong, tránh chiếm chỗ mãi trong lúc gõ hỏi tiếp. -->
+            <button type="button" onclick={onDone} class="text-[10.5px] text-accent font-medium hover:brightness-110 transition-all">
+              Xong
+            </button>
+          {/if}
+        </div>
+      </div>
+      <div class="relative h-4 flex items-center">
+        <div class="absolute inset-x-0 h-1 rounded-full bg-bg-elevated"></div>
+        <div
+          class="absolute h-1 rounded-full"
+          style="left:{(rangeStart / videoDuration) * 100}%; right:{100 - (rangeEnd / videoDuration) * 100}%; background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));"
+        ></div>
+        <input
+          type="range"
+          min="0"
+          max={videoDuration}
+          step="0.1"
+          value={rangeStart}
+          class="range-thumb"
+          oninput={(e) => {
+            const v = Math.min(Number(e.currentTarget.value), rangeEnd);
+            rangeStart = v;
+            rangeTouched = true;
+            seekPreview(v);
+          }}
+        />
+        <input
+          type="range"
+          min="0"
+          max={videoDuration}
+          step="0.1"
+          value={rangeEnd}
+          class="range-thumb"
+          oninput={(e) => {
+            const v = Math.max(Number(e.currentTarget.value), rangeStart);
+            rangeEnd = v;
+            rangeTouched = true;
+            seekPreview(v);
+          }}
+        />
+      </div>
+    </div>
+  {/snippet}
+
   {#if phase === "ask"}
     <!-- ── Giai đoạn 1: xem ảnh/video + đặt câu hỏi ── -->
     <div class="flex-1 min-h-0 p-3 pb-0 flex items-center justify-center">
@@ -424,62 +499,7 @@
     </div>
 
     {#if isVideoSession && videoDuration > 0}
-      <!-- Thanh chọn thời điểm/khoảng — 2 thanh <input type=range> chồng lên
-      nhau (kỹ thuật dual-range kinh điển: mỗi input tự lo 1 tay cầm, CSS cho
-      track trong suốt để chỉ thấy phần "đã tô" ở giữa). Kéo trùng 2 tay cầm
-      thì thành "1 thời điểm" thay vì "1 khoảng" (xem isTimePoint). -->
-      <div class="shrink-0 px-3 pt-2.5">
-        <div class="flex items-center justify-between mb-1">
-          <span class="text-[10.5px] text-text-muted flex items-center gap-1">
-            <Icon name="target" size={11} />
-            {rangeTouched ? `Đang hỏi về ${isTimePoint ? "thời điểm" : "khoảng"} ${timeRangeLabel}` : "Kéo để hỏi về 1 thời điểm/khoảng cụ thể"}
-          </span>
-          {#if rangeTouched}
-            <button
-              type="button"
-              onclick={clearTimeRange}
-              class="text-[10.5px] text-text-muted hover:text-text transition-colors flex items-center gap-0.5"
-            >
-              <Icon name="x" size={10} /> Bỏ chọn
-            </button>
-          {/if}
-        </div>
-        <div class="relative h-4 flex items-center">
-          <div class="absolute inset-x-0 h-1 rounded-full bg-bg-elevated"></div>
-          <div
-            class="absolute h-1 rounded-full"
-            style="left:{(rangeStart / videoDuration) * 100}%; right:{100 - (rangeEnd / videoDuration) * 100}%; background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));"
-          ></div>
-          <input
-            type="range"
-            min="0"
-            max={videoDuration}
-            step="0.1"
-            value={rangeStart}
-            class="range-thumb"
-            oninput={(e) => {
-              const v = Math.min(Number(e.currentTarget.value), rangeEnd);
-              rangeStart = v;
-              rangeTouched = true;
-              seekPreview(v);
-            }}
-          />
-          <input
-            type="range"
-            min="0"
-            max={videoDuration}
-            step="0.1"
-            value={rangeEnd}
-            class="range-thumb"
-            oninput={(e) => {
-              const v = Math.max(Number(e.currentTarget.value), rangeStart);
-              rangeEnd = v;
-              rangeTouched = true;
-              seekPreview(v);
-            }}
-          />
-        </div>
-      </div>
+      {@render timeRangeSlider()}
     {/if}
 
     <div class="shrink-0 px-3 pt-3 flex flex-wrap gap-1.5">
@@ -661,16 +681,33 @@
     </ScrollArea>
 
     <div class="shrink-0 px-3 pb-3 pt-1 flex flex-col gap-1.5">
-      {#if isVideoSession && rangeTouched}
-        <!-- Khoảng chọn vẫn còn hiệu lực cho câu hỏi tiếp theo (sticky) —
-        nhắc lại ở đây để người dùng không quên đang giới hạn phạm vi hỏi. -->
-        <div class="flex items-center gap-1.5 text-[10.5px] text-accent px-0.5">
-          <Icon name="target" size={11} />
-          Đang hỏi về {isTimePoint ? "thời điểm" : "khoảng"} {timeRangeLabel}
-          <button type="button" onclick={clearTimeRange} class="text-text-muted hover:text-text transition-colors ml-0.5">
-            <Icon name="x" size={10} />
+      {#if isVideoSession}
+        {#if showRangeSliderInChat}
+          {@render timeRangeSlider(() => (showRangeSliderInChat = false))}
+        {:else if rangeTouched}
+          <!-- Khoảng chọn vẫn còn hiệu lực cho câu hỏi tiếp theo (sticky) —
+          nhắc lại ở đây để người dùng không quên đang giới hạn phạm vi hỏi.
+          Bấm vào chữ để MỞ LẠI thanh kéo, chỉnh sang mốc/khoảng khác mà
+          không cần đóng cửa sổ đi snip lại từ đầu. -->
+          <div class="flex items-center gap-1.5 text-[10.5px] text-accent px-0.5">
+            <button
+              type="button"
+              onclick={() => (showRangeSliderInChat = true)}
+              class="flex items-center gap-1.5 hover:brightness-110 transition-all"
+            >
+              <Icon name="target" size={11} />
+              Đang hỏi về {isTimePoint ? "thời điểm" : "khoảng"} {timeRangeLabel}
+            </button>
+            <button type="button" onclick={clearTimeRange} class="text-text-muted hover:text-text transition-colors ml-0.5">
+              <Icon name="x" size={10} />
+            </button>
+          </div>
+        {:else}
+          <button type="button" onclick={() => (showRangeSliderInChat = true)} class="chip self-start">
+            <Icon name="target" size={12} />
+            Chọn khoảng thời gian
           </button>
-        </div>
+        {/if}
       {/if}
       {#if pendingRegion}
         <!-- Cùng kiểu chip với "đang hỏi về khoảng ..." của video — nhất
