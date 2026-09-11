@@ -36,14 +36,20 @@ export function renderMarkdown(text: string): string {
  * gì. Thay vào đó chỉ đánh dấu bằng class + data-ts; phía Svelte lắng nghe 1
  * sự kiện click DUY NHẤT ở khối bọc ngoài rồi tự dò đúng nút vừa bấm. */
 export function linkifyTimestamps(text: string): string {
-  // Bóc dấu backtick bao quanh mốc giờ TRƯỚC — model (theo đúng quy tắc #4
-  // trong SYSTEM_PROMPT: dùng `code` cho "giá trị kỹ thuật") hay tự bọc
-  // "[mm:ss]" trong backtick. Nếu không bóc, <button> chèn vào bên dưới sẽ
-  // nằm LỌT VÀO TRONG 1 code-span markdown — mà code-span luôn hiện HTML dạng
-  // chữ thô (không render thành thẻ thật), đúng lỗi thực tế đã gặp: người
-  // dùng thấy nguyên văn `<button ...>[00:00]</button>` thay vì nút bấm được.
-  const withoutBackticks = text.replace(/`(\[\d{1,2}:[0-5]\d\])`/g, "$1");
-  return withoutBackticks.replace(/\[(\d{1,2}):([0-5]\d)\]/g, (match, mm: string, ss: string) => {
+  // KHÔNG tin tưởng model theo đúng 100% định dạng đã dặn trong prompt —
+  // thực tế đã gặp CẢ 2 kiểu lệch chuẩn trong cùng 1 buổi test:
+  //   1. Bọc thêm backtick quanh mốc giờ (`[00:00]`) — theo đúng quy tắc #4
+  //      trong SYSTEM_PROMPT ("dùng `code` cho giá trị kỹ thuật"), model tự
+  //      áp luôn cho mốc giờ dù không phải ý đó. Backtick tạo ra 1 code-span
+  //      markdown, <button> chèn vào TRONG đó bị hiện dạng chữ thô (code-span
+  //      luôn escape nội dung), không render thành thẻ thật.
+  //   2. Bỏ hẳn dấu ngoặc vuông (chỉ còn "00:00" trần) — không khớp regex chỉ
+  //      nhận đúng dạng "[mm:ss]", nên chẳng có nút nào được tạo ra cả.
+  // Giải pháp: CHUẨN HOÁ về đúng 1 dạng "[mm:ss]" trước (chấp nhận có/không
+  // backtick, có/không ngoặc vuông), rồi mới chèn nút — không cần đoán thêm
+  // model sẽ lệch chuẩn kiểu nào tiếp theo.
+  const normalized = text.replace(/`?\[?(\d{1,2}):([0-5]\d)\]?`?/g, (_m, mm: string, ss: string) => `[${mm}:${ss}]`);
+  return normalized.replace(/\[(\d{1,2}):([0-5]\d)\]/g, (match, mm: string, ss: string) => {
     const seconds = Number(mm) * 60 + Number(ss);
     return `<button type="button" class="ts-link" data-ts="${seconds}">${match}</button>`;
   });
