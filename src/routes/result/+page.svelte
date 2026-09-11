@@ -269,8 +269,10 @@
 
   /** `region`: chỉ có khi lượt hỏi này đến từ nút "Hỏi thêm" trên khung
    * khoanh vùng — Rust sẽ cắt tạm đúng vùng đó để gửi CHO ĐÚNG LƯỢT NÀY
-   * (xem region param của ask_ai_gemini). */
-  async function runTurn(region?: Box2d | null) {
+   * (xem region param của ask_ai_gemini).
+   * `search`: bật "Tra cứu web thật" (Google Search grounding) CHO ĐÚNG
+   * LƯỢT NÀY — chỉ Gemini hỗ trợ, tính phí theo lượt nên không mặc định bật. */
+  async function runTurn(region?: Box2d | null, search?: boolean) {
     busy = true;
     streamChunks = [];
     error = "";
@@ -312,6 +314,7 @@
         },
         (s) => (statusLine = s),
         region,
+        search,
       );
       const { text: cleanAnswer, box } = isVideoSession ? { text: answer, box: null } : extractBoxFromAnswer(answer);
       const newTurnIndex = history.length; // đúng vị trí lượt assistant sắp thêm vào bên dưới
@@ -336,14 +339,23 @@
    * cần người dùng nhớ lại. Chỉ áp dụng phiên video. */
   const timeBadgeSuffix = $derived(isVideoSession && rangeTouched ? ` (${timeRangeLabel})` : "");
 
+  /** Bật "Tra cứu web thật" (Google Search grounding) — CHỈ Gemini hỗ trợ,
+   * tính phí theo lượt Google tự quyết định search, nên KHÔNG mặc định bật
+   * và tự tắt lại sau mỗi câu hỏi (dùng 1 lần, giống `pendingRegion`), tránh
+   * đốt quota vô tình khi hỏi tiếp những câu không cần tra cứu gì cả. */
+  let searchEnabled = $state(false);
+
   async function handleAsk() {
     const typed = question.trim();
     const q = typed || (isVideoSession ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
-    const displayLabel = timeBadgeSuffix ? `${typed || "Giải thích nội dung"}${timeBadgeSuffix}` : undefined;
+    const search = searchEnabled;
+    searchEnabled = false;
+    const suffix = `${timeBadgeSuffix}${search ? " 🌐" : ""}`;
+    const displayLabel = suffix ? `${typed || "Giải thích nội dung"}${suffix}` : undefined;
     history = [{ role: "user", content: q + timeContextSuffix, displayLabel }];
     phase = "chat";
     await scrollToBottom();
-    runTurn();
+    runTurn(undefined, search);
   }
 
   /** Gửi thẳng 1 chip gợi ý — bong bóng chat hiện `chip.chatLabel` ngắn gọn,
@@ -365,10 +377,13 @@
     followupText = "";
     const region = pendingRegion;
     pendingRegion = null; // dùng 1 lần cho câu hỏi này rồi tự xoá
-    const displayLabel = timeBadgeSuffix ? `${q}${timeBadgeSuffix}` : undefined;
+    const search = searchEnabled;
+    searchEnabled = false; // tương tự — dùng 1 lần cho câu hỏi này rồi tự tắt
+    const suffix = `${timeBadgeSuffix}${search ? " 🌐" : ""}`;
+    const displayLabel = suffix ? `${q}${suffix}` : undefined;
     history = [...history, { role: "user", content: q + timeContextSuffix, displayLabel }];
     scrollToBottom();
-    runTurn(region);
+    runTurn(region, search);
   }
 
   async function handleCopy() {
@@ -546,6 +561,18 @@
         class="field selectable flex-1 disabled:opacity-50"
         onkeydown={(e) => e.key === "Enter" && handleAsk()}
       />
+      <button
+        type="button"
+        onclick={() => (searchEnabled = !searchEnabled)}
+        disabled={!mediaB64}
+        title="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
+        aria-pressed={searchEnabled}
+        class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
+          ? 'btn-accent'
+          : 'btn-ghost'}"
+      >
+        <Icon name="globe" size={15} />
+      </button>
       <button
         onclick={handleAsk}
         disabled={!mediaB64}
@@ -757,6 +784,18 @@
           class="field selectable flex-1 disabled:opacity-50"
           onkeydown={(e) => e.key === "Enter" && handleSend()}
         />
+        <button
+          type="button"
+          onclick={() => (searchEnabled = !searchEnabled)}
+          disabled={busy}
+          title="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
+          aria-pressed={searchEnabled}
+          class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
+            ? 'btn-accent'
+            : 'btn-ghost'}"
+        >
+          <Icon name="globe" size={15} />
+        </button>
         <button onclick={handleSend} disabled={busy} class="btn-accent px-4 rounded-lg">
           <Icon name="send" size={15} strokeWidth={2.2} />
         </button>

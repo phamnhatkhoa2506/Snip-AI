@@ -42,6 +42,11 @@ export async function askAIStream(
    * thang 0-1000, chỉ Rust phía Gemini đọc field này (ask_ai_gemini), 3
    * provider còn lại tự bỏ qua field lạ (xem giải thích ở `ChatTurn` trên). */
   region?: [number, number, number, number] | null,
+  /** Bật "Tra cứu web thật" (Google Search grounding, chỉ Gemini đọc field
+   * này) — tính phí theo lượt Google tự quyết định search, nên để người dùng
+   * TỰ BẬT từng lần hỏi (không mặc định bật, không "dính" qua các câu hỏi
+   * tiếp theo), tránh đốt quota vô tình. */
+  search?: boolean,
 ): Promise<string> {
   const windowLabel = getCurrentWindow().label;
   const model = currentModel(settings);
@@ -57,7 +62,7 @@ export async function askAIStream(
     // đang xử lý.
     onStatus("Đang đợi");
 
-    const common = { windowLabel, model, history, region: region ?? null };
+    const common = { windowLabel, model, history, region: region ?? null, search: search ?? false };
     let answer: string;
 
     switch (settings.provider) {

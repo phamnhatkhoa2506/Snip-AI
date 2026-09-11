@@ -80,6 +80,20 @@ Toạ độ chuẩn hoá theo thang 0-1000 so với kích thước ảnh. Nếu 
 trí cụ thể nào (VD tóm tắt tổng quát, dịch toàn bộ văn bản, giải thích chung), KHÔNG thêm \
 dòng JSON này.";
 
+/// Chỉ dẫn thêm khi bật "Tra cứu web" (Google Search grounding) — dặn model
+/// trích nguồn rõ ràng. KHÔNG cố lấy `groundingMetadata` có cấu trúc (chunks/
+/// nguồn kèm điểm tin cậy) từ response — luồng stream hiện tại chỉ trích
+/// đúng field `.text` của từng mẩu, xuyên toàn bộ pipeline (stream_sse), nên
+/// thêm 1 kênh dữ liệu phụ (metadata) sẽ phải sửa cả đường ống. Đơn giản hơn
+/// nhiều và vẫn đạt đúng mục tiêu (người dùng thấy được nguồn): để CHÍNH
+/// MODEL tự viết nguồn thẳng vào câu trả lời — model đã có sẵn URL/tiêu đề
+/// trang từ kết quả search grounding, chỉ cần dặn nó in ra.
+const GEMINI_SEARCH_INSTRUCTION: &str = "\
+\n\nBẠN CÓ THỂ tra cứu thông tin thật trên internet (giá cả, tin tức, thứ không có trong ảnh/ \
+video) khi câu hỏi cần đến. Nếu có dùng kết quả tra cứu, thêm 1 dòng cuối cùng dạng \"Nguồn: \
+[tên trang](URL), [tên trang 2](URL 2)\" liệt kê các trang đã tham khảo. Không tra cứu (và \
+không cần thêm dòng Nguồn) nếu câu hỏi chỉ cần nhìn ảnh/video là trả lời được.";
+
 #[derive(Deserialize, Clone)]
 pub struct ChatTurnDto {
     pub role: String, // "user" | "assistant"
@@ -455,7 +469,12 @@ pub async fn ask_ai_gemini(
     // KHÔNG bắt buộc frontend phải truyền (mọi lượt hỏi bình thường không có
     // field này, hành vi giữ nguyên như cũ).
     region: Option<[u32; 4]>,
+    // Bật "Google Search grounding" — cho Gemini tự tra cứu thông tin THẬT
+    // ngoài internet (giá cả, tin tức, thứ không có trong ảnh/video) khi cần,
+    // kèm trích nguồn. `Option` để không bắt buộc frontend phải truyền.
+    search: Option<bool>,
 ) -> Result<String, String> {
+    let use_search = search.unwrap_or(false);
     // Ưu tiên session đăng nhập Google nếu có — chỉ fallback về API key tự
     // nhập khi CHƯA đăng nhập (không phải khi đăng nhập lỗi tạm thời, vì
     // `read_session_token()` chỉ trả Err khi thật sự không có session nào).
@@ -504,15 +523,30 @@ pub async fn ask_ai_gemini(
     // trong khi frontend luôn vẽ khung theo ẢNH GỐC đầy đủ đang hiển thị ->
     // vẽ sai vị trí nếu không chặn. Bỏ hẳn field ở đây, đơn giản hơn là phải
     // remap toạ độ qua lại giữa 2 hệ quy chiếu.
-    let system_text = if mime_type.starts_with("image/") && region.is_none() {
+    let mut system_text = if mime_type.starts_with("image/") && region.is_none() {
         format!("{SYSTEM_PROMPT}{GEMINI_BBOX_INSTRUCTION}")
     } else {
         SYSTEM_PROMPT.to_string()
     };
-    let base_body = serde_json::json!({
+    if use_search {
+        system_text.push_str(GEMINI_SEARCH_INSTRUCTION);
+    }
+    let mut base_body = serde_json::json!({
         "contents": contents,
         "systemInstruction": {"parts": [{"text": system_text}]},
     });
+
+    // Bật Google Search grounding. KHÔNG chắc chắn tên field đúng — tài liệu
+    // Google mô tả kỹ cho API "Interactions" mới, còn app dùng endpoint
+    // generateContent cổ điển thì không tìm được ví dụ chính thức. Quota key
+    // test cá nhân VÀ pool key backend đều hết trong lúc phát triển, không
+    // xác nhận thực nghiệm được. Thử "googleSearch" (khớp quy ước camelCase
+    // của các field cấp cao khác app đang dùng thành công: systemInstruction,
+    // generationConfig) trước; có cơ chế tự đổi sang "google_search" nếu bị
+    // 400 (xem bên dưới, cùng kỹ thuật đã dùng cho thinkingLevel).
+    if use_search {
+        base_body["tools"] = serde_json::json!([{"googleSearch": {}}]);
+    }
 
     // Giảm "thinking" (suy luận ẩn trước khi trả lời, cộng thêm độ trễ) bằng
     // "thinkingLevel: minimal" — tham số MỚI của Gemini 3, thay thế
@@ -558,6 +592,15 @@ pub async fn ask_ai_gemini(
     if with_thinking && resp.status() == reqwest::StatusCode::BAD_REQUEST {
         eprintln!("[snip-ai][ai] Gemini từ chối thinkingLevel, thử lại không kèm field này");
         resp = send_with_timeout(send(&base_body)).await?;
+    }
+    if use_search && resp.status() == reqwest::StatusCode::BAD_REQUEST {
+        // "googleSearch" (thử ở trên) bị từ chối -> đổi sang "google_search",
+        // bỏ luôn thinkingConfig cho lần thử cuối này (đơn giản hoá, không cần
+        // tổ hợp cả 4 khả năng thinking x tools).
+        eprintln!("[snip-ai][ai] Gemini từ chối tools=googleSearch, thử lại với google_search");
+        let mut retry_body = base_body.clone();
+        retry_body["tools"] = serde_json::json!([{"google_search": {}}]);
+        resp = send_with_timeout(send(&retry_body)).await?;
     }
 
     if !resp.status().is_success() {
