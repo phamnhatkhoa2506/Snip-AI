@@ -16,6 +16,13 @@ export interface Env {
   // Google rate-limit (429). Đặt qua `wrangler secret put GEMINI_API_KEYS`.
   GEMINI_API_KEYS: string;
   GEMINI_MODEL: string;
+  // Model dùng RIÊNG cho lượt hỏi có bật "Tra cứu web" (Google Search
+  // grounding). Đã xác nhận qua trang giá chính thức của Google: grounding
+  // KHÔNG khả dụng ở Free Tier cho dòng Gemini 3.x (GEMINI_MODEL hiện tại)
+  // — nhưng Gemini 2.5 Flash lại CÓ free tier riêng cho grounding (500
+  // lượt/ngày, miễn phí, không cần bật thanh toán). Optional với default bên
+  // dưới nên không bắt buộc phải set lại secret/var cho deploy cũ.
+  GEMINI_SEARCH_MODEL?: string;
 
   // OAuth Client ID/Secret lấy từ Google Cloud Console (loại "Desktop app").
   // Client ID KHÔNG bí mật (nhúng thẳng vào app), Client Secret PHẢI giữ bí
@@ -177,7 +184,19 @@ export default {
       // biến môi trường phía server (không cho client tự chọn model tuỳ ý,
       // tránh lạm dụng gọi model đắt tiền hơn).
       const body = await request.text();
-      const model = env.GEMINI_MODEL || "gemini-3.6-flash";
+
+      // Lượt hỏi có bật "Tra cứu web" (field "tools" chứa google_search) ->
+      // BẮT BUỘC đổi sang model có free tier cho grounding (xem giải thích ở
+      // GEMINI_SEARCH_MODEL) — dùng GEMINI_MODEL mặc định (Gemini 3.x) sẽ bị
+      // Google chặn thẳng vì grounding không khả dụng ở free tier cho dòng
+      // đó, bất kể còn dư quota bao nhiêu. Chỉ cần dò chuỗi con trong body
+      // thô (không parse JSON đầy đủ) — Rust luôn ghi đúng 1 trong 2 tên field
+      // này khi bật search (xem ai.rs), đủ tin cậy cho việc CHỌN MODEL, không
+      // ảnh hưởng gì tới nội dung request thật sự forward đi.
+      const wantsSearch = body.includes('"googleSearch"') || body.includes('"google_search"');
+      const model = wantsSearch
+        ? env.GEMINI_SEARCH_MODEL || "gemini-2.5-flash"
+        : env.GEMINI_MODEL || "gemini-3.6-flash";
 
       let keys: string[];
       try {

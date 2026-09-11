@@ -8,6 +8,12 @@ compatibility_date = "2025-01-01"
 # này commit lên git).
 [vars]
 GEMINI_MODEL = "gemini-3.6-flash"
+# Model RIÊNG cho lượt hỏi có bật "Tra cứu web" (Google Search grounding) —
+# đã xác nhận qua trang giá chính thức: grounding KHÔNG khả dụng ở Free Tier
+# cho dòng Gemini 3.x (GEMINI_MODEL ở trên), nhưng Gemini 2.5 Flash có free
+# tier riêng cho grounding (500 lượt/ngày). Có default cứng trong code
+# (index.ts) nên dòng này chỉ để dễ đổi mà không cần sửa code.
+GEMINI_SEARCH_MODEL = "gemini-2.5-flash"
 # OAuth Client ID (loại "Desktop app", tạo ở Google Cloud Console > Google
 # Auth Platform > Clients) — KHÔNG bí mật, được nhúng thẳng vào app desktop
 # để mở URL đăng nhập Google, an toàn để commit lên git.
