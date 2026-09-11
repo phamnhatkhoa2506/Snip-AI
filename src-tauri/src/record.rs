@@ -459,6 +459,29 @@ pub fn get_recording_chain_base64(state: tauri::State<'_, AppState>, window_labe
     Ok(list.iter().map(|b| STANDARD.encode(b)).collect())
 }
 
+/// Bỏ 1 video KHỎI chuỗi của phiên — xem giải thích ở
+/// `commands::remove_capture_from_session` (tương đương cho ảnh).
+#[tauri::command]
+pub fn remove_recording_from_session(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    window_label: String,
+    index: usize,
+) -> Result<(), String> {
+    let mut sessions = state.video_sessions.lock().unwrap();
+    let list = sessions.get_mut(&window_label).ok_or("Không tìm thấy phiên này")?;
+    if list.len() <= 1 {
+        return Err("Phải giữ lại ít nhất 1 video".into());
+    }
+    if index >= list.len() {
+        return Err("Chỉ số video không hợp lệ".into());
+    }
+    list.remove(index);
+    drop(sessions);
+    let _ = app.emit_to(&window_label, "ai:chain-updated", ());
+    Ok(())
+}
+
 /// ID ngẫu nhiên đủ dùng để đặt tên file tạm không trùng nhau — không cần cả
 /// crate `uuid` chỉ để làm việc này.
 // `pub(crate)` — dùng lại ở history.rs để sinh id bản ghi lịch sử, tránh có

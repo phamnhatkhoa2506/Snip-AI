@@ -545,6 +545,25 @@ pub async fn append_capture_to_session(
     Ok(())
 }
 
+/// Bỏ 1 ảnh KHỎI chuỗi của phiên (bấm nút xoá trên thumbnail) — LUÔN giữ lại
+/// ít nhất 1 ảnh (chuỗi rỗng thì không còn gì để hỏi AI, xem
+/// `ai.rs::ask_ai_gemini` — lỗi thẳng nếu chuỗi rỗng).
+#[tauri::command]
+pub fn remove_capture_from_session(app: AppHandle, state: State<'_, AppState>, window_label: String, index: usize) -> Result<(), String> {
+    let mut sessions = state.crop_sessions.lock().unwrap();
+    let list = sessions.get_mut(&window_label).ok_or("Không tìm thấy phiên này")?;
+    if list.len() <= 1 {
+        return Err("Phải giữ lại ít nhất 1 ảnh".into());
+    }
+    if index >= list.len() {
+        return Err("Chỉ số ảnh không hợp lệ".into());
+    }
+    list.remove(index);
+    drop(sessions);
+    let _ = app.emit_to(&window_label, "ai:chain-updated", ());
+    Ok(())
+}
+
 /// Label SINGLETON — chỉ 1 cửa sổ Lịch sử tại 1 thời điểm, gọi lại thì show
 /// + focus cửa sổ cũ thay vì tạo cửa sổ mới chồng lên (khác cửa sổ "Kết quả
 /// AI", vốn cố tình cho phép nhiều cái mở song song).

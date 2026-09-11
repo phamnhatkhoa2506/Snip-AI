@@ -221,6 +221,22 @@
     ensureRoomyWindow();
   }
 
+  /** Bỏ 1 ảnh/video khỏi chuỗi (nút xoá trên thumbnail) — LUÔN giữ lại ít
+   * nhất 1, nút xoá tự ẩn khi chỉ còn đúng 1 (xem chainThumbnails). */
+  async function removeChainItem(index: number) {
+    try {
+      await invoke(isVideoSession ? "remove_recording_from_session" : "remove_capture_from_session", {
+        windowLabel: getCurrentWindow().label,
+        index,
+      });
+      // Đang ghim xem đúng ảnh vừa xoá (hoặc 1 ảnh đứng SAU nó, lệch chỉ số
+      // đi 1) -> bỏ ghim, quay về mặc định "luôn bám ảnh mới nhất".
+      if (previewIndex !== null && previewIndex >= index) previewIndex = null;
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
   /** Mở ảnh phóng to KÈM thanh kéo bên trong — dùng lúc đang chat (chọn/
    * chỉnh khoảng thời gian). Xem lại được video trong lúc kéo, thay vì kéo
    * "mù" ngay trong khung hội thoại chật hẹp. */
@@ -524,21 +540,39 @@
     32px chật hẹp lúc đang chat). Bấm vào 1 cái ghim preview vào đúng cái đó. -->
     <div class="flex gap-1.5 overflow-x-auto max-w-full pb-1">
       {#each mediaChain as item, i (i)}
-        <button
-          type="button"
-          onclick={() => (previewIndex = i)}
-          class="shrink-0 w-12 h-12 rounded-lg overflow-hidden border-2 transition-colors {(previewIndex ?? mediaChain.length - 1) ===
-          i
-            ? 'border-accent'
-            : 'border-border hover:border-accent/50'}"
-          title={`Bước ${i + 1}`}
-        >
-          {#if isVideoSession}
-            <video src={`data:video/mp4;base64,${item}`} muted class="w-full h-full object-cover"></video>
-          {:else}
-            <img src={`data:image/png;base64,${item}`} alt={`Bước ${i + 1}`} class="w-full h-full object-cover" />
+        <div class="relative shrink-0 group">
+          <button
+            type="button"
+            onclick={() => (previewIndex = i)}
+            class="w-12 h-12 rounded-lg overflow-hidden border-2 transition-colors {(previewIndex ?? mediaChain.length - 1) ===
+            i
+              ? 'border-accent'
+              : 'border-border hover:border-accent/50'}"
+            title={`Bước ${i + 1}`}
+          >
+            {#if isVideoSession}
+              <video src={`data:video/mp4;base64,${item}`} muted class="w-full h-full object-cover"></video>
+            {:else}
+              <img src={`data:image/png;base64,${item}`} alt={`Bước ${i + 1}`} class="w-full h-full object-cover" />
+            {/if}
+          </button>
+          {#if mediaChain.length > 1}
+            <!-- Chỉ hiện lúc rê chuột vào — tránh lỡ tay bấm nhầm khi chỉ
+            định bấm xem thumbnail. Luôn giữ lại ít nhất 1 ảnh/video nên nút
+            này tự ẩn hẳn khi chuỗi chỉ còn đúng 1. -->
+            <button
+              type="button"
+              onclick={(e) => {
+                e.stopPropagation();
+                removeChainItem(i);
+              }}
+              title="Bỏ khỏi chuỗi"
+              class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-[color:var(--color-danger)] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <Icon name="x" size={9} strokeWidth={3} />
+            </button>
           {/if}
-        </button>
+        </div>
       {/each}
     </div>
   {/snippet}
