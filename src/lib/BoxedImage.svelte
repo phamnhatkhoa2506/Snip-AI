@@ -112,9 +112,15 @@
 
   function onHandlePointerMove(e: PointerEvent) {
     if (!draggingCorner || !geom || !imgEl || !currentBox) return;
+    // BẮT BUỘC làm tròn về số nguyên — Rust nhận `region` dưới dạng
+    // `[u32; 4]` (đúng quy ước box_2d gốc của Gemini, luôn là số nguyên).
+    // Toạ độ AI trả về sẵn là số nguyên nên không lộ ra, nhưng toạ độ tính
+    // từ vị trí chuột (pixel / renderW * 1000) luôn ra số thực — thiếu bước
+    // làm tròn này thì bấm "Hỏi thêm" sau khi kéo chỉnh sẽ lỗi ngay
+    // ("invalid type: floating point ..., expected u32") — lỗi thực tế đã gặp.
     const imgRect = imgEl.getBoundingClientRect();
-    const bx = Math.min(1000, Math.max(0, ((e.clientX - imgRect.left - geom.offsetX) / geom.renderW) * 1000));
-    const by = Math.min(1000, Math.max(0, ((e.clientY - imgRect.top - geom.offsetY) / geom.renderH) * 1000));
+    const bx = Math.round(Math.min(1000, Math.max(0, ((e.clientX - imgRect.left - geom.offsetX) / geom.renderW) * 1000)));
+    const by = Math.round(Math.min(1000, Math.max(0, ((e.clientY - imgRect.top - geom.offsetY) / geom.renderH) * 1000)));
 
     const [fx, fy] = draggingCorner;
     let [ymin, xmin, ymax, xmax] = currentBox;
@@ -132,7 +138,13 @@
   }
 </script>
 
-<div class="relative inline-block max-w-full max-h-full">
+<!-- KHÔNG tự đặt max-w/max-h (theo %) ở khối bọc này — với nhiều lớp <div>
+lồng nhau như ở modal xem ảnh, % chỉ tính đúng khi TOÀN BỘ chuỗi cha đều có
+kích thước tường minh, chỉ 1 lớp bị "auto" là toàn chuỗi vỡ theo (bug thực tế
+đã gặp: ảnh hiển thị to hơn khung, bị cắt). Để `class` truyền vào tự quyết
+định giới hạn kích thước của <img> theo đơn vị KHÔNG phụ thuộc cha (vw/vh
+hoặc px cố định) — xem cách gọi ở result/+page.svelte. -->
+<div class="relative inline-block">
   <img bind:this={imgEl} onload={recompute} {src} {alt} class="{imgClass} block" />
   {#if rect}
     <!-- Cùng kiểu dáng với khung chọn vùng lúc snip (viền accent + 4 chấm

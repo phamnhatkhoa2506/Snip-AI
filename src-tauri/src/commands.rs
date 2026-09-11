@@ -309,9 +309,13 @@ pub(crate) fn open_result_window(
         pos_y = (crop_y as f64 - win_h - gap).max(monitor.y as f64);
     }
 
-    // Lệch nhẹ (cascade) theo session_id để nhiều cửa sổ mở cùng 1 khu vực
-    // màn hình không chồng khít lên nhau — dễ nhận ra có nhiều popup hơn.
-    let cascade = (session_id % 6) as f64 * (18.0 * scale);
+    // Lệch (cascade) theo session_id để nhiều cửa sổ mở cùng 1 khu vực màn
+    // hình không chồng khít lên nhau. 18px trước đây gần như không đáng kể so
+    // với cửa sổ 480x340 (chỉ ~4% chiều rộng) — bấm snip vài lần liên tiếp là
+    // cửa sổ mới che gần trọn cửa sổ cũ, người dùng tưởng ảnh "biến mất". Tăng
+    // lên 60px (~12.5% chiều rộng) để phần header + vài dòng đầu của cửa sổ
+    // cũ luôn còn lộ ra, thấy rõ "có nhiều popup" thay vì bị nuốt gần hết.
+    let cascade = (session_id % 6) as f64 * (60.0 * scale);
     pos_x = (pos_x + cascade).min(max_x.max(min_x));
     pos_y = (pos_y + cascade).min((monitor.y + monitor.height as i32) as f64 - win_h);
 

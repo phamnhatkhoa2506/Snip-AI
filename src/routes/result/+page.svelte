@@ -706,11 +706,16 @@
         làm đứt quãng chuỗi ràng buộc kích thước vốn nằm thẳng trên <img>
         trước đây. -->
         <div class="max-w-full max-h-full min-w-0 min-h-0" onclick={(e) => e.stopPropagation()}>
+          <!-- max-w/max-h theo vw/vh (KHÔNG theo %) — luôn tính theo kích
+          thước cửa sổ thật, không phụ thuộc chuỗi div cha có "auto" hay
+          không, tránh đúng bug đã gặp: ảnh hiển thị to hơn khung, bị cắt mất
+          không xem được toàn bộ. Trừ hao 1 khoảng (85/80 thay vì 100) để
+          không dính sát mép modal (p-6 + nút đóng ở góc). -->
           <BoxedImage
             src={`data:image/png;base64,${mediaB64}`}
             box={latestBox}
             alt="Vùng đã chụp (phóng to)"
-            class="max-w-full max-h-full object-contain rounded-xl border border-border shadow-2xl"
+            class="max-w-[85vw] max-h-[80vh] object-contain rounded-xl border border-border shadow-2xl"
             interactive
             onAskRegion={handleAskRegion}
           />
