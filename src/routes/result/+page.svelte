@@ -7,6 +7,7 @@
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Icon from "$lib/Icon.svelte";
   import ScrollArea from "$lib/ScrollArea.svelte";
+  import BoxedImage from "$lib/BoxedImage.svelte";
   import { QUICK_PROMPTS, VIDEO_PROMPTS, PROMPT_EXPLAIN, PROMPT_VIDEO_EXPLAIN, type QuickPrompt } from "$lib/config";
   import { currentModel, loadSettings, type Settings } from "$lib/settings";
   import { askAIStream, type ChatTurn } from "$lib/aiClient";
@@ -175,6 +176,33 @@
     transcriptEl?.scrollTo({ top: transcriptEl.scrollHeight, behavior: "smooth" });
   }
 
+  // ── Khoanh vùng AI chỉ tới (chỉ phiên ẢNH) — Rust dặn Gemini thêm 1 dòng
+  // JSON `{"box_2d":[ymin,xmin,ymax,xmax]}` ở CUỐI câu trả lời khi có nhắc
+  // tới 1 vị trí cụ thể (xem GEMINI_BBOX_INSTRUCTION trong ai.rs). Bóc dòng
+  // đó ra khỏi văn bản HIỂN THỊ ở đây — người dùng không cần thấy JSON thô,
+  // chỉ cần thấy khung vẽ trên ảnh (xem $lib/BoxedImage.svelte — nơi thật sự
+  // quy đổi toạ độ 0-1000 sang pixel, tuỳ theo kích thước hiển thị).
+  type Box2d = [number, number, number, number]; // [ymin, xmin, ymax, xmax]
+
+  function extractBoxFromAnswer(text: string): { text: string; box: Box2d | null } {
+    const m = text.match(/\n*\{\s*"box_2d"\s*:\s*\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\]\s*\}\s*$/);
+    if (!m) return { text, box: null };
+    const nums = m.slice(1, 5).map(Number) as Box2d;
+    // Model thỉnh thoảng trả toạ độ lệch khỏi [0,1000] (VD làm tròn quá đà) —
+    // kẹp lại cho chắc, không để khung vẽ tràn ra ngoài ảnh.
+    const box: Box2d = nums.map((n) => Math.min(1000, Math.max(0, n))) as Box2d;
+    return { text: text.slice(0, m.index).trimEnd(), box };
+  }
+
+  /** Khung theo TỪNG LƯỢT trả lời (key = index trong `history`) — không phải
+   * chỉ giữ "khung gần nhất" nữa: hiện trực tiếp ngay trong bong bóng chat
+   * của đúng câu trả lời đó, nên cuộn lại xem câu trả lời cũ vẫn thấy đúng
+   * khung của câu đó, không bị đè bởi câu hỏi sau. */
+  let turnBoxes = $state<Record<number, Box2d>>({});
+  /** Khung của câu trả lời GẦN NHẤT — dùng riêng cho ảnh phóng to (modal),
+   * nơi chỉ có 1 chỗ hiển thị chung cho cả cuộc hội thoại. */
+  let latestBox = $derived<Box2d | null>(turnBoxes[history.length - 1] ?? null);
+
   async function runTurn() {
     busy = true;
     streamChunks = [];
@@ -189,16 +217,38 @@
 
     try {
       const settings = loadSettings();
+
+      // Trễ hiển thị ~50 ký tự cuối so với luồng stream thật — KHÔNG đưa
+      // thẳng từng mẩu vào hiệu ứng "gõ chữ" ngay khi nhận được. Lý do: dòng
+      // JSON `{"box_2d":[...]}` (nếu có) luôn nằm Ở CUỐI câu trả lời, và nếu
+      // hiện thẳng theo stream thì người dùng sẽ thấy nó NHÁY LÊN vài trăm ms
+      // trước khi bị cắt bỏ ở bước làm sạch cuối cùng (extractBoxFromAnswer)
+      // — trông như lỗi hiển thị. Giữ lại 50 ký tự cuối (đủ dư so với độ dài
+      // dòng JSON thực tế, ~35 ký tự) chưa hiện ngay, đợi đủ dữ liệu mới hiện
+      // tiếp; phần đuôi còn lại (rất ngắn) chỉ đơn giản xuất hiện cùng lúc
+      // khi bong bóng chuyển sang bản render markdown đã làm sạch — mất hiệu
+      // ứng fade-in ở đúng vài chục ký tự cuối, không đáng kể.
+      let rawSoFar = "";
+      let shownLength = 0;
+      const REVEAL_LAG_CHARS = 50;
       const answer = await askAIStream(
         history,
         settings,
         (piece) => {
-          pushStreamPiece(piece);
+          rawSoFar += piece;
+          const safeUpTo = Math.max(0, rawSoFar.length - REVEAL_LAG_CHARS);
+          if (safeUpTo > shownLength) {
+            pushStreamPiece(rawSoFar.slice(shownLength, safeUpTo));
+            shownLength = safeUpTo;
+          }
           scrollToBottom();
         },
         (s) => (statusLine = s),
       );
-      history = [...history, { role: "assistant", content: answer }];
+      const { text: cleanAnswer, box } = isVideoSession ? { text: answer, box: null } : extractBoxFromAnswer(answer);
+      const newTurnIndex = history.length; // đúng vị trí lượt assistant sắp thêm vào bên dưới
+      if (box) turnBoxes = { ...turnBoxes, [newTurnIndex]: box };
+      history = [...history, { role: "assistant", content: cleanAnswer }];
       saveHistoryTurn(settings);
     } catch (e) {
       // Luôn hiện lỗi + không bao giờ để `busy` treo mãi (bug đã gặp trước đây:
@@ -494,10 +544,29 @@
             >
               <Icon name="sparkles" size={12} strokeWidth={2.3} />
             </div>
-            <div class="relative max-w-[88%]">
-              <div class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[12.5px]">
-                {@html renderMarkdown(turn.content)}
-              </div>
+            <div class="flex flex-col gap-1.5 max-w-[88%]">
+              {#if turnBoxes[i] && mediaB64}
+                <!-- Ảnh nhỏ kèm khung AI chỉ tới — hiện NGAY tại đây thay vì
+                bắt người dùng tự bấm mở ảnh phóng to mới thấy, dễ quan sát
+                hơn hẳn. Bấm vào vẫn mở được ảnh phóng to như bình thường. -->
+                <button
+                  type="button"
+                  onclick={() => (showImagePreview = true)}
+                  class="self-start rounded-xl overflow-hidden border border-border hover:border-accent/60 transition-colors"
+                  title="Xem ảnh phóng to"
+                >
+                  <BoxedImage
+                    src={`data:image/png;base64,${mediaB64}`}
+                    box={turnBoxes[i]}
+                    alt="Vùng AI chỉ tới"
+                    class="max-h-40 object-contain"
+                  />
+                </button>
+              {/if}
+              <div class="relative">
+                <div class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[12.5px]">
+                  {@html renderMarkdown(turn.content)}
+                </div>
               <button
                 onclick={() => handleCopyTurn(i, turn.content)}
                 class="absolute top-1.5 right-1.5 p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-white/8 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -505,6 +574,7 @@
               >
                 <Icon name={copiedTurnIndex === i ? "check" : "copy"} size={12} />
               </button>
+              </div>
             </div>
           </div>
         {/if}
@@ -596,11 +666,18 @@
           class="max-w-full max-h-full rounded-xl border border-border shadow-2xl"
         ></video>
       {:else}
-        <img
-          src={`data:image/png;base64,${mediaB64}`}
-          alt="Vùng đã chụp (phóng to)"
-          class="max-w-full max-h-full object-contain rounded-xl border border-border shadow-2xl"
-        />
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- Chỉ chặn nổi bọt click (đóng modal khi bấm ra ngoài ảnh) — không
+        phải phần tử tương tác thật, nên không cần bàn phím điều khiển. -->
+        <div onclick={(e) => e.stopPropagation()}>
+          <BoxedImage
+            src={`data:image/png;base64,${mediaB64}`}
+            box={latestBox}
+            alt="Vùng đã chụp (phóng to)"
+            class="max-w-full max-h-full object-contain rounded-xl border border-border shadow-2xl"
+          />
+        </div>
       {/if}
       <button
         onclick={() => (showImagePreview = false)}

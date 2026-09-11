@@ -60,6 +60,26 @@ cho nhiều ý, `code` cho mã/lệnh/tên file/giá trị kỹ thuật, khối 
 nhiều dòng, bảng Markdown khi dữ liệu có dạng bảng.
 5. Ngắn gọn, đúng trọng tâm — độ dài tương xứng với nội dung, không dài dòng.";
 
+/// Chỉ dẫn thêm cho Gemini khi phiên đang hỏi là ẢNH (không áp dụng cho
+/// video — 1 khung toạ độ không rõ "thuộc khung hình nào" trên video, để
+/// dành xử lý sau). Đã kiểm chứng bằng test thực tế với ảnh giả lập kiểu
+/// giao diện phần mềm (không phải ảnh đời thường như ví dụ trong tài liệu
+/// Google): model trả toạ độ khớp gần như tuyệt đối so với vị trí thật, và
+/// vẫn lấy được CÙNG LÚC với câu trả lời văn xuôi qua streamGenerateContent
+/// bình thường — không cần tắt stream hay tách lệnh gọi riêng.
+///
+/// CHỈ dành cho Gemini — đây là quy ước riêng của Gemini (box_2d, thang
+/// 0-1000), không áp dụng cho NVIDIA/OpenAI/Anthropic nên KHÔNG đưa vào
+/// SYSTEM_PROMPT dùng chung.
+const GEMINI_BBOX_INSTRUCTION: &str = "\
+\n\nNếu câu trả lời có nhắc đến 1 VỊ TRÍ/PHẦN TỬ CỤ THỂ trong ảnh (1 nút, 1 dòng chữ, 1 ô, \
+1 vùng...), sau khi trả lời xong bằng lời, thêm CHÍNH XÁC 1 dòng JSON riêng ở CUỐI CÙNG \
+(không nằm trong đoạn văn, không có chữ nào khác trên dòng đó):\n\
+{\"box_2d\": [ymin, xmin, ymax, xmax]}\n\
+Toạ độ chuẩn hoá theo thang 0-1000 so với kích thước ảnh. Nếu câu trả lời KHÔNG nhắc đến vị \
+trí cụ thể nào (VD tóm tắt tổng quát, dịch toàn bộ văn bản, giải thích chung), KHÔNG thêm \
+dòng JSON này.";
+
 #[derive(Deserialize, Clone)]
 pub struct ChatTurnDto {
     pub role: String, // "user" | "assistant"
@@ -462,9 +482,11 @@ pub async fn ask_ai_gemini(
         })
         .collect();
 
+    let system_text =
+        if mime_type.starts_with("image/") { format!("{SYSTEM_PROMPT}{GEMINI_BBOX_INSTRUCTION}") } else { SYSTEM_PROMPT.to_string() };
     let base_body = serde_json::json!({
         "contents": contents,
-        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "systemInstruction": {"parts": [{"text": system_text}]},
     });
 
     // Giảm "thinking" (suy luận ẩn trước khi trả lời, cộng thêm độ trễ) bằng
