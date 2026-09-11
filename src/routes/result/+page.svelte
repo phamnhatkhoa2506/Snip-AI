@@ -499,9 +499,6 @@
       {/if}
       <div class="flex-1 min-w-0">
         <div class="text-[12.5px] font-semibold leading-tight">Kết quả AI</div>
-        {#if modelLabel}
-          <div class="text-[10.5px] text-text-muted leading-tight truncate font-mono">{modelLabel}</div>
-        {/if}
       </div>
       <button
         onclick={handleCopy}
