@@ -38,6 +38,10 @@ export async function askAIStream(
   settings: Settings,
   onDelta: (piece: string) => void,
   onStatus: (s: string) => void = () => {},
+  /** Nút "Hỏi thêm về vùng này" (khoanh vùng AI chỉ tới) — [ymin,xmin,ymax,xmax]
+   * thang 0-1000, chỉ Rust phía Gemini đọc field này (ask_ai_gemini), 3
+   * provider còn lại tự bỏ qua field lạ (xem giải thích ở `ChatTurn` trên). */
+  region?: [number, number, number, number] | null,
 ): Promise<string> {
   const windowLabel = getCurrentWindow().label;
   const model = currentModel(settings);
@@ -50,7 +54,7 @@ export async function askAIStream(
 
     onStatus(`Đang gọi ${settings.provider} · ${model}`);
 
-    const common = { windowLabel, model, history };
+    const common = { windowLabel, model, history, region: region ?? null };
     let answer: string;
 
     switch (settings.provider) {

@@ -37,6 +37,7 @@
   let history = $state<ChatTurn[]>([]);
   let busy = $state(false);
   let followupText = $state("");
+  let followupInputEl = $state<HTMLInputElement | null>(null);
   let copyFlash = $state(false);
   let error = $state("");
   let statusLine = $state("");
@@ -203,7 +204,22 @@
    * nơi chỉ có 1 chỗ hiển thị chung cho cả cuộc hội thoại. */
   let latestBox = $derived<Box2d | null>(turnBoxes[history.length - 1] ?? null);
 
-  async function runTurn() {
+  /** Vùng đang chờ hỏi thêm (bấm "Hỏi thêm" trên khung trong ảnh phóng to) —
+   * dùng 1 LẦN cho câu hỏi tiếp theo rồi tự xoá, không "dính" mãi như khoảng
+   * thời gian video (giữ tối giản: 1 nút, 1 lần dùng, không cần thêm state
+   * "đang bật/tắt" phức tạp). */
+  let pendingRegion = $state<Box2d | null>(null);
+
+  function handleAskRegion(box: Box2d) {
+    pendingRegion = box;
+    showImagePreview = false;
+    followupInputEl?.focus();
+  }
+
+  /** `region`: chỉ có khi lượt hỏi này đến từ nút "Hỏi thêm" trên khung
+   * khoanh vùng — Rust sẽ cắt tạm đúng vùng đó để gửi CHO ĐÚNG LƯỢT NÀY
+   * (xem region param của ask_ai_gemini). */
+  async function runTurn(region?: Box2d | null) {
     busy = true;
     streamChunks = [];
     error = "";
@@ -244,6 +260,7 @@
           scrollToBottom();
         },
         (s) => (statusLine = s),
+        region,
       );
       const { text: cleanAnswer, box } = isVideoSession ? { text: answer, box: null } : extractBoxFromAnswer(answer);
       const newTurnIndex = history.length; // đúng vị trí lượt assistant sắp thêm vào bên dưới
@@ -295,10 +312,12 @@
     const q = followupText.trim();
     if (!q || busy) return;
     followupText = "";
+    const region = pendingRegion;
+    pendingRegion = null; // dùng 1 lần cho câu hỏi này rồi tự xoá
     const displayLabel = timeBadgeSuffix ? `${q}${timeBadgeSuffix}` : undefined;
     history = [...history, { role: "user", content: q + timeContextSuffix, displayLabel }];
     scrollToBottom();
-    runTurn();
+    runTurn(region);
   }
 
   async function handleCopy() {
@@ -620,6 +639,17 @@
           </button>
         </div>
       {/if}
+      {#if pendingRegion}
+        <!-- Cùng kiểu chip với "đang hỏi về khoảng ..." của video — nhất
+        quán, không phải học thêm 1 kiểu UI mới. -->
+        <div class="flex items-center gap-1.5 text-[10.5px] text-accent px-0.5">
+          <Icon name="target" size={11} />
+          Đang hỏi về vùng đã chọn
+          <button type="button" onclick={() => (pendingRegion = null)} class="text-text-muted hover:text-text transition-colors ml-0.5">
+            <Icon name="x" size={10} />
+          </button>
+        </div>
+      {/if}
       {#if busy && statusLine}
         <div class="text-[10.5px] text-text-muted flex items-center gap-1.5 px-0.5" transition:fade={{ duration: 140 }}>
           <span class="truncate">{statusLine}</span>
@@ -628,10 +658,11 @@
       {/if}
       <div class="flex gap-2">
         <input
+          bind:this={followupInputEl}
           type="text"
           bind:value={followupText}
           disabled={busy}
-          placeholder={busy ? "AI đang trả lời…" : "Hỏi tiếp…"}
+          placeholder={busy ? "AI đang trả lời…" : pendingRegion ? "Hỏi về vùng đã chọn…" : "Hỏi tiếp…"}
           class="field selectable flex-1 disabled:opacity-50"
           onkeydown={(e) => e.key === "Enter" && handleSend()}
         />
@@ -680,6 +711,8 @@
             box={latestBox}
             alt="Vùng đã chụp (phóng to)"
             class="max-w-full max-h-full object-contain rounded-xl border border-border shadow-2xl"
+            interactive
+            onAskRegion={handleAskRegion}
           />
         </div>
       {/if}

@@ -57,6 +57,30 @@ pub fn crop_png(png_bytes: &[u8], x: u32, y: u32, w: u32, h: u32) -> Result<Vec<
     encode_png(&resized.to_rgba8())
 }
 
+/// Cắt 1 vùng CON từ ảnh PNG đã có sẵn, theo toạ độ CHUẨN HOÁ thang 0-1000
+/// (đúng định dạng `box_2d` của Gemini: [ymin, xmin, ymax, xmax]) — dùng cho
+/// nút "Hỏi thêm về vùng này" (khoanh vùng AI chỉ tới).
+///
+/// QUAN TRỌNG: cắt từ `png_bytes` đang lưu trong `crop_sessions` — ảnh ĐÓ
+/// chính là ảnh Gemini đã phân tích để sinh ra box_2d (đã downscale sẵn ở
+/// `crop_png` phía trên), nên toạ độ chuẩn hoá 0-1000 áp thẳng vào đây luôn
+/// ĐÚNG, không cần lo lệch tỉ lệ do ảnh gốc/ảnh gửi AI khác kích thước nhau.
+/// Không ghi đè lại `crop_sessions` — chỉ cắt tạm để gửi cho ĐÚNG 1 lượt hỏi
+/// này, ảnh gốc trong phiên vẫn còn nguyên cho các câu hỏi khác.
+pub fn crop_by_normalized_box(png_bytes: &[u8], ymin: u32, xmin: u32, ymax: u32, xmax: u32) -> Result<Vec<u8>, String> {
+    let img = image::load_from_memory(png_bytes).map_err(|e| format!("Ảnh gốc lỗi: {e}"))?;
+    let (img_w, img_h) = (img.width(), img.height());
+
+    let to_px = |v: u32, dim: u32| -> u32 { ((v.min(1000) as u64 * dim as u64) / 1000) as u32 };
+    let x = to_px(xmin, img_w).min(img_w.saturating_sub(1));
+    let y = to_px(ymin, img_h).min(img_h.saturating_sub(1));
+    let x2 = to_px(xmax, img_w).max(x + 1).min(img_w);
+    let y2 = to_px(ymax, img_h).max(y + 1).min(img_h);
+
+    let cropped = img.crop_imm(x, y, x2 - x, y2 - y);
+    encode_png(&cropped.to_rgba8())
+}
+
 /// Thu nhỏ ảnh nếu cạnh dài vượt `MAX_DIMENSION`, giữ nguyên tỉ lệ. Dùng
 /// filter Lanczos3 (chất lượng cao nhất trong `image` crate, đổi lại chậm hơn
 /// filter rẻ như Triangle/Nearest) — ưu tiên giữ chữ trong ảnh (VD code,

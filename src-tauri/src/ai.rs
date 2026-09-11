@@ -450,6 +450,11 @@ pub async fn ask_ai_gemini(
     window_label: String,
     model: String,
     history: Vec<ChatTurnDto>,
+    // Nút "Hỏi thêm về vùng này" (khoanh vùng AI chỉ tới) — toạ độ chuẩn hoá
+    // thang 0-1000, đúng định dạng box_2d [ymin,xmin,ymax,xmax]. `Option` nên
+    // KHÔNG bắt buộc frontend phải truyền (mọi lượt hỏi bình thường không có
+    // field này, hành vi giữ nguyên như cũ).
+    region: Option<[u32; 4]>,
 ) -> Result<String, String> {
     // Ưu tiên session đăng nhập Google nếu có — chỉ fallback về API key tự
     // nhập khi CHƯA đăng nhập (không phải khi đăng nhập lỗi tạm thời, vì
@@ -462,6 +467,18 @@ pub async fn ask_ai_gemini(
     // Chấp nhận cả ảnh (snip) lẫn video (quay màn hình) — 1 cửa sổ chỉ là 1
     // trong 2, `get_media_base64` tự tìm đúng loại và trả kèm mime_type.
     let (media_b64, mime_type) = get_media_base64(&state, &window_label)?;
+
+    // Có `region` VÀ đang là ảnh (không áp dụng cho video) -> cắt tạm đúng
+    // vùng đó để gửi CHO LƯỢT NÀY, không đụng gì tới ảnh gốc lưu trong
+    // `crop_sessions` (các câu hỏi khác trong cùng phiên vẫn thấy toàn ảnh).
+    let media_b64 = match region {
+        Some([ymin, xmin, ymax, xmax]) if mime_type.starts_with("image/") => {
+            let raw = STANDARD.decode(&media_b64).map_err(|e| format!("Lỗi giải mã ảnh: {e}"))?;
+            let cropped = crate::capture::crop_by_normalized_box(&raw, ymin, xmin, ymax, xmax)?;
+            STANDARD.encode(cropped)
+        }
+        _ => media_b64,
+    };
 
     // Chỉ đính ảnh/video vào lượt user GẦN NHẤT — xem giải thích chi tiết ở
     // ask_openai_compatible phía trên (tránh phình payload theo cấp số cộng
@@ -482,8 +499,16 @@ pub async fn ask_ai_gemini(
         })
         .collect();
 
-    let system_text =
-        if mime_type.starts_with("image/") { format!("{SYSTEM_PROMPT}{GEMINI_BBOX_INSTRUCTION}") } else { SYSTEM_PROMPT.to_string() };
+    // Lượt hỏi có `region` (đã cắt ảnh cho ĐÚNG lượt này) thì KHÔNG kèm chỉ
+    // dẫn box_2d nữa — toạ độ model trả về lúc này sẽ tính theo ẢNH ĐÃ CẮT,
+    // trong khi frontend luôn vẽ khung theo ẢNH GỐC đầy đủ đang hiển thị ->
+    // vẽ sai vị trí nếu không chặn. Bỏ hẳn field ở đây, đơn giản hơn là phải
+    // remap toạ độ qua lại giữa 2 hệ quy chiếu.
+    let system_text = if mime_type.starts_with("image/") && region.is_none() {
+        format!("{SYSTEM_PROMPT}{GEMINI_BBOX_INSTRUCTION}")
+    } else {
+        SYSTEM_PROMPT.to_string()
+    };
     let base_body = serde_json::json!({
         "contents": contents,
         "systemInstruction": {"parts": [{"text": system_text}]},
