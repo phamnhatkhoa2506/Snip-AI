@@ -80,19 +80,18 @@ Toạ độ chuẩn hoá theo thang 0-1000 so với kích thước ảnh. Nếu 
 trí cụ thể nào (VD tóm tắt tổng quát, dịch toàn bộ văn bản, giải thích chung), KHÔNG thêm \
 dòng JSON này.";
 
-/// Chỉ dẫn thêm khi bật "Tra cứu web" (Google Search grounding) — dặn model
-/// trích nguồn rõ ràng. KHÔNG cố lấy `groundingMetadata` có cấu trúc (chunks/
-/// nguồn kèm điểm tin cậy) từ response — luồng stream hiện tại chỉ trích
-/// đúng field `.text` của từng mẩu, xuyên toàn bộ pipeline (stream_sse), nên
-/// thêm 1 kênh dữ liệu phụ (metadata) sẽ phải sửa cả đường ống. Đơn giản hơn
-/// nhiều và vẫn đạt đúng mục tiêu (người dùng thấy được nguồn): để CHÍNH
-/// MODEL tự viết nguồn thẳng vào câu trả lời — model đã có sẵn URL/tiêu đề
-/// trang từ kết quả search grounding, chỉ cần dặn nó in ra.
-const GEMINI_SEARCH_INSTRUCTION: &str = "\
-\n\nBẠN CÓ THỂ tra cứu thông tin thật trên internet (giá cả, tin tức, thứ không có trong ảnh/ \
-video) khi câu hỏi cần đến. Nếu có dùng kết quả tra cứu, thêm 1 dòng cuối cùng dạng \"Nguồn: \
-[tên trang](URL), [tên trang 2](URL 2)\" liệt kê các trang đã tham khảo. Không tra cứu (và \
-không cần thêm dòng Nguồn) nếu câu hỏi chỉ cần nhìn ảnh/video là trả lời được.";
+/// Chỉ dẫn thêm khi bật "Tra cứu web" (Google Search grounding). KHÔNG dặn
+/// model tự viết "Nguồn: ..." vào câu trả lời nữa — đã thử ở bản đầu và gặp
+/// thực tế: model có DÙNG search thật (tự nói "từ kết quả tìm kiếm cho
+/// thấy...") nhưng KHÔNG chịu thêm dòng Nguồn như đã dặn, giống hệt bài học
+/// từ mốc giờ video ("[mm:ss]" model cũng tự ý lệch định dạng đã dặn). Không
+/// nên tin tưởng model tuân thủ 100% chỉ dẫn định dạng — lấy trích dẫn TRỰC
+/// TIẾP từ `groundingMetadata` có cấu trúc trong response (xem `ask_ai_gemini`
+/// bên dưới, nơi tự ghép "Nguồn: ..." vào cuối câu trả lời), chắc chắn hơn
+/// nhiều so với hy vọng model tự giác.
+const GEMINI_SEARCH_INSTRUCTION: &str =
+    "\n\nBẠN CÓ THỂ tra cứu thông tin thật trên internet (giá cả, tin tức, thứ không có trong \
+ảnh/video) khi câu hỏi cần đến. Không tra cứu nếu câu hỏi chỉ cần nhìn ảnh/video là trả lời được.";
 
 #[derive(Deserialize, Clone)]
 pub struct ChatTurnDto {
@@ -631,14 +630,49 @@ pub async fn ask_ai_gemini(
         return Err(friendly_error("Gemini", status, &text));
     }
 
+    // Thu thập trích dẫn (nếu bật search) NGAY TRONG LÚC đọc từng mẩu chunk —
+    // groundingMetadata thường chỉ xuất hiện ở 1-2 chunk cuối (lúc model kết
+    // thúc câu trả lời), không rải đều mọi chunk. Dùng Mutex (không phải
+    // RefCell) vì closure `extract` bắt buộc là `Fn` (không phải `FnMut`) —
+    // đọc/ghi qua Mutex vẫn hợp lệ với `Fn` nhờ tính chất "interior mutability".
+    let citations: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>> = Default::default();
+    let citations_for_extract = citations.clone();
+
     let full = stream_sse(
         resp.bytes_stream(),
         |piece| {
             let _ = app.emit_to(&window_label, "ai:delta", DeltaPayload { piece: piece.to_string() });
         },
-        |json| json["candidates"][0]["content"]["parts"][0]["text"].as_str().map(|s| s.to_string()),
+        move |json| {
+            if use_search {
+                if let Some(chunks) = json["candidates"][0]["groundingMetadata"]["groundingChunks"].as_array() {
+                    let mut list = citations_for_extract.lock().unwrap();
+                    for c in chunks {
+                        let (Some(uri), Some(title)) = (c["web"]["uri"].as_str(), c["web"]["title"].as_str()) else {
+                            continue;
+                        };
+                        let pair = (title.to_string(), uri.to_string());
+                        if !list.contains(&pair) {
+                            list.push(pair);
+                        }
+                    }
+                }
+            }
+            json["candidates"][0]["content"]["parts"][0]["text"].as_str().map(|s| s.to_string())
+        },
     )
     .await?;
 
-    Ok(finalize(full))
+    let mut answer = finalize(full);
+    // Trích dẫn lấy TRỰC TIẾP từ dữ liệu response, không phụ thuộc model có
+    // tự viết "Nguồn: ..." vào câu trả lời hay không (xem giải thích ở
+    // GEMINI_SEARCH_INSTRUCTION) — chắc chắn hơn hẳn.
+    let cites = citations.lock().unwrap();
+    if !cites.is_empty() {
+        let list = cites.iter().map(|(title, uri)| format!("[{title}]({uri})")).collect::<Vec<_>>().join(", ");
+        answer.push_str(&format!("\n\nNguồn: {list}"));
+    }
+    drop(cites);
+
+    Ok(answer)
 }
