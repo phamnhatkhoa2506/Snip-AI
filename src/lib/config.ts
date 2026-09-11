@@ -56,13 +56,13 @@ export const PROMPT_CODE =
 
 export const PROMPT_VIDEO_OCR =
   "Trích xuất văn bản xuất hiện trong video, sắp theo thứ tự thời gian.\n" +
-  "- Mỗi mốc nội dung thay đổi thì xuống một mục mới, mở đầu bằng dấu thời gian dạng `[mm:ss]`.\n" +
+  "- Mỗi mốc nội dung thay đổi thì xuống một mục mới, mở đầu bằng dấu thời gian dạng [mm:ss] (viết trần, KHÔNG bọc trong dấu backtick/code).\n" +
   "- Giữ nguyên ngôn ngữ gốc, không dịch. Không lặp lại nguyên khối văn bản không đổi giữa các mốc.\n" +
   "- Nếu có đoạn chữ trôi quá nhanh hoặc quá mờ để đọc chắc chắn, ghi rõ điều đó ở mốc tương ứng thay vì đoán.";
 
 export const PROMPT_VIDEO_TRANSLATE =
   "Dịch văn bản xuất hiện trong video sang tiếng Việt tự nhiên, đúng văn phong gốc, theo thứ tự thời gian.\n" +
-  "- Mỗi mốc nội dung thay đổi thì xuống một mục mới, mở đầu bằng dấu thời gian dạng `[mm:ss]`.\n" +
+  "- Mỗi mốc nội dung thay đổi thì xuống một mục mới, mở đầu bằng dấu thời gian dạng [mm:ss] (viết trần, KHÔNG bọc trong dấu backtick/code).\n" +
   "- CHỈ xuất bản dịch — KHÔNG kèm văn bản gốc, KHÔNG kèm phiên âm, KHÔNG giải thích.\n" +
   "- Giữ nguyên không dịch: tên riêng, thuật ngữ kỹ thuật đã quen dùng tiếng Anh, đoạn mã, tên hàm/biến.\n" +
   "- Nếu văn bản gốc vốn đã là tiếng Việt thì cứ trả về lại tiếng Việt.";
@@ -70,18 +70,18 @@ export const PROMPT_VIDEO_TRANSLATE =
 export const PROMPT_VIDEO_SUMMARIZE =
   "Tóm tắt những gì diễn ra trong video theo cấu trúc:\n" +
   "- Dòng đầu: một câu tóm lược tổng thể (in đậm) — video này cho thấy chuyện gì.\n" +
-  "- Sau đó: các gạch đầu dòng theo trình tự thời gian, mỗi dòng mở đầu bằng `[mm:ss]`.\n" +
+  "- Sau đó: các gạch đầu dòng theo trình tự thời gian, mỗi dòng mở đầu bằng [mm:ss] (viết trần, KHÔNG bọc trong dấu backtick/code).\n" +
   "- Nếu có số liệu/thông số quan trọng, giữ lại chính xác và làm nổi bật bằng `code`.";
 
 export const PROMPT_VIDEO_EXPLAIN =
   "Giải thích nội dung video cho người chưa có bối cảnh. Cấu trúc câu trả lời:\n" +
   "- **Đây là gì**: một câu xác định video đang cho thấy nội dung/màn hình gì.\n" +
-  "- **Diễn biến**: các gạch đầu dòng theo trình tự thời gian, mỗi dòng mở đầu bằng `[mm:ss]`.\n" +
+  "- **Diễn biến**: các gạch đầu dòng theo trình tự thời gian, mỗi dòng mở đầu bằng [mm:ss] (viết trần, KHÔNG bọc trong dấu backtick/code).\n" +
   "- **Đáng chú ý**: (chỉ khi thực sự có) điểm bất thường, cảnh báo, lỗi, hoặc điều dễ hiểu nhầm.";
 
 export const PROMPT_VIDEO_STEPS =
   "Video này ghi lại thao tác trên màn hình. Hãy mô tả lại các bước đã làm:\n" +
-  "- Đánh số từng bước theo thứ tự, mỗi bước mở đầu bằng dấu thời gian `[mm:ss]`.\n" +
+  "- Đánh số từng bước theo thứ tự, mỗi bước mở đầu bằng dấu thời gian [mm:ss] (viết trần, KHÔNG bọc trong dấu backtick/code).\n" +
   "- Mỗi bước ghi rõ: thao tác gì, lên phần tử nào (tên nút/menu/ô nhập chính xác nếu đọc được).\n" +
   "- **Kết quả**: màn hình cuối cùng cho thấy điều gì.\n" +
   "- **Trục trặc**: (chỉ khi thực sự có) thông báo lỗi, thao tác bị treo, hoặc bước có vẻ làm sai.";
