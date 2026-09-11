@@ -665,6 +665,31 @@ textarea,
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* Mốc giờ bấm được trong câu trả lời video (xem linkifyTimestamps trong
+   markdown.ts) — trông như 1 thẻ nhỏ nổi bật, không phải link/chữ thường, để
+   người dùng nhận ra ngay "bấm được" giữa đoạn văn xuôi. */
+.markdown-body .ts-link {
+  display: inline-flex;
+  font: inherit;
+  font-family: "Cascadia Code", "Consolas", ui-monospace, monospace;
+  font-size: 0.85em;
+  font-weight: 700;
+  color: var(--color-accent-text);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
+  border: none;
+  border-radius: 5px;
+  padding: 0 5px;
+  cursor: pointer;
+  transition:
+    filter 0.14s ease,
+    transform 0.1s ease;
+}
+.markdown-body .ts-link:hover {
+  filter: brightness(1.08);
+}
+.markdown-body .ts-link:active {
+  transform: translateY(1px);
+}
 .markdown-body code {
   font-family: "Cascadia Code", "Consolas", ui-monospace, monospace;
   font-size: 0.87em;

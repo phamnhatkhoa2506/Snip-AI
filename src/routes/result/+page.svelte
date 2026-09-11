@@ -11,7 +11,7 @@
   import { QUICK_PROMPTS, VIDEO_PROMPTS, PROMPT_EXPLAIN, PROMPT_VIDEO_EXPLAIN, type QuickPrompt } from "$lib/config";
   import { currentModel, loadSettings, type Settings } from "$lib/settings";
   import { askAIStream, type ChatTurn } from "$lib/aiClient";
-  import { renderMarkdown, markdownToPlainText } from "$lib/markdown";
+  import { renderMarkdown, markdownToPlainText, linkifyTimestamps } from "$lib/markdown";
 
   type Phase = "ask" | "chat";
 
@@ -96,6 +96,31 @@
    * dùng thấy ngay "giây này có gì" thay vì phải đoán bằng số giây suông. */
   function seekPreview(t: number) {
     if (videoEl) videoEl.currentTime = t;
+  }
+
+  // ── Mốc giờ bấm được trong câu trả lời (xem linkifyTimestamps) — bấm 1 mốc
+  // thì MỞ ảnh phóng to (video lúc đó chỉ còn là avatar 32px trong header,
+  // không đủ để xem) và tự tua tới đúng giây đó. -----------------------------
+  /** Giây cần tua tới NGAY KHI video trong modal sẵn sàng — modal luôn tạo
+   * MỚI thẻ <video> mỗi lần mở (không tái dùng), nên phải đợi `loadedmetadata`
+   * của lần mở NÀY rồi mới set `currentTime`, set sớm hơn sẽ vô tác dụng. */
+  let pendingSeekTime = $state<number | null>(null);
+  let modalVideoEl = $state<HTMLVideoElement | null>(null);
+
+  function handleTimestampClick(e: MouseEvent) {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>(".ts-link");
+    if (!btn) return;
+    const ts = Number(btn.dataset.ts);
+    if (!Number.isFinite(ts)) return;
+    pendingSeekTime = ts;
+    showImagePreview = true;
+  }
+
+  function onModalVideoReady() {
+    if (modalVideoEl && pendingSeekTime != null) {
+      modalVideoEl.currentTime = pendingSeekTime;
+      pendingSeekTime = null;
+    }
   }
 
   function clearTimeRange() {
@@ -580,8 +605,16 @@
                 </button>
               {/if}
               <div class="relative">
-                <div class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[12.5px]">
-                  {@html renderMarkdown(turn.content)}
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- 1 listener DUY NHẤT bọc ngoài, tự dò đúng nút mốc giờ vừa
+                bấm (xem handleTimestampClick) — không gắn onclick trực tiếp
+                vào chuỗi HTML vì DOMPurify đã xoá sạch onclick lúc sanitize. -->
+                <div
+                  class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[12.5px]"
+                  onclick={handleTimestampClick}
+                >
+                  {@html renderMarkdown(isVideoSession ? linkifyTimestamps(turn.content) : turn.content)}
                 </div>
               <button
                 onclick={() => handleCopyTurn(i, turn.content)}
@@ -687,11 +720,13 @@
         <!-- Video tự quay bằng app này KHÔNG có track âm thanh (đã tắt hẳn ở
         record.rs) nên không có gì để phụ đề — cảnh báo a11y này không áp dụng được. -->
         <video
+          bind:this={modalVideoEl}
+          onloadedmetadata={onModalVideoReady}
           src={`data:video/mp4;base64,${mediaB64}`}
           controls
           autoplay
           onclick={(e) => e.stopPropagation()}
-          class="max-w-full max-h-full rounded-xl border border-border shadow-2xl"
+          class="max-w-[85vw] max-h-[80vh] rounded-xl border border-border shadow-2xl"
         ></video>
       {:else}
         <!-- svelte-ignore a11y_no_static_element_interactions -->

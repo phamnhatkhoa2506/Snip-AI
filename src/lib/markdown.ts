@@ -13,7 +13,33 @@ marked.setOptions({
 
 export function renderMarkdown(text: string): string {
   const rawHtml = marked.parse(text, { async: false }) as string;
-  return DOMPurify.sanitize(rawHtml);
+  // `ADD_TAGS`/`ADD_ATTR`: đảm bảo <button data-ts> (dùng cho mốc giờ video
+  // bấm được, xem linkifyTimestamps bên dưới) LUÔN sống sót qua sanitize —
+  // không dựa vào việc DOMPurify mặc định có cho phép "button"/"data-ts" hay
+  // không (không nên đoán, khai báo rõ cho chắc).
+  return DOMPurify.sanitize(rawHtml, { ADD_TAGS: ["button"], ADD_ATTR: ["data-ts"] });
+}
+
+/** Biến mốc giờ dạng "[mm:ss]" trong câu trả lời VIDEO thành nút bấm được —
+ * bấm vào là video tự tua tới đúng giây đó, biến câu trả lời thành 1 "mục
+ * lục bấm được" thay vì đoạn văn tĩnh (xem result/+page.svelte, nơi gắn sự
+ * kiện click + gọi `videoEl.currentTime`).
+ *
+ * PHẢI gọi hàm này TRƯỚC `renderMarkdown` (trên text markdown thô), rồi mới
+ * đưa kết quả vào `renderMarkdown` — không gộp thẳng vào `renderMarkdown`
+ * dùng chung vì phiên ẢNH không bao giờ có mốc giờ, không cần tốn công chạy
+ * regex này cho mọi câu trả lời.
+ *
+ * Không dùng inline `onclick="..."` trong chuỗi HTML — DOMPurify (chạy bên
+ * trong `renderMarkdown` ngay sau) MẶC ĐỊNH XOÁ mọi thuộc tính `on*` để chặn
+ * XSS, gắn onclick trực tiếp ở đây sẽ bị xoá mất, bấm vào không có tác dụng
+ * gì. Thay vào đó chỉ đánh dấu bằng class + data-ts; phía Svelte lắng nghe 1
+ * sự kiện click DUY NHẤT ở khối bọc ngoài rồi tự dò đúng nút vừa bấm. */
+export function linkifyTimestamps(text: string): string {
+  return text.replace(/\[(\d{1,2}):([0-5]\d)\]/g, (match, mm: string, ss: string) => {
+    const seconds = Number(mm) * 60 + Number(ss);
+    return `<button type="button" class="ts-link" data-ts="${seconds}">${match}</button>`;
+  });
 }
 
 /** Chuyển markdown -> văn bản THUẦN (không còn `**`, `##`, `- `...) — dùng khi
