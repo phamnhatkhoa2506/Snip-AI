@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* Style render công thức toán (KaTeX) — dùng trong markdown.ts để hiện đúng
+   LaTeX ($...$, $$...$$, \(...\), \[...\]) thay vì hiện nguyên văn cú pháp. */
+@import "katex/dist/katex.min.css";
 
 /* ─────────────────────────────────────────────────────────────────────────
    Design tokens — ĐẠI TU cho đối tượng chính là học sinh/sinh viên và người

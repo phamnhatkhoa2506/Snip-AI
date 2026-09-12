@@ -19,6 +19,7 @@
     "@tauri-apps/plugin-http": "^2.6.0",
     "@tauri-apps/plugin-opener": "^2",
     "dompurify": "^3.4.15",
+    "katex": "^0.18.7",
     "marked": "^18.0.12"
   },
   "devDependencies": {
@@ -27,6 +28,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
+    "@types/katex": "^0.16.8",
     "svelte": "^5.56.3",
     "svelte-check": "^4.6.0",
     "tailwindcss": "^4.3.3",

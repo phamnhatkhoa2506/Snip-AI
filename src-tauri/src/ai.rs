@@ -63,7 +63,11 @@ nhiều dòng, bảng Markdown khi dữ liệu có dạng bảng.
 nhiều bước, cần thấy bước tiếp theo/kết quả sau khi làm gì đó mới biết đúng-sai), hãy NÓI \
 THẲNG điều đó và gợi ý người dùng chụp/quay thêm bước tiếp theo — chỉ cần nói bằng lời văn \
 thường (VD \"Bạn thử chụp thêm màn hình sau khi bấm nút Chạy xem sao\"), KHÔNG cần định dạng \
-đặc biệt gì.";
+đặc biệt gì.
+7. Công thức toán (nếu có) viết bằng LaTeX, CHỈ dùng 1 trong 3 cách: `\\(...\\)` cho công \
+thức ngắn trong dòng, hoặc `$$...$$`/`\\[...\\]` cho công thức riêng 1 dòng — TUYỆT ĐỐI \
+KHÔNG dùng 1 dấu $ đơn lẻ (dễ lẫn với tiền tệ, VD \"$50\"). Phép nhân viết bằng dấu \\times \
+hoặc \\cdot trong công thức, không dùng dấu *.";
 
 /// Chỉ dẫn thêm cho Gemini khi phiên đang hỏi là ẢNH (không áp dụng cho
 /// video — 1 khung toạ độ không rõ "thuộc khung hình nào" trên video, để
