@@ -800,7 +800,7 @@
         onclick={() => (diagramMode = !diagramMode)}
         disabled={!mediaB64}
         aria-label="Ép AI vẽ sơ đồ cho câu hỏi này"
-        data-tooltip="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
+        data-tooltip="Vẽ sơ đồ"
         aria-pressed={diagramMode}
         class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
           ? 'btn-accent'
@@ -813,7 +813,7 @@
         onclick={() => (searchEnabled = !searchEnabled)}
         disabled={!mediaB64}
         aria-label="Tra cứu web thật khi trả lời"
-        data-tooltip="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
+        data-tooltip="Web search"
         aria-pressed={searchEnabled}
         class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
           ? 'btn-accent'
@@ -911,7 +911,14 @@
             >
               <Icon name="sparkles" size={12} strokeWidth={2.3} />
             </div>
-            <div class="flex flex-col gap-1.5 max-w-[88%]">
+            <!-- min-w-0: ĐÈ mặc định min-width:auto của flex item — thiếu
+            dòng này, nội dung KHÔNG NGẮT ĐƯỢC bên trong (VD công thức KaTeX
+            dài) ép chính div này rộng hơn cả max-w-[88%] thay vì bị giới hạn
+            đúng khung rồi cuộn ngang bên trong (xem overflow-x ở
+            .markdown-body p/.katex-display trong app.css) — cùng loại bug đã
+            gặp với ảnh phóng to trước đây (xem ghi chú min-w-0/min-h-0 ở
+            modal ảnh cuối file). -->
+            <div class="flex flex-col gap-1.5 max-w-[88%] min-w-0">
               {#if turnBoxes[i] && mediaB64}
                 <!-- Ảnh nhỏ kèm khung AI chỉ tới — hiện NGAY tại đây thay vì
                 bắt người dùng tự bấm mở ảnh phóng to mới thấy, dễ quan sát
@@ -1099,7 +1106,7 @@
           onclick={() => (diagramMode = !diagramMode)}
           disabled={busy}
           aria-label="Ép AI vẽ sơ đồ cho câu hỏi này"
-        data-tooltip="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
+        data-tooltip="Vẽ sơ đồ"
           aria-pressed={diagramMode}
           class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
             ? 'btn-accent'
@@ -1112,7 +1119,7 @@
           onclick={() => (searchEnabled = !searchEnabled)}
           disabled={busy}
           aria-label="Tra cứu web thật khi trả lời"
-        data-tooltip="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
+        data-tooltip="Web search"
           aria-pressed={searchEnabled}
           class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
             ? 'btn-accent'

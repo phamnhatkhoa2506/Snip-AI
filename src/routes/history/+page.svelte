@@ -313,8 +313,12 @@
                   <!-- Chặn link tự điều hướng nguyên cửa sổ app sang trang
                   web (WebView2 mặc định làm vậy) — mở bằng trình duyệt hệ
                   thống thay vào đó. Cùng lý do/cách làm với result/+page.svelte. -->
+                  <!-- min-w-0: ĐÈ mặc định min-width:auto của flex item — nội
+                  dung không ngắt được (VD công thức KaTeX dài) sẽ ép cả div
+                  này rộng hơn max-w-[88%] nếu thiếu dòng này, xem giải thích
+                  đầy đủ ở result/+page.svelte (cùng bug, cùng cách sửa). -->
                   <div
-                    class="markdown-body card max-w-[88%] rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[12.5px]"
+                    class="markdown-body card max-w-[88%] min-w-0 rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[12.5px]"
                     onclick={handleAnswerLinkClick}
                     use:mermaidBlocks={turn.content}
                   >

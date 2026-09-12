@@ -627,6 +627,13 @@ textarea,
 }
 .markdown-body p {
   margin: 0 0 9px;
+  /* Lưới an toàn cho NỘI DUNG KHÔNG NGẮT ĐƯỢC (công thức KaTeX inline dài,
+     URL/chuỗi dài không có khoảng trắng) rộng hơn cả bong bóng chat — chữ
+     thường vẫn tự xuống dòng bình thường (overflow-x chỉ có tác dụng khi nội
+     dung ĐÃ ngắt dòng hết mức mà vẫn còn rộng hơn khung), không ảnh hưởng gì
+     tới cách hiển thị văn bản thông thường. Bug thực tế đã gặp: công thức
+     toán dài bị cắt mất chữ cuối, tràn ra ngoài bong bóng không xem được. */
+  overflow-x: auto;
 }
 .markdown-body ul,
 .markdown-body ol {
@@ -777,6 +784,24 @@ textarea,
      Giữ kích thước THẬT của sơ đồ, để `overflow-x: auto` ở wrapper lo việc
      cuộn ngang khi cần — đánh đổi lấy chữ luôn đọc được rõ ràng. */
   flex-shrink: 0;
+}
+
+/* Công thức toán KaTeX (xem markdown.ts) — công thức DÀI (nhiều số hạng,
+   phân số lồng nhau...) rộng hơn hẳn bong bóng chat, KaTeX KHÔNG tự co nhỏ
+   theo khung như SVG (mermaid) — co bằng CSS sẽ làm chữ bị CẮT thay vì thu
+   nhỏ đều, vì bên trong là hàng loạt <span> định vị tuyệt đối theo em, không
+   phải 1 hình vẽ có viewBox. Theo đúng khuyến nghị chính thức của KaTeX: cho
+   cuộn ngang thay vì cố ép vừa khung — lỗi thực tế đã gặp: công thức dài bị
+   tràn ra ngoài bong bóng chat, chữ cuối bị cắt mất không xem được.
+   `.katex-display` là class KaTeX tự thêm cho công thức KHỐI ($$/\[...\]) —
+   công thức INLINE (\(...\)) hiếm khi đủ dài để cần cuộn nên không cần xử lý
+   riêng. */
+.markdown-body .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Đệm dọc nhỏ — không cắt phần trên/dưới của phân số, dấu tổng... khi
+     thanh cuộn ngang xuất hiện (thanh cuộn chiếm mất vài px chiều cao). */
+  padding: 3px 0;
 }
 
 /* Chú thích khi rê chuột (tooltip) — thay cho `title` mặc định của trình
