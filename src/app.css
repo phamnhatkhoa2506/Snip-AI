@@ -815,11 +815,15 @@ textarea,
    đổi màu/kiểu dáng theo CSS được (xem ghi chú ở rule ẩn chung phía trên),
    nhưng vẫn HIỆN RA bình thường, đủ để người dùng biết "còn cuộn được", dù
    không đồng bộ hẳn theme tối/sáng của app. */
+/* `.scroll-visible`: class DÙNG CHUNG cho MỌI vùng cuộn (ngang lẫn dọc) cần
+   thanh cuộn hiện tường minh — ngoài các vùng markdown NGANG ở trên, còn có
+   menu "+" (result/+page.svelte, cuộn DỌC khi quá 5 mục). */
 .markdown-body pre,
 .markdown-body table,
 .markdown-body p,
 .markdown-body .katex-display,
-.markdown-body .mermaid-diagram {
+.markdown-body .mermaid-diagram,
+.scroll-visible {
   scrollbar-width: thin;
   -ms-overflow-style: auto;
 }
@@ -827,7 +831,8 @@ textarea,
 .markdown-body table::-webkit-scrollbar,
 .markdown-body p::-webkit-scrollbar,
 .markdown-body .katex-display::-webkit-scrollbar,
-.markdown-body .mermaid-diagram::-webkit-scrollbar {
+.markdown-body .mermaid-diagram::-webkit-scrollbar,
+.scroll-visible::-webkit-scrollbar {
   display: block;
   height: 8px;
   width: 8px;

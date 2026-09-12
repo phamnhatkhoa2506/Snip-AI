@@ -1183,7 +1183,7 @@
             đúng cũng còn dài hơn khoảng trống thật, nếu không có vế này sẽ
             tràn ra ngoài/bị cắt góc bo (bug đã sửa trước đây). -->
             <div
-              class="absolute bottom-full mb-2 right-0 w-64 overflow-y-auto card p-1.5 z-40"
+              class="absolute bottom-full mb-2 right-0 w-64 overflow-y-auto scroll-visible card p-1.5 z-40"
               style={moreMenuMaxHeight !== undefined
                 ? `max-height: min(${moreMenuMaxHeight}px, calc(100vh - 170px))`
                 : ""}
