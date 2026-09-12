@@ -1158,14 +1158,20 @@
             ></button>
             <!-- Xổ lên trên (bottom-full) — hàng nút này nằm sát đáy cửa sổ,
             xổ xuống dưới sẽ tràn ra ngoài màn hình. -->
-            <!-- max-h CỐ ĐỊNH (không phải %/vh) — Rust cho phép cửa sổ nhỏ
-            tới 360x280 logical (set_min_size trong commands.rs). 150px luôn
-            vừa lọt trong khoảng trống phía trên nút "+" kể cả ở kích thước
-            NHỎ NHẤT đó (trừ header ~48px + hàng nhập liệu ~60-70px), không
-            cần đụng gì tới kích thước cửa sổ — tự cuộn bên trong nếu 4 mục
-            không vừa hết, còn hơn tràn ra ngoài/bị cắt góc bo. -->
+            <!-- max-h = min(đủ cho 5 mục, khoảng trống thật phía trên nút
+            "+") — 2 mục tiêu cùng lúc:
+            1. Đang có 4 mục, chừa sẵn chỗ cho ĐÚNG 5 mục không cần cuộn (mỗi
+               mục ~44px cao + 1 dải phân cách ~5px + đệm khung ~12px = 248px)
+               — quá 5 mục (thêm chức năng sau này) mới cần cuộn.
+            2. KHÔNG BAO GIỜ vượt quá khoảng trống thật phía trên nút "+" —
+               100vh trừ ~170px (header ~48px + hàng nhập liệu ~70px + đệm)
+               — Rust cho phép cửa sổ nhỏ tới 360x280 logical (set_min_size
+               trong commands.rs), 248px cố định sẽ vượt khoảng trống đó ở
+               kích thước nhỏ nhất, quay lại đúng bug "bị cắt góc bo" đã sửa
+               trước đây. `min()` đảm bảo lấy đúng cái NHỎ HƠN giữa 2 giới
+               hạn, tự cuộn bên trong nếu cửa sổ đang nhỏ. -->
             <div
-              class="absolute bottom-full mb-2 right-0 w-64 max-h-[150px] overflow-y-auto card p-1.5 z-40"
+              class="absolute bottom-full mb-2 right-0 w-64 max-h-[min(248px,calc(100vh_-_170px))] overflow-y-auto card p-1.5 z-40"
               transition:fade={{ duration: 120 }}
             >
               <button
