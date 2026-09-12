@@ -39,7 +39,6 @@ pub fn run() {
             show_main_window(app);
         }))
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .manage(AppState::default())
@@ -80,9 +79,6 @@ pub fn run() {
             commands::append_capture_to_session,
             commands::remove_capture_from_session,
             commands::trigger_recording_for_session,
-            ai::ask_ai_nvidia,
-            ai::ask_ai_openai,
-            ai::ask_ai_anthropic,
             ai::ask_ai_gemini,
             ai::ask_ai_diagram,
             secrets::save_api_key,

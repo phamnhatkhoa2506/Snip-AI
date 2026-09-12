@@ -15,7 +15,10 @@ use serde::Serialize;
 const SERVICE: &str = "snip-ai";
 
 /// Danh sách provider hợp lệ — chặn frontend truyền chuỗi tuỳ ý vào keychain.
-const VALID_PROVIDERS: [&str; 4] = ["nvidia", "openai", "anthropic", "gemini"];
+/// Trước đây có thêm "nvidia"/"openai"/"anthropic" (bản v0 hỗ trợ nhiều nhà
+/// cung cấp AI, tự nhập key) — đã bỏ hẳn cùng đợt chuyển sang đăng nhập
+/// Google, chỉ còn Gemini.
+const VALID_PROVIDERS: [&str; 1] = ["gemini"];
 
 fn validate(provider: &str) -> Result<(), String> {
     if VALID_PROVIDERS.contains(&provider) {

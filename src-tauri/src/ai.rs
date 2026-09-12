@@ -1,5 +1,5 @@
-//! Gọi AI (NVIDIA NIM / OpenAI / Anthropic / Gemini) TRỰC TIẾP từ Rust bằng
-//! `reqwest`, thay vì qua `@tauri-apps/plugin-http` (fetch ở JS). Lý do:
+//! Gọi Google Gemini TRỰC TIẾP từ Rust bằng `reqwest`, thay vì qua
+//! `@tauri-apps/plugin-http` (fetch ở JS). Lý do:
 //!
 //! - Ảnh đã crop đã nằm sẵn trong `AppState` (Rust) — không cần base64-hoá rồi
 //!   gửi ngược qua IPC cho JS chỉ để JS lại gửi nó qua IPC lần nữa cho lệnh
@@ -11,9 +11,10 @@
 //! - Mỗi đoạn text nhận được từ AI được emit thẳng ra window bằng sự kiện nhỏ
 //!   (`ai:delta`), IPC payload mỗi lần chỉ vài chục byte, không bao giờ lớn.
 //!
-//! NVIDIA NIM và OpenAI dùng chung 1 định dạng API (OpenAI Chat Completions
-//! với `image_url` content-part) -> gộp chung logic ở `ask_openai_compatible`.
-//! Anthropic và Gemini có định dạng riêng, tách hàm riêng.
+//! ⚠️ Bản v0 đầu tiên từng hỗ trợ CẢ NVIDIA NIM/OpenAI/Anthropic (người dùng tự
+//! nhập API key riêng cho từng nơi) — đã BỎ HẲN khi chuyển sang đăng nhập
+//! Google (xem oauth.rs): key thật quản lý ở backend, người dùng phổ thông
+//! không cần biết/chọn provider gì cả. Chỉ còn Gemini.
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::StreamExt;
@@ -31,17 +32,16 @@ use crate::state::{AppState, HttpClientState};
 /// vô thời hạn im lặng.
 const FIRST_RESPONSE_TIMEOUT: Duration = Duration::from_secs(150);
 
-/// System prompt dùng chung cho mọi provider — ép model trả lời gọn, có cấu
-/// trúc Markdown, và KHÔNG có câu dẫn thừa ("Chắc chắn rồi, dưới đây là...").
-/// Trước đây không có system prompt nên output mỗi lần một kiểu, hay kèm lời
-/// dẫn và mô tả lại yêu cầu.
+/// System prompt — ép model trả lời gọn, có cấu trúc Markdown, và KHÔNG có
+/// câu dẫn thừa ("Chắc chắn rồi, dưới đây là..."). Trước đây không có system
+/// prompt nên output mỗi lần một kiểu, hay kèm lời dẫn và mô tả lại yêu cầu.
 ///
 /// ⚠️ Đã cố tình bỏ cụm "vùng ảnh vừa cắt từ màn hình" trong bản trước — phát
-/// hiện thực tế: model nhỏ (VD llama-3.2-11b-vision) khi không đọc được nội
-/// dung ảnh có xu hướng "mượn" luôn từ ngữ trong system prompt để bịa ra câu
-/// trả lời nghe hợp lý (VD tự bịa đoạn text về "vùng cắt ảnh" — đúng cụm từ
-/// lấy từ prompt — dù ảnh không hề nói về chủ đề đó). Rút gọn tối đa + thêm
-/// quy tắc chống bịa rõ ràng để giảm rủi ro này.
+/// hiện thực tế: model nhỏ (VD llama-3.2-11b-vision, hồi còn hỗ trợ NVIDIA)
+/// khi không đọc được nội dung ảnh có xu hướng "mượn" luôn từ ngữ trong
+/// system prompt để bịa ra câu trả lời nghe hợp lý (VD tự bịa đoạn text về
+/// "vùng cắt ảnh" — đúng cụm từ lấy từ prompt — dù ảnh không hề nói về chủ đề
+/// đó). Rút gọn tối đa + thêm quy tắc chống bịa rõ ràng để giảm rủi ro này.
 const SYSTEM_PROMPT: &str = "\
 Bạn là trợ lý AI phân tích ảnh/video, tích hợp trong app Snap AI.
 
@@ -84,10 +84,6 @@ chữ THƯỜNG bên cạnh sơ đồ, không chỉ có mỗi sơ đồ trơ tr�
 /// Google): model trả toạ độ khớp gần như tuyệt đối so với vị trí thật, và
 /// vẫn lấy được CÙNG LÚC với câu trả lời văn xuôi qua streamGenerateContent
 /// bình thường — không cần tắt stream hay tách lệnh gọi riêng.
-///
-/// CHỈ dành cho Gemini — đây là quy ước riêng của Gemini (box_2d, thang
-/// 0-1000), không áp dụng cho NVIDIA/OpenAI/Anthropic nên KHÔNG đưa vào
-/// SYSTEM_PROMPT dùng chung.
 const GEMINI_BBOX_INSTRUCTION: &str = "\
 \n\nNếu câu trả lời có nhắc đến 1 VỊ TRÍ/PHẦN TỬ CỤ THỂ trong ảnh (1 nút, 1 dòng chữ, 1 ô, \
 1 vùng...), sau khi trả lời xong bằng lời, thêm CHÍNH XÁC 1 dòng JSON riêng ở CUỐI CÙNG \
@@ -121,16 +117,16 @@ struct DeltaPayload {
     piece: String,
 }
 
-/// Đọc ảnh của ĐÚNG phiên đang gọi (nhiều cửa sổ "Kết quả AI" có thể mở cùng
-/// lúc, mỗi cửa sổ 1 ảnh riêng — xem giải thích ở `AppState::crop_sessions`).
+/// Đọc ảnh MỚI NHẤT của ĐÚNG phiên đang gọi (nhiều cửa sổ "Kết quả AI" có thể
+/// mở cùng lúc, mỗi cửa sổ 1 ảnh riêng — xem giải thích ở
+/// `AppState::crop_sessions`) — dùng cho `ask_ai_diagram` (tra cứu 1 lần cho
+/// đúng ảnh đang xem, không cần cả chuỗi). Chat nhiều lượt/nhiều ảnh dùng
+/// `get_media_chain_base64` bên dưới thay vì hàm này.
 fn get_crop_base64(state: &State<'_, AppState>, window_label: &str) -> Result<String, String> {
     let sessions = state.crop_sessions.lock().unwrap();
     let list = sessions
         .get(window_label)
         .ok_or("Không tìm thấy ảnh cho phiên này (cửa sổ có thể đã bị đóng)")?;
-    // 1 phiên có thể có NHIỀU ảnh (chuỗi snip) — NVIDIA/OpenAI/Anthropic (gọi
-    // hàm này) chưa hỗ trợ đính nhiều ảnh, nên chỉ lấy ảnh MỚI NHẤT. Chỉ
-    // Gemini (get_media_chain_base64 bên dưới) đính được cả chuỗi.
     let bytes = list.last().ok_or("Phiên này chưa có ảnh nào")?;
     Ok(STANDARD.encode(bytes))
 }
@@ -139,9 +135,8 @@ fn get_crop_base64(state: &State<'_, AppState>, window_label: &str) -> Result<St
 /// quả AI" là phiên ảnh (snip) hoặc phiên video (quay màn hình), không bao
 /// giờ cả hai, nên chỉ 1 trong 2 map (`crop_sessions`/`video_sessions`) có
 /// entry khớp `window_label`. Trả về TOÀN BỘ chuỗi media của phiên (mỗi phần
-/// tử: base64, mime_type), ĐÚNG THỨ TỰ đã chụp — chỉ Gemini (provider DUY
-/// NHẤT hỗ trợ video, và cũng là nơi duy nhất cần đính nhiều ảnh/video) dùng
-/// hàm này; 3 provider còn lại vẫn dùng `get_crop_base64` (1 ảnh mới nhất).
+/// tử: base64, mime_type), ĐÚNG THỨ TỰ đã chụp — dùng cho `ask_ai_gemini`
+/// (chat nhiều lượt, có thể nhiều ảnh/video nhờ "+ Chụp thêm bước").
 fn get_media_chain_base64(state: &State<'_, AppState>, window_label: &str) -> Result<Vec<(String, &'static str)>, String> {
     if let Some(list) = state.crop_sessions.lock().unwrap().get(window_label) {
         return Ok(list.iter().map(|b| (STANDARD.encode(b), "image/png")).collect());
@@ -206,10 +201,9 @@ where
 }
 
 /// Rút gọn body lỗi HTTP (thường là JSON) thành 1 câu dễ đọc, thay vì đẩy
-/// nguyên JSON thô lên UI (đã gặp thực tế: NVIDIA trả JSON kiểu RFC 7807
-/// problem+json, OpenAI/Gemini dùng {"error":{"message":...}}, mỗi provider
-/// một kiểu). Thử lần lượt các field hay gặp; nếu không parse được thì rơi về
-/// hiển thị đoạn text gốc (cắt bớt nếu quá dài) thay vì lỗi trắng tay.
+/// nguyên JSON thô lên UI. Thử lần lượt các field hay gặp; nếu không parse
+/// được thì rơi về hiển thị đoạn text gốc (cắt bớt nếu quá dài) thay vì lỗi
+/// trắng tay.
 fn friendly_error(provider_label: &str, status: reqwest::StatusCode, body: &str) -> String {
     let message = serde_json::from_str::<serde_json::Value>(body)
         .ok()
@@ -243,226 +237,7 @@ fn finalize(full: String) -> String {
     }
 }
 
-/// NVIDIA NIM và OpenAI đều dùng định dạng "OpenAI Chat Completions" —
-/// messages với content dạng mảng [{type:text}, {type:image_url}], stream SSE
-/// trả `choices[0].delta.content`. Gộp chung logic gọi API ở đây.
-async fn ask_openai_compatible(
-    app: &AppHandle,
-    state: &State<'_, AppState>,
-    window_label: &str,
-    endpoint: &str,
-    provider: &str,
-    model: &str,
-    extra_body: serde_json::Value,
-    history: &[ChatTurnDto],
-) -> Result<String, String> {
-    let api_key = secrets::read_api_key(provider)?;
-    let model = model.trim();
-    let img_b64 = get_crop_base64(state, window_label)?;
-
-    // Chỉ đính ảnh vào LƯỢT USER GẦN NHẤT, không phải mọi lượt user trong lịch
-    // sử. Trước đây gửi lại ảnh ở TẤT CẢ các lượt user (để tránh model mất
-    // "grounding" ở câu hỏi tiếp theo) — nhưng cách đó làm payload phình to
-    // dần theo cấp số cộng: hỏi lần 4 sẽ gửi lại y hệt tấm ảnh đó 4 lần trong
-    // 1 request, cực kỳ tốn băng thông + thời gian upload, đây là 1 nguyên
-    // nhân chính khiến app "phản hồi chậm dần" khi chat dài. Chỉ lượt mới nhất
-    // cần ảnh vẫn đủ để model giữ grounding, vì đó luôn là câu hỏi đang chờ trả lời.
-    let last_user_idx = history.iter().rposition(|t| t.role == "user");
-    let mut messages: Vec<serde_json::Value> =
-        vec![serde_json::json!({"role": "system", "content": SYSTEM_PROMPT})];
-    messages.extend(history.iter().enumerate().map(|(i, turn)| {
-        if turn.role == "user" && Some(i) == last_user_idx {
-            serde_json::json!({
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": turn.content},
-                    {"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{img_b64}")}},
-                ],
-            })
-        } else {
-            serde_json::json!({"role": turn.role, "content": turn.content})
-        }
-    }));
-
-    let mut body = serde_json::json!({
-        "model": model,
-        "max_tokens": 1500,
-        "stream": true,
-        // Chặn lặp — đã gặp thực tế: model nhỏ (VD llama-3.2-11b-vision) đôi
-        // khi rơi vào vòng lặp sinh y hệt từng đoạn/câu (đặc biệt với ảnh
-        // dày đặc chữ mà model không đọc chắc chắn được, nó có xu hướng bịa
-        // nội dung rồi lặp lại chính mình). frequency_penalty là tham số
-        // chuẩn OpenAI-compatible, được hầu hết backend vLLM (bao gồm NIM)
-        // hỗ trợ, phạt các token đã xuất hiện nhiều lần trong response.
-        "frequency_penalty": 0.4,
-        "messages": messages,
-    });
-    if let (Some(body_obj), Some(extra_obj)) = (body.as_object_mut(), extra_body.as_object()) {
-        for (k, v) in extra_obj {
-            body_obj.insert(k.clone(), v.clone());
-        }
-    }
-
-    eprintln!("[snip-ai][ai] POST {endpoint} (model={model})");
-    let client = &app.state::<HttpClientState>().client;
-    let req = client
-        .post(endpoint)
-        .bearer_auth(&api_key)
-        .header("Accept", "text/event-stream")
-        .json(&body);
-    let resp = send_with_timeout(req).await?;
-
-    eprintln!("[snip-ai][ai] response: status={}", resp.status());
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        eprintln!("[snip-ai][ai] LỖI body: {text}");
-        let label = if provider == "nvidia" { "NVIDIA NIM" } else { "OpenAI" };
-        return Err(friendly_error(label, status, &text));
-    }
-
-    let window_label = window_label.to_string();
-    let app = app.clone();
-    let full = stream_sse(
-        resp.bytes_stream(),
-        move |piece| {
-            let _ = app.emit_to(&window_label, "ai:delta", DeltaPayload { piece: piece.to_string() });
-        },
-        |json| json["choices"][0]["delta"]["content"].as_str().map(|s| s.to_string()),
-    )
-    .await?;
-
-    Ok(finalize(full))
-}
-
-#[tauri::command]
-pub async fn ask_ai_nvidia(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    window_label: String,
-    model: String,
-    // `None` (hoặc chuỗi rỗng) = KHÔNG gửi tham số này lên API. Nhiều model
-    // trên NVIDIA NIM (VD llama-3.2-11b-vision-instruct) không hỗ trợ khái
-    // niệm "reasoning" — chỉ gửi param này khi người dùng chủ động bật, tránh
-    // gửi 1 tham số vô nghĩa/không được hỗ trợ cho model không cần.
-    reasoning_effort: Option<String>,
-    history: Vec<ChatTurnDto>,
-) -> Result<String, String> {
-    let extra = match reasoning_effort.filter(|s| !s.trim().is_empty()) {
-        Some(effort) => serde_json::json!({ "reasoning_effort": effort }),
-        None => serde_json::json!({}),
-    };
-    ask_openai_compatible(
-        &app,
-        &state,
-        &window_label,
-        "https://integrate.api.nvidia.com/v1/chat/completions",
-        "nvidia",
-        &model,
-        extra,
-        &history,
-    )
-    .await
-}
-
-#[tauri::command]
-pub async fn ask_ai_openai(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    window_label: String,
-    model: String,
-    history: Vec<ChatTurnDto>,
-) -> Result<String, String> {
-    ask_openai_compatible(
-        &app,
-        &state,
-        &window_label,
-        "https://api.openai.com/v1/chat/completions",
-        "openai",
-        &model,
-        serde_json::json!({}),
-        &history,
-    )
-    .await
-}
-
-#[tauri::command]
-pub async fn ask_ai_anthropic(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    window_label: String,
-    model: String,
-    history: Vec<ChatTurnDto>,
-) -> Result<String, String> {
-    let api_key = secrets::read_api_key("anthropic")?;
-    let model = model.trim();
-    let img_b64 = get_crop_base64(&state, &window_label)?;
-
-    // Chỉ đính ảnh vào lượt user GẦN NHẤT — xem giải thích chi tiết ở
-    // ask_openai_compatible phía trên (tránh phình payload theo cấp số cộng
-    // khi hội thoại dài).
-    let last_user_idx = history.iter().rposition(|t| t.role == "user");
-    let messages: Vec<serde_json::Value> = history
-        .iter()
-        .enumerate()
-        .map(|(i, turn)| {
-            if turn.role == "user" && Some(i) == last_user_idx {
-                serde_json::json!({
-                    "role": "user",
-                    "content": [
-                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
-                        {"type": "text", "text": turn.content},
-                    ],
-                })
-            } else {
-                serde_json::json!({"role": turn.role, "content": turn.content})
-            }
-        })
-        .collect();
-
-    // Anthropic không dùng message role "system" — system prompt là field riêng.
-    let body = serde_json::json!({
-        "model": model,
-        "max_tokens": 1500,
-        "stream": true,
-        "system": SYSTEM_PROMPT,
-        "messages": messages,
-    });
-
-    let client = &app.state::<HttpClientState>().client;
-    let req = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key.as_str())
-        .header("anthropic-version", "2023-06-01")
-        .header("Accept", "text/event-stream")
-        .json(&body);
-    let resp = send_with_timeout(req).await?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        return Err(friendly_error("Anthropic", status, &text));
-    }
-
-    let full = stream_sse(
-        resp.bytes_stream(),
-        |piece| {
-            let _ = app.emit_to(&window_label, "ai:delta", DeltaPayload { piece: piece.to_string() });
-        },
-        |json| {
-            if json["type"] == "content_block_delta" && json["delta"]["type"] == "text_delta" {
-                json["delta"]["text"].as_str().map(|s| s.to_string())
-            } else {
-                None
-            }
-        },
-    )
-    .await?;
-
-    Ok(finalize(full))
-}
-
-/// Google Gemini — định dạng request/response khác hẳn kiểu OpenAI:
+/// Google Gemini — định dạng request/response:
 /// - Role "assistant" ở Gemini gọi là "model".
 /// - Ảnh gửi qua `inline_data` (base64) thay vì `image_url`.
 /// - System prompt là field riêng `systemInstruction`.
@@ -470,10 +245,13 @@ pub async fn ask_ai_anthropic(
 /// - Auth qua header `x-goog-api-key` (không phải Bearer).
 /// Nơi lấy API key/endpoint gọi Gemini — 2 chế độ:
 /// - `Backend { token }`: ĐÃ đăng nhập Google — gọi qua backend (giữ API key
-///   thật, không cần người dùng tự có key). Đây là đường mặc định cho đại đa
-///   số người dùng (học sinh/sinh viên/văn phòng), xem oauth.rs.
-/// - `Direct { api_key }`: CHƯA đăng nhập — dùng API key người dùng tự nhập ở
-///   Cài đặt (đường lùi cho người dùng nâng cao muốn tự quản lý key riêng).
+///   thật, không cần người dùng tự có key). Đây là đường DUY NHẤT cho người
+///   dùng phổ thông (học sinh/sinh viên/văn phòng), xem oauth.rs.
+/// - `Direct { api_key }`: CHƯA đăng nhập — dùng API key người dùng tự nhập.
+///   ⚠️ Đường lùi này hiện KHÔNG CÒN CÁCH NÀO kích hoạt từ UI (màn hình nhập
+///   API key đã gỡ hẳn cùng đợt bỏ NVIDIA/OpenAI/Anthropic — app bắt buộc
+///   đăng nhập Google mới cho snip) — giữ lại trong code phòng trường hợp
+///   sau này cần mở lại đường nâng cao này, không phải code chết vô nghĩa.
 enum GeminiAuth {
     Backend { token: String },
     Direct { api_key: String },
@@ -530,11 +308,13 @@ pub async fn ask_ai_gemini(
         }
     }
 
-    // Chỉ đính ảnh/video vào lượt user GẦN NHẤT — xem giải thích chi tiết ở
-    // ask_openai_compatible phía trên (tránh phình payload theo cấp số cộng
-    // khi hội thoại dài). Đính CẢ CHUỖI (không chỉ 1 media) vào ĐÚNG lượt đó —
-    // mỗi ảnh/video 1 "inline_data" riêng, Gemini tự hiểu đây là nhiều tấm
-    // ảnh/nhiều đoạn video liên quan tới cùng 1 câu hỏi.
+    // Chỉ đính ảnh/video vào lượt user GẦN NHẤT — tránh phình payload theo
+    // cấp số cộng khi hội thoại dài (trước đây gửi lại ảnh ở TẤT CẢ các lượt
+    // user để giữ "grounding" cho model, nhưng làm payload phình to dần: hỏi
+    // lần 4 gửi lại y hệt ảnh đó 4 lần trong 1 request). Đính CẢ CHUỖI (không
+    // chỉ 1 media) vào ĐÚNG lượt đó — mỗi ảnh/video 1 "inline_data" riêng,
+    // Gemini tự hiểu đây là nhiều tấm ảnh/nhiều đoạn video liên quan tới cùng
+    // 1 câu hỏi.
     let last_user_idx = history.iter().rposition(|t| t.role == "user");
     let contents: Vec<serde_json::Value> = history
         .iter()
@@ -574,12 +354,11 @@ pub async fn ask_ai_gemini(
 
     // Bật Google Search grounding. KHÔNG chắc chắn tên field đúng — tài liệu
     // Google mô tả kỹ cho API "Interactions" mới, còn app dùng endpoint
-    // generateContent cổ điển thì không tìm được ví dụ chính thức. Quota key
-    // test cá nhân VÀ pool key backend đều hết trong lúc phát triển, không
-    // xác nhận thực nghiệm được. Thử "googleSearch" (khớp quy ước camelCase
-    // của các field cấp cao khác app đang dùng thành công: systemInstruction,
-    // generationConfig) trước; có cơ chế tự đổi sang "google_search" nếu bị
-    // 400 (xem bên dưới, cùng kỹ thuật đã dùng cho thinkingLevel).
+    // generateContent cổ điển thì không tìm được ví dụ chính thức. Thử
+    // "googleSearch" (khớp quy ước camelCase của các field cấp cao khác app
+    // đang dùng thành công: systemInstruction, generationConfig) trước; có
+    // cơ chế tự đổi sang "google_search" nếu bị 400 (xem bên dưới, cùng kỹ
+    // thuật đã dùng cho thinkingLevel).
     if use_search {
         base_body["tools"] = serde_json::json!([{"googleSearch": {}}]);
     }
@@ -715,14 +494,13 @@ pub async fn ask_ai_gemini(
 }
 
 // ── "Sơ đồ từ vựng" — dịch ảnh thành 1 mạng liên kết từ vựng, KHÁC HẲN chip
-// "Dịch" (dịch phẳng nguyên đoạn văn). Chỉ Gemini hỗ trợ (dùng
-// `response_schema` ép cấu trúc JSON — đã kiểm chứng thực nghiệm bằng binary
-// test tạm: hoạt động ĐÚNG cả khi kèm ảnh qua `inline_data` LẪN qua
-// streamGenerateContent?alt=sse, nên tái dùng được y hệt đường gọi/luồng auth
-// của ask_ai_gemini, không cần thêm route backend mới). Chỉ áp dụng cho ẢNH —
-// khái niệm "từ vựng trong ảnh" rõ nghĩa, còn "từ vựng trong video" mơ hồ
-// (từ nào, xuất hiện lúc nào) nên KHÔNG bật cho phiên video (giống chip "Mã /
-// Lỗi" không có bản video).
+// "Dịch" (dịch phẳng nguyên đoạn văn). Dùng `response_schema` ép cấu trúc
+// JSON — đã kiểm chứng thực nghiệm bằng binary test tạm: hoạt động ĐÚNG cả
+// khi kèm ảnh qua `inline_data` LẪN qua streamGenerateContent?alt=sse, nên
+// tái dùng được y hệt đường gọi/luồng auth của ask_ai_gemini, không cần
+// thêm route backend mới. Chỉ áp dụng cho ẢNH — khái niệm "từ vựng trong
+// ảnh" rõ nghĩa, còn "từ vựng trong video" mơ hồ (từ nào, xuất hiện lúc nào)
+// nên KHÔNG bật cho phiên video (giống chip "Mã / Lỗi" không có bản video).
 const DIAGRAM_PROMPT: &str = "\
 Đọc từ/cụm từ chính xuất hiện trong ảnh (thường là 1 từ vựng nổi bật, có thể kèm ngữ cảnh câu). \
 Xác định nghĩa của nó và các từ LIÊN QUAN thật sự hữu ích để học (đồng nghĩa, trái nghĩa, hoặc \

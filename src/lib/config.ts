@@ -152,11 +152,3 @@ export const VIDEO_PROMPTS: QuickPrompt[] = [
   { id: "steps", icon: "mouse-pointer", label: "Thao tác", chatLabel: "Mô tả các bước đã làm", prompt: PROMPT_VIDEO_STEPS },
   { id: "diagram", icon: "flowchart", label: "Vẽ sơ đồ", chatLabel: "Vẽ sơ đồ minh hoạ", prompt: PROMPT_VIDEO_DIAGRAM },
 ];
-
-// ⚠️ KHÔNG có gì đảm bảo mọi model reasoning trên NVIDIA NIM dùng chung 1 bộ
-// giá trị này — chỉ xác nhận được đúng cho model kimi-k3 (theo code mẫu chính
-// thức của NVIDIA). Model khác (DeepSeek-R1, QwQ...) có thể dùng tên field
-// hoặc giá trị khác hẳn. Vì vậy KHÔNG dùng làm dropdown cố định — chỉ để làm
-// gợi ý điền nhanh (chip), người dùng luôn có thể gõ giá trị khác. Giá trị
-// viết THƯỜNG vì API mẫu của NVIDIA dùng "none"/"max" chữ thường.
-export const REASONING_EFFORT_PRESETS = ["none", "low", "medium", "high", "max"] as const;
