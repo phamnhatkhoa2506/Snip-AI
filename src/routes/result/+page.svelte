@@ -14,6 +14,7 @@
   import { currentModel, loadSettings, type Settings } from "$lib/settings";
   import { askAIStream, askAIDiagram, type ChatTurn, type VocabDiagramData } from "$lib/aiClient";
   import { renderMarkdown, markdownToPlainText, linkifyTimestamps } from "$lib/markdown";
+  import { mermaidBlocks } from "$lib/mermaid";
   import VocabDiagram from "$lib/VocabDiagram.svelte";
 
   type Phase = "ask" | "chat";
@@ -922,6 +923,7 @@
                   <div
                     class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[12.5px]"
                     onclick={handleAnswerClick}
+                    use:mermaidBlocks={turn.content}
                   >
                     {@html renderMarkdown(isVideoSession ? linkifyTimestamps(turn.content) : turn.content)}
                   </div>

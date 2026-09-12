@@ -67,7 +67,15 @@ thường (VD \"Bạn thử chụp thêm màn hình sau khi bấm nút Chạy xe
 7. Công thức toán (nếu có) viết bằng LaTeX, CHỈ dùng 1 trong 3 cách: `\\(...\\)` cho công \
 thức ngắn trong dòng, hoặc `$$...$$`/`\\[...\\]` cho công thức riêng 1 dòng — TUYỆT ĐỐI \
 KHÔNG dùng 1 dấu $ đơn lẻ (dễ lẫn với tiền tệ, VD \"$50\"). Phép nhân viết bằng dấu \\times \
-hoặc \\cdot trong công thức, không dùng dấu *.";
+hoặc \\cdot trong công thức, không dùng dấu *.
+8. TỰ QUYẾT ĐỊNH vẽ sơ đồ khi nó giúp hiểu nhanh/rõ hơn hẳn so với chữ thuần — VD quy trình \
+nhiều bước, mối quan hệ/luồng giữa các thành phần, cấu trúc phân cấp, trình tự thời gian, \
+sơ đồ tư duy tổng hợp ý. KHÔNG cần người dùng yêu cầu rõ \"vẽ sơ đồ\" mới vẽ — nếu nội dung \
+câu trả lời PHÙ HỢP để trực quan hoá thì cứ vẽ; ngược lại (câu hỏi đơn giản, chỉ 1-2 ý) thì \
+KHÔNG vẽ, chữ thường vẫn tốt hơn. Khi vẽ, dùng ĐÚNG 1 khối mã ```mermaid với cú pháp Mermaid \
+hợp lệ (flowchart TD/LR, sequenceDiagram, classDiagram, stateDiagram-v2, erDiagram, gantt, \
+mindmap, timeline...) — chọn loại sơ đồ khớp với nội dung. Có thể kèm cả lời giải thích bằng \
+chữ THƯỜNG bên cạnh sơ đồ, không chỉ có mỗi sơ đồ trơ trọi.";
 
 /// Chỉ dẫn thêm cho Gemini khi phiên đang hỏi là ẢNH (không áp dụng cho
 /// video — 1 khung toạ độ không rõ "thuộc khung hình nào" trên video, để

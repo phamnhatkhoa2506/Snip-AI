@@ -6,6 +6,7 @@
   import Icon from "$lib/Icon.svelte";
   import ScrollArea from "$lib/ScrollArea.svelte";
   import { renderMarkdown } from "$lib/markdown";
+  import { mermaidBlocks } from "$lib/mermaid";
 
   /** Link trong câu trả lời đã lưu (VD nguồn trích dẫn) — mở bằng trình
    * duyệt hệ thống thay vì để WebView2 điều hướng nguyên cửa sổ app sang
@@ -315,6 +316,7 @@
                   <div
                     class="markdown-body card max-w-[88%] rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[12.5px]"
                     onclick={handleAnswerLinkClick}
+                    use:mermaidBlocks={turn.content}
                   >
                     {@html renderMarkdown(turn.content)}
                   </div>
