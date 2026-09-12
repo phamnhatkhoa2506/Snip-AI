@@ -778,3 +778,45 @@ textarea,
      cuộn ngang khi cần — đánh đổi lấy chữ luôn đọc được rõ ràng. */
   flex-shrink: 0;
 }
+
+/* Chú thích khi rê chuột (tooltip) — thay cho `title` mặc định của trình
+   duyệt: tooltip gốc của WebView2 hiện SAU 1 khoảng trễ khá lâu và dễ bị
+   người dùng tưởng "không có gì" với các nút chỉ có icon, không chữ (VD nút
+   bật/tắt "vẽ sơ đồ"/"tra cứu web"). Dùng `data-tooltip` + `::after` thuần
+   CSS — hiện gần như ngay khi hover, không cần JS/component riêng. Đặt
+   `class="relative"` (hoặc đã có sẵn `relative` từ chỗ khác) lên phần tử có
+   `data-tooltip` để tooltip định vị đúng theo nó. */
+[data-tooltip] {
+  position: relative;
+}
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%) translateY(2px);
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+  width: max-content;
+  max-width: 220px;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+  transition-delay: 0.05s;
+  z-index: 50;
+  box-shadow: 0 4px 12px -3px rgba(0, 0, 0, 0.35);
+}
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

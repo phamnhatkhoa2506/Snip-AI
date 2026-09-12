@@ -799,7 +799,8 @@
         type="button"
         onclick={() => (diagramMode = !diagramMode)}
         disabled={!mediaB64}
-        title="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
+        aria-label="Ép AI vẽ sơ đồ cho câu hỏi này"
+        data-tooltip="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
         aria-pressed={diagramMode}
         class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
           ? 'btn-accent'
@@ -811,7 +812,8 @@
         type="button"
         onclick={() => (searchEnabled = !searchEnabled)}
         disabled={!mediaB64}
-        title="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
+        aria-label="Tra cứu web thật khi trả lời"
+        data-tooltip="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
         aria-pressed={searchEnabled}
         class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
           ? 'btn-accent'
@@ -1096,7 +1098,8 @@
           type="button"
           onclick={() => (diagramMode = !diagramMode)}
           disabled={busy}
-          title="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
+          aria-label="Ép AI vẽ sơ đồ cho câu hỏi này"
+        data-tooltip="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
           aria-pressed={diagramMode}
           class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
             ? 'btn-accent'
@@ -1108,7 +1111,8 @@
           type="button"
           onclick={() => (searchEnabled = !searchEnabled)}
           disabled={busy}
-          title="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
+          aria-label="Tra cứu web thật khi trả lời"
+        data-tooltip="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
           aria-pressed={searchEnabled}
           class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
             ? 'btn-accent'
