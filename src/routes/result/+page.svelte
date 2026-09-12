@@ -10,7 +10,14 @@
   import Icon from "$lib/Icon.svelte";
   import ScrollArea from "$lib/ScrollArea.svelte";
   import BoxedImage from "$lib/BoxedImage.svelte";
-  import { QUICK_PROMPTS, VIDEO_PROMPTS, PROMPT_EXPLAIN, PROMPT_VIDEO_EXPLAIN, type QuickPrompt } from "$lib/config";
+  import {
+    QUICK_PROMPTS,
+    VIDEO_PROMPTS,
+    PROMPT_EXPLAIN,
+    PROMPT_VIDEO_EXPLAIN,
+    DIAGRAM_MODE_SUFFIX,
+    type QuickPrompt,
+  } from "$lib/config";
   import { currentModel, loadSettings, type Settings } from "$lib/settings";
   import { askAIStream, askAIDiagram, type ChatTurn, type VocabDiagramData } from "$lib/aiClient";
   import { renderMarkdown, markdownToPlainText, linkifyTimestamps } from "$lib/markdown";
@@ -490,14 +497,27 @@
    * đốt quota vô tình khi hỏi tiếp những câu không cần tra cứu gì cả. */
   let searchEnabled = $state(false);
 
+  /** Bật "chế độ vẽ sơ đồ" — ÉP AI PHẢI vẽ 1 sơ đồ Mermaid cho ĐÚNG câu hỏi
+   * này (khác với việc AI tự quyết định có nên vẽ hay không theo ngữ cảnh,
+   * xem SYSTEM_PROMPT rule #8 trong ai.rs — vẫn hoạt động độc lập, không cần
+   * bật nút này). Người dùng có thể MÔ TẢ THÊM cách vẽ ngay trong câu hỏi
+   * đang gõ (VD "vẽ dạng sequence diagram") — không cần ô nhập riêng, chỉ cần
+   * gõ như bình thường rồi bật nút này trước khi gửi. Dùng 1 lần rồi tự tắt,
+   * giống `searchEnabled` — tránh "dính" ép vẽ sơ đồ cho cả các câu hỏi tiếp
+   * theo không liên quan. */
+  let diagramMode = $state(false);
+
   async function handleAsk() {
     const typed = question.trim();
     const q = typed || (isVideoSession ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
     const search = searchEnabled;
     searchEnabled = false;
-    const suffix = `${timeBadgeSuffix}${search ? " 🌐" : ""}`;
+    const diagram = diagramMode;
+    diagramMode = false;
+    const suffix = `${timeBadgeSuffix}${search ? " 🌐" : ""}${diagram ? " 📊" : ""}`;
     const displayLabel = suffix ? `${typed || "Giải thích nội dung"}${suffix}` : undefined;
-    history = [{ role: "user", content: q + timeContextSuffix, displayLabel }];
+    const content = q + timeContextSuffix + (diagram ? DIAGRAM_MODE_SUFFIX : "");
+    history = [{ role: "user", content, displayLabel }];
     phase = "chat";
     await scrollToBottom();
     runTurn(undefined, search);
@@ -524,9 +544,12 @@
     pendingRegion = null; // dùng 1 lần cho câu hỏi này rồi tự xoá
     const search = searchEnabled;
     searchEnabled = false; // tương tự — dùng 1 lần cho câu hỏi này rồi tự tắt
-    const suffix = `${timeBadgeSuffix}${search ? " 🌐" : ""}`;
+    const diagram = diagramMode;
+    diagramMode = false; // tương tự — dùng 1 lần cho câu hỏi này rồi tự tắt
+    const suffix = `${timeBadgeSuffix}${search ? " 🌐" : ""}${diagram ? " 📊" : ""}`;
     const displayLabel = suffix ? `${q}${suffix}` : undefined;
-    history = [...history, { role: "user", content: q + timeContextSuffix, displayLabel }];
+    const content = q + timeContextSuffix + (diagram ? DIAGRAM_MODE_SUFFIX : "");
+    history = [...history, { role: "user", content, displayLabel }];
     scrollToBottom();
     runTurn(region, search);
   }
@@ -772,6 +795,18 @@
         class="field selectable flex-1 disabled:opacity-50"
         onkeydown={(e) => e.key === "Enter" && handleAsk()}
       />
+      <button
+        type="button"
+        onclick={() => (diagramMode = !diagramMode)}
+        disabled={!mediaB64}
+        title="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
+        aria-pressed={diagramMode}
+        class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
+          ? 'btn-accent'
+          : 'btn-ghost'}"
+      >
+        <Icon name="flowchart" size={15} />
+      </button>
       <button
         type="button"
         onclick={() => (searchEnabled = !searchEnabled)}
@@ -1023,7 +1058,13 @@
           type="text"
           bind:value={followupText}
           disabled={busy}
-          placeholder={busy ? "AI đang trả lời…" : pendingRegion ? "Hỏi về vùng đã chọn…" : "Hỏi tiếp…"}
+          placeholder={busy
+            ? "AI đang trả lời…"
+            : pendingRegion
+              ? "Hỏi về vùng đã chọn…"
+              : diagramMode
+                ? "Mô tả cách vẽ (tuỳ chọn) rồi gửi…"
+                : "Hỏi tiếp…"}
           class="field selectable flex-1 disabled:opacity-50"
           onkeydown={(e) => e.key === "Enter" && handleSend()}
         />
@@ -1051,6 +1092,18 @@
             <Icon name="network" size={15} />
           </button>
         {/if}
+        <button
+          type="button"
+          onclick={() => (diagramMode = !diagramMode)}
+          disabled={busy}
+          title="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
+          aria-pressed={diagramMode}
+          class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
+            ? 'btn-accent'
+            : 'btn-ghost'}"
+        >
+          <Icon name="flowchart" size={15} />
+        </button>
         <button
           type="button"
           onclick={() => (searchEnabled = !searchEnabled)}

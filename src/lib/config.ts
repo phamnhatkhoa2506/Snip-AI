@@ -38,6 +38,36 @@ export const PROMPT_CODE =
   "- **Ý nghĩa**: giải thích ngắn gọn đoạn mã làm gì, hoặc lỗi này nghĩa là gì.\n" +
   "- **Hướng xử lý**: (nếu là lỗi) các bước khắc phục cụ thể, theo thứ tự ưu tiên.";
 
+// ── "Vẽ sơ đồ" — chế độ TƯỜNG MINH (người dùng chủ động bấm/bật), khác với
+// việc AI TỰ QUYẾT định vẽ hay không theo ngữ cảnh (xem SYSTEM_PROMPT rule #8
+// trong ai.rs — vẫn hoạt động song song, độc lập với 2 hằng số dưới đây).
+// 2 cách dùng:
+//  1. Chip "Vẽ sơ đồ" trong bộ QUICK_PROMPTS/VIDEO_PROMPTS — 1 chạm, dùng
+//     PROMPT_DIAGRAM/PROMPT_VIDEO_DIAGRAM có sẵn, không cần gõ gì thêm.
+//  2. Nút bật/tắt "chế độ vẽ sơ đồ" cạnh ô nhập (result/+page.svelte) — BẮT
+//     BUỘC AI vẽ cho ĐÚNG câu hỏi đang gõ, và người dùng có thể MÔ TẢ THÊM
+//     cách vẽ ngay trong câu hỏi đó (VD "vẽ dạng sequence diagram", "chỉ lấy
+//     5 bước chính") — DIAGRAM_MODE_SUFFIX chỉ ép "phải vẽ", còn "vẽ thế nào"
+//     nằm nguyên trong câu người dùng tự gõ, không cần thêm ô nhập riêng.
+export const PROMPT_DIAGRAM =
+  "Vẽ 1 sơ đồ trực quan minh hoạ nội dung chính trong ảnh — tự chọn loại sơ đồ phù hợp nhất " +
+  "(lưu đồ quy trình, sơ đồ tư duy, sơ đồ quan hệ, sequence, cấu trúc phân cấp...). " +
+  "Dùng ĐÚNG 1 khối mã ```mermaid với cú pháp Mermaid hợp lệ. " +
+  "Có thể kèm thêm vài dòng giải thích ngắn gọn bên cạnh sơ đồ, không bắt buộc.";
+
+export const PROMPT_VIDEO_DIAGRAM =
+  "Vẽ 1 sơ đồ trực quan minh hoạ các bước/luồng diễn ra trong video — tự chọn loại sơ đồ phù " +
+  "hợp nhất (lưu đồ các bước theo thứ tự, sequence, sơ đồ tư duy tổng hợp...). " +
+  "Dùng ĐÚNG 1 khối mã ```mermaid với cú pháp Mermaid hợp lệ. " +
+  "Có thể kèm thêm vài dòng giải thích ngắn gọn bên cạnh sơ đồ, không bắt buộc.";
+
+/** Nối vào CUỐI câu hỏi thật của người dùng khi "chế độ vẽ sơ đồ" đang BẬT —
+ * ép AI PHẢI vẽ (khác PROMPT_DIAGRAM ở trên: đây chỉ là 1 câu ra lệnh ngắn
+ * thêm vào SAU nội dung người dùng tự gõ, không thay hẳn nội dung câu hỏi). */
+export const DIAGRAM_MODE_SUFFIX =
+  "\n\n(Chế độ vẽ sơ đồ đang BẬT: BẮT BUỘC vẽ 1 sơ đồ Mermaid minh hoạ, theo đúng mô tả ở trên " +
+  "nếu có — tự chọn loại sơ đồ phù hợp nhất, dùng khối mã ```mermaid.)";
+
 // ── Prompt cho phiên VIDEO ────────────────────────────────────────────────
 // Tách riêng khỏi bộ prompt ảnh ở trên vì 2 lý do, không phải chỉ để đổi chữ
 // "ảnh" thành "video":
@@ -109,6 +139,7 @@ export const QUICK_PROMPTS: QuickPrompt[] = [
   { id: "summarize", icon: "list", label: "Tóm tắt", chatLabel: "Tóm tắt nội dung", prompt: PROMPT_SUMMARIZE },
   { id: "explain", icon: "lightbulb", label: "Giải thích", chatLabel: "Giải thích nội dung", prompt: PROMPT_EXPLAIN },
   { id: "code", icon: "code", label: "Mã / Lỗi", chatLabel: "Xem mã / lỗi trong ảnh", prompt: PROMPT_CODE },
+  { id: "diagram", icon: "flowchart", label: "Vẽ sơ đồ", chatLabel: "Vẽ sơ đồ minh hoạ", prompt: PROMPT_DIAGRAM },
 ];
 
 /** Chip gợi ý cho phiên QUAY VIDEO. `id` cố tình dùng chung với bộ ảnh
@@ -119,6 +150,7 @@ export const VIDEO_PROMPTS: QuickPrompt[] = [
   { id: "summarize", icon: "list", label: "Tóm tắt", chatLabel: "Tóm tắt video", prompt: PROMPT_VIDEO_SUMMARIZE },
   { id: "explain", icon: "lightbulb", label: "Giải thích", chatLabel: "Giải thích nội dung video", prompt: PROMPT_VIDEO_EXPLAIN },
   { id: "steps", icon: "mouse-pointer", label: "Thao tác", chatLabel: "Mô tả các bước đã làm", prompt: PROMPT_VIDEO_STEPS },
+  { id: "diagram", icon: "flowchart", label: "Vẽ sơ đồ", chatLabel: "Vẽ sơ đồ minh hoạ", prompt: PROMPT_VIDEO_DIAGRAM },
 ];
 
 // ⚠️ KHÔNG có gì đảm bảo mọi model reasoning trên NVIDIA NIM dùng chung 1 bộ

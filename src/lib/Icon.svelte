@@ -240,6 +240,15 @@
       { t: "path", d: "M9 9h.01" },
       { t: "path", d: "M15 9h.01" },
     ],
+    // Lưu đồ (2 hộp nối bằng đường kẻ có mũi tên) — chip/nút "Vẽ sơ đồ"
+    // (Mermaid, ai.rs rule #8) — CỐ TÌNH khác hẳn "network" (mạng lưới toả
+    // tròn, dùng riêng cho "Sơ đồ từ vựng") để 2 tính năng không lẫn vào nhau.
+    flowchart: [
+      { t: "rect", x: 3, y: 3, w: 7, h: 6, rx: 1.5 },
+      { t: "rect", x: 14, y: 15, w: 7, h: 6, rx: 1.5 },
+      { t: "path", d: "M6.5 9v4a2 2 0 0 0 2 2h4.5" },
+      { t: "path", d: "m11 12.5 2 2.5-2 2.5" },
+    ],
     // Mạng lưới nút liên kết — chip "Sơ đồ từ vựng"
     network: [
       { t: "circle", cx: 12, cy: 5, r: 2.5 },
