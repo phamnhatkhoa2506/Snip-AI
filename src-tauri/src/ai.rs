@@ -106,6 +106,16 @@ const GEMINI_SEARCH_INSTRUCTION: &str =
     "\n\nBẠN CÓ THỂ tra cứu thông tin thật trên internet (giá cả, tin tức, thứ không có trong \
 ảnh/video) khi câu hỏi cần đến. Không tra cứu nếu câu hỏi chỉ cần nhìn ảnh/video là trả lời được.";
 
+/// Chỉ thêm khi phiên có tài liệu đính kèm (ảnh/PDF, xem attachments.rs) —
+/// GIAI ĐOẠN 1 của tính năng "đính kèm file gốc", phục vụ trường hợp người
+/// dùng chụp 1 vùng nhỏ nhưng muốn đưa thêm tài liệu gốc đầy đủ hơn làm ngữ
+/// cảnh (VD chụp 1 biểu đồ trong báo cáo PDF, đính kèm luôn cả báo cáo).
+const GEMINI_ATTACHMENT_INSTRUCTION: &str = "\
+\n\nNgoài ảnh/video chính đang được hỏi, người dùng còn đính kèm thêm tài liệu tham khảo (ảnh/PDF, \
+mỗi tệp có dòng \"Tệp đính kèm: <tên>\" ngay trước). Dùng các tệp này làm NGỮ CẢNH/DỮ LIỆU BỔ SUNG \
+khi trả lời — đừng nhầm chúng là ảnh/video chính, và có thể gọi lại đúng tên tệp khi trích dẫn thông \
+tin lấy từ đó.";
+
 #[derive(Deserialize, Clone)]
 pub struct ChatTurnDto {
     pub role: String, // "user" | "assistant"
@@ -292,6 +302,9 @@ pub async fn ask_ai_gemini(
         return Err("Phiên này chưa có ảnh/video nào".into());
     }
     let mime_type = media_chain[0].1;
+    // Tài liệu đính kèm THÊM (ảnh/PDF, xem attachments.rs) — hoàn toàn TÙY
+    // CHỌN, phiên nào không đính gì thì đây luôn là mảng rỗng.
+    let attachments = crate::attachments::get_attachment_chain_base64(&state, &window_label);
 
     // Có `region` VÀ đang là ảnh (không áp dụng cho video) -> cắt tạm đúng
     // vùng đó để gửi CHO LƯỢT NÀY, không đụng gì tới ảnh gốc lưu trong
@@ -328,6 +341,16 @@ pub async fn ask_ai_gemini(
                         "inline_data": {"mime_type": mime, "data": b64}
                     }));
                 }
+                // Mỗi file đính kèm kèm 1 dòng text ghi rõ TÊN FILE ngay trước
+                // — giúp model phân biệt/nhắc lại đúng tên khi có NHIỀU file
+                // đính kèm cùng lúc, thay vì chỉ thấy 1 khối inline_data trần
+                // không rõ là tài liệu nào.
+                for (b64, mime, name) in &attachments {
+                    parts.push(serde_json::json!({"text": format!("Tệp đính kèm: {name}")}));
+                    parts.push(serde_json::json!({
+                        "inline_data": {"mime_type": mime, "data": b64}
+                    }));
+                }
             }
             serde_json::json!({"role": role, "parts": parts})
         })
@@ -346,6 +369,9 @@ pub async fn ask_ai_gemini(
     };
     if use_search {
         system_text.push_str(GEMINI_SEARCH_INSTRUCTION);
+    }
+    if !attachments.is_empty() {
+        system_text.push_str(GEMINI_ATTACHMENT_INSTRUCTION);
     }
     let mut base_body = serde_json::json!({
         "contents": contents,

@@ -240,6 +240,19 @@
       { t: "path", d: "M9 9h.01" },
       { t: "path", d: "M15 9h.01" },
     ],
+    // Kẹp giấy — chip/nút "Đính kèm file" (ảnh/PDF, xem attachments.rs)
+    paperclip: [
+      {
+        t: "path",
+        d: "M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95L10.13 17.1a2 2 0 0 1-2.83-2.83l8.49-8.48",
+      },
+    ],
+    // Tài liệu (file) chung chung — thumbnail cho attachment không phải ảnh
+    // (VD PDF) trong dải chuỗi đính kèm.
+    file: [
+      { t: "path", d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" },
+      { t: "path", d: "M14 2v6h6" },
+    ],
     // Lưu đồ (2 hộp nối bằng đường kẻ có mũi tên) — chip/nút "Vẽ sơ đồ"
     // (Mermaid, ai.rs rule #8) — CỐ TÌNH khác hẳn "network" (mạng lưới toả
     // tròn, dùng riêng cho "Sơ đồ từ vựng") để 2 tính năng không lẫn vào nhau.

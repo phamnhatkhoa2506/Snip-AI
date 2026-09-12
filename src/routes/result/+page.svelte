@@ -7,6 +7,7 @@
   import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
   import Icon from "$lib/Icon.svelte";
   import ScrollArea from "$lib/ScrollArea.svelte";
   import BoxedImage from "$lib/BoxedImage.svelte";
@@ -194,6 +195,47 @@
     }
   }
 
+  // ── Đính kèm file (ảnh/PDF) — GIAI ĐOẠN 1 ──────────────────────────────
+  // Mở hộp thoại chọn file HỆ THỐNG (không phải fetch/copy dữ liệu qua IPC
+  // trước — chỉ nhận về ĐƯỜNG DẪN), rồi để Rust tự đọc bằng std::fs (xem
+  // attachments.rs) — cùng triết lý với ảnh chụp: dữ liệu nặng không đi qua
+  // IPC 2 lượt nếu tránh được.
+  let attachBusy = $state(false);
+  async function attachFiles() {
+    attachBusy = true;
+    try {
+      const selected = await openFileDialog({
+        multiple: true,
+        filters: [{ name: "Ảnh & PDF", extensions: ["png", "jpg", "jpeg", "webp", "pdf"] }],
+      });
+      if (!selected) return; // người dùng bấm Huỷ
+      const paths = Array.isArray(selected) ? selected : [selected];
+      await invoke("attach_files_to_session", { windowLabel: getCurrentWindow().label, paths });
+    } catch (e) {
+      error = String(e).replace(/^Error:\s*/, "");
+    } finally {
+      attachBusy = false;
+    }
+  }
+
+  async function removeAttachment(index: number) {
+    try {
+      await invoke("remove_attachment_from_session", { windowLabel: getCurrentWindow().label, index });
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
+  /** Chip hiện tên file gọn — cắt bớt phần giữa nếu tên quá dài, giữ lại
+   * phần ĐUÔI (đuôi file + vài ký tự cuối thường có ích hơn phần đầu, VD
+   * "bao-cao-tai-chinh-quy-3-2026.pdf" cắt còn "bao-cao…y-3-2026.pdf"). */
+  function shortenFileName(name: string, max = 22): string {
+    if (name.length <= max) return name;
+    const head = Math.ceil((max - 1) * 0.55);
+    const tail = max - 1 - head;
+    return `${name.slice(0, head)}…${name.slice(name.length - tail)}`;
+  }
+
   /** Đang xem MEDIA NÀO trong chuỗi ở ảnh phóng to — `null` = luôn bám theo
    * media MỚI NHẤT (mặc định). Bấm vào 1 thumbnail cụ thể trong dải mới ghim
    * cố định vào đúng cái đó. */
@@ -328,6 +370,25 @@
     }
   }
 
+  /** Tài liệu đính kèm (ảnh/PDF, GIAI ĐOẠN 1 — xem attachments.rs) — hoàn
+   * toàn TÙY CHỌN, độc lập với chuỗi ảnh/video chính (`mediaChain`). Chỉ lưu
+   * metadata (tên/mime/kích thước) để hiển thị — KHÔNG cần base64 ở đây,
+   * frontend không hiện preview nội dung file đính kèm (khác ảnh/video
+   * chính), chỉ cần biết đang đính kèm gì để người dùng thấy/xoá bớt. */
+  interface AttachmentMeta {
+    name: string;
+    mime: string;
+    sizeBytes: number;
+  }
+  let attachments = $state<AttachmentMeta[]>([]);
+  async function loadAttachments() {
+    try {
+      attachments = await invoke<AttachmentMeta[]>("get_attachment_list", { windowLabel: getCurrentWindow().label });
+    } catch (e) {
+      console.warn("[snip-ai] Không nạp được danh sách file đính kèm:", e);
+    }
+  }
+
   onMount(() => {
     // Cửa sổ này luôn được TẠO MỚI mỗi lần snip/quay (xem commands.rs), nên
     // onMount chạy fresh mỗi lần — không cần lắng nghe event reset.
@@ -348,9 +409,13 @@
       listen("ai:crop-ready", () => loadMediaChain(false)).then((fn) => unlistens.push(fn));
     }
 
-    // "+ Chụp thêm bước" đã thêm xong 1 ảnh/video vào chuỗi (xem
-    // commands.rs::append_capture_to_session / record.rs) — nạp lại chuỗi.
-    listen("ai:chain-updated", () => loadMediaChain(false)).then((fn) => unlistens.push(fn));
+    // "+ Chụp thêm bước" đã thêm xong 1 ảnh/video vào chuỗi, HOẶC vừa đính
+    // kèm/xoá 1 file (xem commands.rs::append_capture_to_session / record.rs
+    // / attachments.rs — cả 3 dùng CHUNG sự kiện này) — nạp lại cả 2.
+    listen("ai:chain-updated", () => {
+      loadMediaChain(false);
+      loadAttachments();
+    }).then((fn) => unlistens.push(fn));
 
     return () => unlistens.forEach((fn) => fn());
   });
@@ -796,15 +861,64 @@
     </div>
   {/snippet}
 
-  {#snippet diagramSearchToggles()}
-    <!-- Dùng CHUNG cho CẢ 2 menu "+" (lúc mới hỏi lẫn lúc hỏi tiếp) — cùng
-    1 cặp toggle, viết 1 lần. `bind:this` gắn vào mục ĐẦU luôn — dùng để đo
-    chiều cao thật cho max-height của cả popover (xem moreMenuItemHeight),
-    2 menu không bao giờ cùng hiện 1 lúc (khác `phase`) nên dùng chung 1 ref
-    vô hại. KHÔNG đóng menu khi bấm — bật được cả 2 rồi mới đóng, thấy ngay
-    trạng thái "BẬT". -->
+  {#snippet attachmentChips()}
+    <!-- Dải chip file đính kèm (ảnh/PDF) — dùng CHUNG cho cả 2 phase, chỉ
+    hiện khi có ít nhất 1 file. Không hiện preview nội dung (khác ảnh/video
+    chính) — chỉ tên + icon theo loại + nút xoá, đủ để biết đang đính kèm gì. -->
+    {#if attachments.length > 0}
+      <div class="shrink-0 px-3 flex flex-wrap gap-1.5" transition:fade={{ duration: 120 }}>
+        {#each attachments as file, i (i)}
+          <div
+            class="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg text-[11px] border border-border bg-bg-elevated"
+            title={file.name}
+          >
+            <Icon name={file.mime === "application/pdf" ? "file" : "image"} size={12} class="text-text-muted shrink-0" />
+            <span class="text-text-muted">{shortenFileName(file.name)}</span>
+            <button
+              type="button"
+              onclick={() => removeAttachment(i)}
+              title="Bỏ file này"
+              class="p-0.5 rounded text-text-muted hover:text-[color:var(--color-danger)] transition-colors"
+            >
+              <Icon name="x" size={11} />
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {/snippet}
+
+  {#snippet attachFileItem()}
+    <!-- Dùng CHUNG cho CẢ 2 menu "+" — luôn là mục ĐẦU TIÊN trong menu (cả
+    lúc mới hỏi lẫn lúc hỏi tiếp), nên `bind:this` đo chiều cao thật ở ĐÂY
+    (xem moreMenuItemHeight) thay vì ở diagramSearchToggles như trước. -->
     <button
       bind:this={moreMenuFirstItemEl}
+      type="button"
+      onclick={() => {
+        moreMenuOpen = false;
+        attachFiles();
+      }}
+      disabled={attachBusy}
+      class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5 disabled:opacity-50"
+    >
+      {#if attachBusy}
+        <Icon name="loader" size={15} class="animate-spin mt-0.5 shrink-0" />
+      {:else}
+        <Icon name="paperclip" size={15} class="mt-0.5 shrink-0" />
+      {/if}
+      <span>
+        <div class="text-[12.5px] font-semibold">Đính kèm file</div>
+        <div class="text-[10.5px] text-text-muted">Thêm ảnh/PDF làm tài liệu tham khảo</div>
+      </span>
+    </button>
+  {/snippet}
+
+  {#snippet diagramSearchToggles()}
+    <!-- Dùng CHUNG cho CẢ 2 menu "+" (lúc mới hỏi lẫn lúc hỏi tiếp) — cùng
+    1 cặp toggle, viết 1 lần. KHÔNG đóng menu khi bấm — bật được cả 2 rồi
+    mới đóng, thấy ngay trạng thái "BẬT". -->
+    <button
       type="button"
       onclick={() => (diagramMode = !diagramMode)}
       aria-pressed={diagramMode}
@@ -892,6 +1006,8 @@
       {/if}
     </div>
 
+    {@render attachmentChips()}
+
     <div class="shrink-0 p-3 flex gap-2 items-end">
       <textarea
         rows="1"
@@ -950,6 +1066,8 @@
               : ""}
             transition:fade={{ duration: 120 }}
           >
+            {@render attachFileItem()}
+            <div class="h-px bg-border my-0.5"></div>
             {@render diagramSearchToggles()}
           </div>
         {/if}
@@ -1194,6 +1312,7 @@
           <span class="text-accent font-semibold shrink-0">{elapsedSec}s</span>
         </div>
       {/if}
+      {@render attachmentChips()}
       <div class="flex gap-2 items-end">
         <textarea
           bind:this={followupInputEl}
@@ -1275,6 +1394,7 @@
                 : ""}
               transition:fade={{ duration: 120 }}
             >
+              {@render attachFileItem()}
               <button
                 type="button"
                 onclick={() => {

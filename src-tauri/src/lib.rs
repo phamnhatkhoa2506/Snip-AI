@@ -1,4 +1,5 @@
 mod ai;
+mod attachments;
 mod capture;
 mod commands;
 mod history;
@@ -39,6 +40,7 @@ pub fn run() {
             show_main_window(app);
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .manage(AppState::default())
@@ -64,6 +66,7 @@ pub fn run() {
                     let state = window.state::<AppState>();
                     state.crop_sessions.lock().unwrap().remove(window.label());
                     state.video_sessions.lock().unwrap().remove(window.label());
+                    state.attachment_sessions.lock().unwrap().remove(window.label());
                     state.history_ids.lock().unwrap().remove(window.label());
                 }
             }
@@ -79,6 +82,9 @@ pub fn run() {
             commands::append_capture_to_session,
             commands::remove_capture_from_session,
             commands::trigger_recording_for_session,
+            attachments::attach_files_to_session,
+            attachments::get_attachment_list,
+            attachments::remove_attachment_from_session,
             ai::ask_ai_gemini,
             ai::ask_ai_diagram,
             secrets::save_api_key,
