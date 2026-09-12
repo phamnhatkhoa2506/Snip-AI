@@ -197,6 +197,13 @@ function openMermaidZoomModal(svgMarkup: string): void {
   let lastX = 0;
   let lastY = 0;
   function onPointerDown(e: PointerEvent) {
+    // Bấm vào 1 nút (thanh công cụ +/-/vừa khung/đóng) — TUYỆT ĐỐI không bắt
+    // đầu kéo/chiếm pointer ở đây. `setPointerCapture` trên `overlay` khiến
+    // trình duyệt tính lại ĐÍCH của sự kiện "click" phát sinh sau đó thành
+    // chính `overlay` (không phải nút vừa bấm) — trùng khớp điều kiện "bấm
+    // ra ngoài thì đóng" (`onOverlayClick`), làm modal tự đóng oan ngay khi
+    // bấm bất kỳ nút nào trong thanh công cụ (lỗi thực tế đã gặp).
+    if ((e.target as HTMLElement).closest("button")) return;
     dragging = true;
     lastX = e.clientX;
     lastY = e.clientY;
