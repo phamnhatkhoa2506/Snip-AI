@@ -53,7 +53,19 @@
   let history = $state<ChatTurn[]>([]);
   let busy = $state(false);
   let followupText = $state("");
-  let followupInputEl = $state<HTMLInputElement | null>(null);
+  let followupInputEl = $state<HTMLTextAreaElement | null>(null);
+
+  /** Ô nhập câu hỏi TỰ CAO theo nội dung thay vì tràn ngang phải kéo mới xem
+   * hết (bug thực tế đã gặp: prompt dài tràn ra ngoài ô input dạng <input>
+   * 1 dòng). Kỹ thuật kinh điển: set height về "auto" trước (để trình duyệt
+   * tính lại `scrollHeight` ĐÚNG theo nội dung MỚI, không bị kẹt ở chiều cao
+   * CŨ), rồi set lại bằng đúng `scrollHeight` đó. CSS `max-height` (xem class
+   * trên <textarea>) tự chặn không cho cao quá giới hạn — vượt quá thì trình
+   * duyệt tự cắt và cho cuộn dọc bên trong, không cần xử lý gì thêm ở đây. */
+  function autoGrowTextarea(el: HTMLTextAreaElement) {
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }
   let copyFlash = $state(false);
   let error = $state("");
   let statusLine = $state("");
@@ -594,6 +606,10 @@
     const q = followupText.trim();
     if (!q || busy) return;
     followupText = "";
+    // Ô nhập vừa gửi xong có thể đang cao vài dòng (đã tự phình theo nội
+    // dung, xem autoGrowTextarea) — trả lại đúng 1 dòng, không để "cao lùn"
+    // treo lại từ câu hỏi cũ dù nội dung đã rỗng.
+    if (followupInputEl) followupInputEl.style.height = "auto";
     const region = pendingRegion;
     pendingRegion = null; // dùng 1 lần cho câu hỏi này rồi tự xoá
     const search = searchEnabled;
@@ -836,9 +852,9 @@
       {/if}
     </div>
 
-    <div class="shrink-0 p-3 flex gap-2">
-      <input
-        type="text"
+    <div class="shrink-0 p-3 flex gap-2 items-end">
+      <textarea
+        rows="1"
         bind:value={question}
         disabled={!mediaB64}
         placeholder={mediaB64
@@ -846,9 +862,16 @@
           : isVideoSession
             ? "Đang xử lý video…"
             : "Đang xử lý ảnh…"}
-        class="field selectable flex-1 disabled:opacity-50"
-        onkeydown={(e) => e.key === "Enter" && handleAsk()}
-      />
+        class="field selectable flex-1 resize-none scroll-visible disabled:opacity-50"
+        style="max-height: 120px; overflow-y: auto;"
+        oninput={(e) => autoGrowTextarea(e.currentTarget)}
+        onkeydown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            handleAsk();
+          }
+        }}
+      ></textarea>
       <button
         type="button"
         onclick={() => (diagramMode = !diagramMode)}
@@ -856,7 +879,7 @@
         aria-label="Ép AI vẽ sơ đồ cho câu hỏi này"
         data-tooltip="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
         aria-pressed={diagramMode}
-        class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
+        class="h-9 shrink-0 rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
           ? 'btn-accent'
           : 'btn-ghost'}"
       >
@@ -869,7 +892,7 @@
         aria-label="Tra cứu web thật khi trả lời"
         data-tooltip="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
         aria-pressed={searchEnabled}
-        class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
+        class="h-9 shrink-0 rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
           ? 'btn-accent'
           : 'btn-ghost'}"
       >
@@ -878,7 +901,7 @@
       <button
         onclick={handleAsk}
         disabled={!mediaB64}
-        class="btn-accent px-4 rounded-lg text-[13px] flex items-center gap-1.5 disabled:opacity-40"
+        class="h-9 shrink-0 btn-accent px-4 rounded-lg text-[13px] flex items-center gap-1.5 disabled:opacity-40"
       >
         <Icon name="send" size={15} strokeWidth={2.2} />
       </button>
@@ -1115,10 +1138,10 @@
           <span class="text-accent font-semibold shrink-0">{elapsedSec}s</span>
         </div>
       {/if}
-      <div class="flex gap-2">
-        <input
+      <div class="flex gap-2 items-end">
+        <textarea
           bind:this={followupInputEl}
-          type="text"
+          rows="1"
           bind:value={followupText}
           disabled={busy}
           placeholder={busy
@@ -1128,23 +1151,30 @@
               : diagramMode
                 ? "Mô tả cách vẽ (tuỳ chọn) rồi gửi…"
                 : "Hỏi tiếp…"}
-          class="field selectable flex-1 disabled:opacity-50"
-          onkeydown={(e) => e.key === "Enter" && handleSend()}
-        />
+          class="field selectable flex-1 resize-none scroll-visible disabled:opacity-50"
+          style="max-height: 120px; overflow-y: auto;"
+          oninput={(e) => autoGrowTextarea(e.currentTarget)}
+          onkeydown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
+        ></textarea>
         <!-- Trước đây 4 nút "+"/sơ đồ từ vựng/vẽ sơ đồ/tra cứu web nằm RỜI
         cạnh nhau — chen chúc, chỉ có icon trần nên khó đoán chức năng. Gom
         vào 1 menu bấm mới xổ ra, mỗi mục có CHỮ MÔ TẢ SẴN (không cần hover
         đoán icon). Chấm nhỏ góc trên-phải báo hiệu đang có toggle nào BẬT dù
         đã đóng menu — không thì bật "Vẽ sơ đồ"/"Tra cứu web" xong đóng menu
         lại sẽ trông như chưa bật gì. -->
-        <!-- h-full trên CẢ wrapper lẫn nút bên trong: hàng `flex gap-2` bọc
-        ngoài mặc định stretch (align-items:stretch) đúng div `relative` này
-        cho cao bằng ô nhập/nút Gửi, nhưng bọc thêm 1 lớp div (để định vị
-        menu xổ ra) làm NÚT BÊN TRONG không tự cao theo — nó chỉ cao vừa đủ
-        nội dung của chính nó, thấp lùn hẳn so với 2 bên (lỗi thực tế đã gặp:
-        nút "+" không cao hết hàng như nút Gửi). `h-full` ép nút ăn theo đúng
-        chiều cao div cha đã được stretch. -->
-        <div class="relative h-full">
+        <!-- KHÔNG còn dùng h-full nữa — hàng bọc ngoài giờ `items-end` (neo
+        đáy, vì ô nhập bên cạnh có thể cao nhiều dòng — xem autoGrowTextarea)
+        thay vì `items-stretch` mặc định trước đây. `items-end` không tự gán
+        chiều cao cho nút — nút vốn KHÔNG có padding dọc riêng (chỉ dựa vào
+        stretch để cao bằng ô nhập từ trước tới giờ), nên giờ cần khai báo
+        `h-9` tường minh (khớp chiều cao 1 dòng của ô nhập) thay vì để mặc
+        định co theo icon (sẽ ra 1 nút vuông rất nhỏ, sai hẳn kích thước cũ). -->
+        <div class="relative">
           <button
             type="button"
             onclick={toggleMoreMenu}
@@ -1152,7 +1182,7 @@
             aria-label="Thêm hành động"
             aria-pressed={moreMenuOpen}
             data-tooltip="Chụp thêm bước / sơ đồ từ vựng / vẽ sơ đồ / tra cứu web"
-            class="relative h-full rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {moreMenuOpen
+            class="relative h-9 shrink-0 rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {moreMenuOpen
               ? 'btn-accent'
               : 'btn-ghost'}"
           >
@@ -1261,7 +1291,7 @@
             </div>
           {/if}
         </div>
-        <button onclick={handleSend} disabled={busy} class="btn-accent px-4 rounded-lg">
+        <button onclick={handleSend} disabled={busy} class="h-9 shrink-0 btn-accent px-4 rounded-lg">
           <Icon name="send" size={15} strokeWidth={2.2} />
         </button>
       </div>
