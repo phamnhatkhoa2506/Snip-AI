@@ -796,6 +796,46 @@
     </div>
   {/snippet}
 
+  {#snippet diagramSearchToggles()}
+    <!-- Dùng CHUNG cho CẢ 2 menu "+" (lúc mới hỏi lẫn lúc hỏi tiếp) — cùng
+    1 cặp toggle, viết 1 lần. `bind:this` gắn vào mục ĐẦU luôn — dùng để đo
+    chiều cao thật cho max-height của cả popover (xem moreMenuItemHeight),
+    2 menu không bao giờ cùng hiện 1 lúc (khác `phase`) nên dùng chung 1 ref
+    vô hại. KHÔNG đóng menu khi bấm — bật được cả 2 rồi mới đóng, thấy ngay
+    trạng thái "BẬT". -->
+    <button
+      bind:this={moreMenuFirstItemEl}
+      type="button"
+      onclick={() => (diagramMode = !diagramMode)}
+      aria-pressed={diagramMode}
+      class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+    >
+      <Icon name="flowchart" size={15} class="mt-0.5 shrink-0 {diagramMode ? 'text-accent' : ''}" />
+      <span class="flex-1">
+        <div class="text-[12.5px] font-semibold flex items-center gap-1.5">
+          Vẽ sơ đồ
+          {#if diagramMode}<span class="text-[9.5px] font-bold text-accent">BẬT</span>{/if}
+        </div>
+        <div class="text-[10.5px] text-text-muted">Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ trong ô nhập</div>
+      </span>
+    </button>
+    <button
+      type="button"
+      onclick={() => (searchEnabled = !searchEnabled)}
+      aria-pressed={searchEnabled}
+      class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+    >
+      <Icon name="globe" size={15} class="mt-0.5 shrink-0 {searchEnabled ? 'text-accent' : ''}" />
+      <span class="flex-1">
+        <div class="text-[12.5px] font-semibold flex items-center gap-1.5">
+          Tra cứu web
+          {#if searchEnabled}<span class="text-[9.5px] font-bold text-accent">BẬT</span>{/if}
+        </div>
+        <div class="text-[10.5px] text-text-muted">Google Search thật, chỉ áp dụng cho câu hỏi này</div>
+      </span>
+    </button>
+  {/snippet}
+
   {#if phase === "ask"}
     <!-- ── Giai đoạn 1: xem ảnh/video + đặt câu hỏi ── -->
     <div class="flex-1 min-h-0 p-3 pb-0 flex items-center justify-center">
@@ -872,32 +912,48 @@
           }
         }}
       ></textarea>
-      <button
-        type="button"
-        onclick={() => (diagramMode = !diagramMode)}
-        disabled={!mediaB64}
-        aria-label="Ép AI vẽ sơ đồ cho câu hỏi này"
-        data-tooltip="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
-        aria-pressed={diagramMode}
-        class="h-9 shrink-0 rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
-          ? 'btn-accent'
-          : 'btn-ghost'}"
-      >
-        <Icon name="flowchart" size={15} />
-      </button>
-      <button
-        type="button"
-        onclick={() => (searchEnabled = !searchEnabled)}
-        disabled={!mediaB64}
-        aria-label="Tra cứu web thật khi trả lời"
-        data-tooltip="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
-        aria-pressed={searchEnabled}
-        class="h-9 shrink-0 rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
-          ? 'btn-accent'
-          : 'btn-ghost'}"
-      >
-        <Icon name="globe" size={15} />
-      </button>
+      <!-- Menu "+" — CÙNG mẫu với ô "Hỏi tiếp" bên dưới (đã gom lại từ 2 nút
+      icon trần rời rạc), chỉ khác: ở đây chỉ có 2 mục toggle (Vẽ sơ đồ/Tra
+      cứu web) — "Chụp thêm bước"/"Sơ đồ từ vựng" đã có sẵn dạng chip riêng
+      phía trên (dòng chip gợi ý), không cần lặp lại trong menu này. -->
+      <div class="relative">
+        <button
+          type="button"
+          onclick={toggleMoreMenu}
+          disabled={!mediaB64}
+          aria-label="Thêm hành động"
+          aria-pressed={moreMenuOpen}
+          data-tooltip="Vẽ sơ đồ / tra cứu web"
+          class="relative h-9 shrink-0 rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {moreMenuOpen
+            ? 'btn-accent'
+            : 'btn-ghost'}"
+        >
+          <Icon name="plus" size={15} />
+          {#if !moreMenuOpen && (diagramMode || searchEnabled)}
+            <span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style="background: var(--color-accent);"
+            ></span>
+          {/if}
+        </button>
+
+        {#if moreMenuOpen}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <button
+            class="fixed inset-0 z-30 cursor-default"
+            style="background: transparent;"
+            onclick={() => (moreMenuOpen = false)}
+            aria-label="Đóng menu"
+          ></button>
+          <div
+            class="absolute bottom-full mb-2 right-0 w-64 overflow-y-auto scroll-visible card p-1.5 z-40"
+            style={moreMenuMaxHeight !== undefined
+              ? `max-height: min(${moreMenuMaxHeight}px, calc(100vh - 170px))`
+              : ""}
+            transition:fade={{ duration: 120 }}
+          >
+            {@render diagramSearchToggles()}
+          </div>
+        {/if}
+      </div>
       <button
         onclick={handleAsk}
         disabled={!mediaB64}
@@ -1220,7 +1276,6 @@
               transition:fade={{ duration: 120 }}
             >
               <button
-                bind:this={moreMenuFirstItemEl}
                 type="button"
                 onclick={() => {
                   moreMenuOpen = false;
@@ -1258,36 +1313,7 @@
               <div class="h-px bg-border my-0.5"></div>
               <!-- 2 mục dưới là TOGGLE (bật/tắt) — KHÔNG đóng menu khi bấm,
               để bật được cả 2 cùng lúc rồi mới đóng, xem trạng thái ngay. -->
-              <button
-                type="button"
-                onclick={() => (diagramMode = !diagramMode)}
-                aria-pressed={diagramMode}
-                class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
-              >
-                <Icon name="flowchart" size={15} class="mt-0.5 shrink-0 {diagramMode ? 'text-accent' : ''}" />
-                <span class="flex-1">
-                  <div class="text-[12.5px] font-semibold flex items-center gap-1.5">
-                    Vẽ sơ đồ
-                    {#if diagramMode}<span class="text-[9.5px] font-bold text-accent">BẬT</span>{/if}
-                  </div>
-                  <div class="text-[10.5px] text-text-muted">Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ trong ô nhập</div>
-                </span>
-              </button>
-              <button
-                type="button"
-                onclick={() => (searchEnabled = !searchEnabled)}
-                aria-pressed={searchEnabled}
-                class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
-              >
-                <Icon name="globe" size={15} class="mt-0.5 shrink-0 {searchEnabled ? 'text-accent' : ''}" />
-                <span class="flex-1">
-                  <div class="text-[12.5px] font-semibold flex items-center gap-1.5">
-                    Tra cứu web
-                    {#if searchEnabled}<span class="text-[9.5px] font-bold text-accent">BẬT</span>{/if}
-                  </div>
-                  <div class="text-[10.5px] text-text-muted">Google Search thật, chỉ áp dụng cho câu hỏi này</div>
-                </span>
-              </button>
+              {@render diagramSearchToggles()}
             </div>
           {/if}
         </div>
