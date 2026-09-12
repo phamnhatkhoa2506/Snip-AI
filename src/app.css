@@ -804,6 +804,35 @@ textarea,
   padding: 3px 0;
 }
 
+/* Các vùng cuộn NGANG (công thức toán dài, khối code, bảng) — KHÁC hẳn vùng
+   cuộn DỌC chính của app (dùng `ScrollArea.svelte` tự vẽ thanh cuộn bằng JS,
+   xem phần trên). Quy tắc ẩn scrollbar CHUNG ở đầu file (`* { scrollbar-width:
+   none }`) áp cả vào đây, khiến nội dung tuy cuộn ĐƯỢC nhưng KHÔNG CÓ GÌ báo
+   hiệu — người dùng không biết đây là vùng cuộn được, tưởng nhầm chữ bị mất
+   hẳn (lỗi thực tế đã gặp). Chưa có thời gian dựng thanh cuộn ngang tự vẽ
+   riêng (như ScrollArea.svelte nhưng cho chiều ngang) nên tạm dùng lại
+   scrollbar MẶC ĐỊNH của hệ thống cho riêng mấy vùng này — WebView2 không
+   đổi màu/kiểu dáng theo CSS được (xem ghi chú ở rule ẩn chung phía trên),
+   nhưng vẫn HIỆN RA bình thường, đủ để người dùng biết "còn cuộn được", dù
+   không đồng bộ hẳn theme tối/sáng của app. */
+.markdown-body pre,
+.markdown-body table,
+.markdown-body p,
+.markdown-body .katex-display,
+.markdown-body .mermaid-diagram {
+  scrollbar-width: thin;
+  -ms-overflow-style: auto;
+}
+.markdown-body pre::-webkit-scrollbar,
+.markdown-body table::-webkit-scrollbar,
+.markdown-body p::-webkit-scrollbar,
+.markdown-body .katex-display::-webkit-scrollbar,
+.markdown-body .mermaid-diagram::-webkit-scrollbar {
+  display: block;
+  height: 8px;
+  width: 8px;
+}
+
 /* Chú thích khi rê chuột (tooltip) — thay cho `title` mặc định của trình
    duyệt: tooltip gốc của WebView2 hiện SAU 1 khoảng trễ khá lâu và dễ bị
    người dùng tưởng "không có gì" với các nút chỉ có icon, không chữ (VD nút
