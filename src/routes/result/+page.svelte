@@ -3,8 +3,8 @@
   import { fade } from "svelte/transition";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { LogicalSize } from "@tauri-apps/api/dpi";
+  import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
+  import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import Icon from "$lib/Icon.svelte";
@@ -212,13 +212,33 @@
       const win = getCurrentWindow();
       const scale = await win.scaleFactor();
       const current = (await win.innerSize()).toLogical(scale);
-      if (current.width < COMFORTABLE_PREVIEW_SIZE.width || current.height < COMFORTABLE_PREVIEW_SIZE.height) {
-        await win.setSize(
-          new LogicalSize(
-            Math.max(current.width, COMFORTABLE_PREVIEW_SIZE.width),
-            Math.max(current.height, COMFORTABLE_PREVIEW_SIZE.height),
-          ),
-        );
+      if (current.width >= COMFORTABLE_PREVIEW_SIZE.width && current.height >= COMFORTABLE_PREVIEW_SIZE.height) {
+        return; // đã đủ rộng — khỏi đụng gì tới cửa sổ
+      }
+      const newWidth = Math.max(current.width, COMFORTABLE_PREVIEW_SIZE.width);
+      const newHeight = Math.max(current.height, COMFORTABLE_PREVIEW_SIZE.height);
+      await win.setSize(new LogicalSize(newWidth, newHeight));
+
+      // Vị trí cửa sổ được TÍNH SẴN cho kích thước NHỎ ban đầu (xem
+      // open_result_window trong commands.rs, luôn đặt gần vùng vừa
+      // chụp/kéo) — phình to hơn có thể đẩy MÉP PHẢI/ĐÁY ra NGOÀI màn hình,
+      // phần phình thêm coi như "vô hình" (nằm ngoài vùng hiển thị), trông
+      // như bấm mà chẳng thấy cửa sổ to ra (lỗi thực tế đã gặp). Kiểm tra lại
+      // theo đúng monitor đang chứa cửa sổ này, dịch vào trong nếu cần —
+      // KHÔNG BAO GIỜ dịch ra ngoài biên trái/trên của monitor (Math.max),
+      // tránh việc "sửa tràn phải" lại gây "tràn trái" ngược lại.
+      const monitor = await currentMonitor();
+      if (!monitor) return;
+      const monitorScale = monitor.scaleFactor;
+      const monitorPos = monitor.position.toLogical(monitorScale);
+      const monitorSize = monitor.size.toLogical(monitorScale);
+      const pos = (await win.outerPosition()).toLogical(scale);
+      const maxX = monitorPos.x + monitorSize.width - newWidth;
+      const maxY = monitorPos.y + monitorSize.height - newHeight;
+      const x = Math.max(monitorPos.x, Math.min(pos.x, maxX));
+      const y = Math.max(monitorPos.y, Math.min(pos.y, maxY));
+      if (x !== pos.x || y !== pos.y) {
+        await win.setPosition(new LogicalPosition(x, y));
       }
     } catch (e) {
       console.warn("[snip-ai] Không tự phình được cửa sổ:", e);
