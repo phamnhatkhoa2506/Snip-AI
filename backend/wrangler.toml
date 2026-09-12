@@ -19,6 +19,13 @@ GEMINI_SEARCH_MODEL = "gemini-2.5-flash"
 # để mở URL đăng nhập Google, an toàn để commit lên git.
 GOOGLE_CLIENT_ID = "172316423385-jn5bi3gq5trh5jvloiaba0jep2vnipra.apps.googleusercontent.com"
 
+# Lưu câu trả lời khảo sát mức độ hài lòng (POST /v1/survey) — mỗi lượt gửi 1
+# key riêng (timestamp+random), không cần đọc lại có cấu trúc phức tạp nên KV
+# đơn giản là đủ, không cần D1. Xem index.ts.
+[[kv_namespaces]]
+binding = "SURVEY_KV"
+id = "908b71a1c2dc410d8f326337f838c26c"
+
 # Ép Cloudflare chạy Worker này ở colo GẦN GOOGLE thay vì colo gần người dùng.
 #
 # Lý do KHÔNG phải tốc độ mà là bị CHẶN THẲNG: Gemini API kiểm tra vị trí theo

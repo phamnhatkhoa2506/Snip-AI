@@ -37,6 +37,12 @@ export interface Env {
   // "Cửa sau" tạm cho việc test bằng curl (xem giải thích ở đầu file). Có thể
   // bỏ hẳn field này khi luồng OAuth đã chạy ổn định trong production.
   APP_SHARED_SECRET?: string;
+
+  // Lưu câu trả lời khảo sát mức độ hài lòng (POST /v1/survey) — xem
+  // wrangler.toml. KV đơn giản là đủ: mỗi lượt gửi 1 key riêng, không cần
+  // đọc lại/query có cấu trúc (đọc lại bằng `wrangler kv key list`/dashboard
+  // lúc cần xem, không qua API này).
+  SURVEY_KV: KVNamespace;
 }
 
 function unauthorized(message = "Unauthorized"): Response {
@@ -219,6 +225,45 @@ export default {
         status: resp.status,
         headers: { "content-type": resp.headers.get("content-type") ?? "text/event-stream" },
       });
+    }
+
+    // Khảo sát mức độ hài lòng — KHÔNG bắt buộc đăng nhập (người dùng chưa
+    // đăng nhập Google, đang tự dùng API key riêng, vẫn nên khảo sát được
+    // bình thường). Có đăng nhập thì gắn kèm email để biết ai gửi, không thì
+    // lưu ẩn danh — cả 2 đều hợp lệ, không trả lỗi 401 ở endpoint này.
+    if (url.pathname === "/v1/survey" && request.method === "POST") {
+      let payload: { rating?: string; comment?: string; appVersion?: string };
+      try {
+        payload = await request.json();
+      } catch {
+        return json({ error: "Body phải là JSON" }, 400);
+      }
+
+      const VALID_RATINGS = ["unhappy", "happy", "very_happy"];
+      const rating = payload.rating ?? "";
+      if (!VALID_RATINGS.includes(rating)) {
+        return json({ error: `rating phải là 1 trong: ${VALID_RATINGS.join(", ")}` }, 400);
+      }
+      // Chặn payload quá khổ (spam/lỗi client) — góp ý thật sự không cần dài
+      // hơn vài đoạn văn.
+      const comment = (payload.comment ?? "").slice(0, 2000);
+      const appVersion = (payload.appVersion ?? "").slice(0, 40);
+
+      const user = await authenticate(request, env);
+      const record = {
+        rating,
+        comment,
+        appVersion,
+        email: user?.email ?? null,
+        submittedAt: new Date().toISOString(),
+      };
+
+      // Key ngẫu nhiên (không cần đọc lại theo thứ tự/tra cứu gì từ app) —
+      // đủ để không đè lên nhau khi nhiều người gửi cùng lúc.
+      const key = `survey:${Date.now()}:${crypto.randomUUID()}`;
+      await env.SURVEY_KV.put(key, JSON.stringify(record));
+
+      return json({ ok: true });
     }
 
     return new Response("Not found", { status: 404 });

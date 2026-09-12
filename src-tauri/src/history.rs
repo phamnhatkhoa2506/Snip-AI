@@ -211,6 +211,12 @@ pub fn history_save_turn(
     model: String,
     turns: Vec<HistoryTurn>,
 ) -> Result<(), String> {
+    // Tín hiệu "1 lượt hỏi AI vừa xong thành công" cho lịch hiện khảo sát hài
+    // lòng (xem survey.rs) — tính NGAY ĐÂY, không phụ thuộc việc ghi lịch sử
+    // bên dưới có thành công hay không (bản thân việc AI trả lời thành công
+    // mới là điều đáng tính, không phải việc lưu đĩa).
+    crate::survey::record_successful_ask(&app);
+
     let existing_id = state.history_ids.lock().unwrap().get(&window_label).cloned();
 
     let mut index = state.history_index.lock().unwrap();

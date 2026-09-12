@@ -221,6 +221,25 @@
       { t: "path", d: "M11 8v6" },
       { t: "path", d: "M8 11h6" },
     ],
+    // 3 mặt cảm xúc — khảo sát mức độ hài lòng
+    faceFrown: [
+      { t: "circle", cx: 12, cy: 12, r: 10 },
+      { t: "path", d: "M8 15c1-1.3 2.5-2 4-2s3 .7 4 2" },
+      { t: "path", d: "M9 9h.01" },
+      { t: "path", d: "M15 9h.01" },
+    ],
+    faceMeh: [
+      { t: "circle", cx: 12, cy: 12, r: 10 },
+      { t: "path", d: "M8 15h8" },
+      { t: "path", d: "M9 9h.01" },
+      { t: "path", d: "M15 9h.01" },
+    ],
+    faceSmileBig: [
+      { t: "circle", cx: 12, cy: 12, r: 10 },
+      { t: "path", d: "M7.5 13.5c1 2 2.7 3 4.5 3s3.5-1 4.5-3" },
+      { t: "path", d: "M9 9h.01" },
+      { t: "path", d: "M15 9h.01" },
+    ],
     // Mạng lưới nút liên kết — chip "Sơ đồ từ vựng"
     network: [
       { t: "circle", cx: 12, cy: 5, r: 2.5 },

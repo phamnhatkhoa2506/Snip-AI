@@ -16,6 +16,67 @@
 
   let toast = $state<{ kind: "ok" | "err"; text: string } | null>(null);
 
+  // ── Khảo sát mức độ hài lòng — lịch hiện "thông minh" quyết định HOÀN
+  // TOÀN ở phía Rust (survey.rs): chỉ hỏi sau khi đã dùng app đủ nhiều, đã
+  // khảo sát rồi thì không hỏi lại, bỏ qua thì chờ 1 khoảng mới hỏi lại. Cửa
+  // sổ này (Settings/"main") chỉ ẨN chứ không đóng khi bấm X (xem lib.rs) —
+  // kiểm tra lại mỗi lần cửa sổ được HIỆN LẠI (sự kiện focus), không chỉ lúc
+  // mount lần đầu, vì cửa sổ có thể ở ẩn rất lâu trong lúc người dùng snip/
+  // chat ở các cửa sổ khác. ─────────────────────────────────────────────
+  type SurveyRating = "unhappy" | "happy" | "very_happy";
+  let showSurveyModal = $state(false);
+  let surveyRating = $state<SurveyRating | null>(null);
+  let surveyComment = $state("");
+  let surveySubmitting = $state(false);
+  let surveyError = $state("");
+
+  async function checkSurveyEligibility() {
+    // Đang mở sẵn modal khác (menu tài khoản không tính, nhưng tránh phiền
+    // nếu lỡ đang bận thao tác gì) — bỏ qua lần check này, lần focus SAU vẫn
+    // sẽ thử lại (không mất hẳn cơ hội hỏi, chỉ lùi lại).
+    if (showSurveyModal) return;
+    try {
+      const status = await invoke<{ eligible: boolean }>("survey_status");
+      if (status.eligible) showSurveyModal = true;
+    } catch (e) {
+      console.warn("[snip-ai] Không kiểm tra được lịch khảo sát:", e);
+    }
+  }
+
+  function resetSurveyForm() {
+    surveyRating = null;
+    surveyComment = "";
+    surveyError = "";
+  }
+
+  async function handleSurveySubmit() {
+    if (!surveyRating || surveySubmitting) return;
+    surveySubmitting = true;
+    surveyError = "";
+    try {
+      await invoke("submit_survey", { rating: surveyRating, comment: surveyComment.trim() });
+      showSurveyModal = false;
+      resetSurveyForm();
+      flash("ok", "Cảm ơn bạn đã góp ý!");
+    } catch (e) {
+      surveyError = String(e);
+    } finally {
+      surveySubmitting = false;
+    }
+  }
+
+  /** Bấm "Để sau"/đóng modal mà KHÔNG gửi — vẫn ghi nhận để áp dụng cooldown
+   * (xem survey.rs::dismiss_survey), không phải huỷ hẳn tính năng khảo sát. */
+  async function handleSurveyDismiss() {
+    showSurveyModal = false;
+    resetSurveyForm();
+    try {
+      await invoke("dismiss_survey");
+    } catch (e) {
+      console.warn("[snip-ai] Không lưu được lượt bỏ qua khảo sát:", e);
+    }
+  }
+
   // ── Chế độ Ảnh/Video — 2 nút kiểu Snipping Tool, bấm chuyển qua lại xem
   // phím tắt nào (chỉ đổi PHẦN HIỂN THỊ trong Cài đặt, không tắt phím tắt còn
   // lại — cả 2 phím tắt vẫn hoạt động song song lúc dùng thật). ─────────────
@@ -234,9 +295,17 @@
     loadVideoHotkey();
     refreshLoginStatus();
     themeMode = loadTheme();
+    // Trễ 1 chút lúc mới mở app — không tranh giành sự chú ý với các bước
+    // đầu (đăng nhập...) diễn ra ngay khi cửa sổ vừa hiện.
+    setTimeout(checkSurveyEligibility, 1500);
+    // Cửa sổ này chỉ ẨN (không đóng) khi bấm X — "focus" của trình duyệt bắn
+    // lại mỗi lần Rust show() + set_focus() nó (qua tray/hotkey), đúng lúc
+    // cần kiểm tra lại vì có thể đã đủ điều kiện từ lúc ẩn tới giờ.
+    window.addEventListener("focus", checkSurveyEligibility);
     return () => {
       stopHotkeyCapture();
       stopVideoHotkeyCapture();
+      window.removeEventListener("focus", checkSurveyEligibility);
     }; // dọn listener nếu rời trang giữa lúc đang ghi phím
   });
 </script>
@@ -568,6 +637,82 @@
     >
       <Icon name={toast.kind === "ok" ? "check" : "alert"} size={14} />
       <span class="selectable">{toast.text}</span>
+    </div>
+  {/if}
+
+  <!-- Khảo sát mức độ hài lòng — xem checkSurveyEligibility. "Để sau" (nút X)
+  KHÔNG coi là huỷ hẳn, chỉ lùi lịch hỏi lại (dismiss_survey ở Rust). -->
+  {#if showSurveyModal}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-5"
+      role="presentation"
+      onclick={handleSurveyDismiss}
+      transition:fade={{ duration: 160 }}
+    >
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="card w-full max-w-[340px] p-5 flex flex-col gap-4 relative" onclick={(e) => e.stopPropagation()}>
+        <button
+          onclick={handleSurveyDismiss}
+          class="absolute top-3 right-3 btn-ghost p-1.5 rounded-lg"
+          title="Để sau"
+        >
+          <Icon name="x" size={14} />
+        </button>
+
+        <div class="text-center">
+          <h2 class="text-[14.5px] font-bold">Bạn thấy Snap AI thế nào?</h2>
+          <p class="text-[11.5px] text-text-muted mt-1">Vài giây góp ý giúp app tốt hơn</p>
+        </div>
+
+        <div class="flex justify-center gap-3">
+          {#each [{ v: "unhappy", icon: "faceFrown", label: "Không hài lòng" }, { v: "happy", icon: "faceMeh", label: "Hài lòng" }, { v: "very_happy", icon: "faceSmileBig", label: "Rất hài lòng" }] as opt (opt.v)}
+            <button
+              type="button"
+              onclick={() => (surveyRating = opt.v as SurveyRating)}
+              title={opt.label}
+              class="flex flex-col items-center gap-1 p-2 rounded-xl border transition-colors {surveyRating === opt.v
+                ? 'border-accent text-accent'
+                : 'border-border text-text-muted hover:text-text hover:border-[color:var(--color-text)]/30'}"
+              style={surveyRating === opt.v ? "background: color-mix(in srgb, var(--color-accent) 12%, transparent);" : ""}
+            >
+              <Icon name={opt.icon} size={26} strokeWidth={1.7} />
+              <span class="text-[9.5px] font-medium leading-none">{opt.label}</span>
+            </button>
+          {/each}
+        </div>
+
+        <textarea
+          bind:value={surveyComment}
+          rows="3"
+          placeholder="Bạn muốn góp ý gì thêm về app không? (không bắt buộc)"
+          class="field selectable resize-none text-[12px]"
+        ></textarea>
+
+        {#if surveyError}
+          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed">{surveyError}</p>
+        {/if}
+
+        <div class="flex gap-2">
+          <button
+            type="button"
+            onclick={handleSurveyDismiss}
+            disabled={surveySubmitting}
+            class="btn-ghost flex-1 py-2 rounded-lg text-[12.5px] font-medium disabled:opacity-50"
+          >
+            Để sau
+          </button>
+          <button
+            type="button"
+            onclick={handleSurveySubmit}
+            disabled={!surveyRating || surveySubmitting}
+            class="btn-accent flex-1 py-2 rounded-lg text-[12.5px] font-semibold disabled:opacity-40"
+          >
+            {surveySubmitting ? "Đang gửi…" : "Gửi"}
+          </button>
+        </div>
+      </div>
     </div>
   {/if}
 </main>

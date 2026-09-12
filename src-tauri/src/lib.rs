@@ -7,6 +7,7 @@ mod oauth;
 mod record;
 mod secrets;
 mod state;
+mod survey;
 
 use std::sync::Mutex;
 use state::{AppState, HotkeyState, HttpClientState, RecordHotkeyState};
@@ -107,6 +108,9 @@ pub fn run() {
             history::history_get,
             history::history_delete,
             history::history_clear_all,
+            survey::survey_status,
+            survey::dismiss_survey,
+            survey::submit_survey,
         ])
         .setup(|app| {
             // Phím tắt giờ tuỳ chỉnh được (đọc từ file cấu hình đã lưu, mặc
