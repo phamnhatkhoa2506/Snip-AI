@@ -533,14 +533,15 @@
    * MÔ TẢ SẴN (không phải chỉ icon trần + hy vọng người dùng hover đúng lúc). */
   let moreMenuOpen = $state(false);
 
-  /** Cửa sổ mặc định khá nhỏ — menu xổ LÊN (bottom-full) có thể không đủ chỗ
-   * phía trên nút "+", bị cửa sổ (overflow-hidden) CẮT MẤT góc bo tròn phía
-   * trên, chỉ còn thấy phần vuông ở giữa (lỗi thực tế đã gặp). Tự phình cửa
-   * sổ mỗi lần mở menu, cùng cách `openMediaPreview`/`openDiagramZoom` đã
-   * làm cho đúng vấn đề này. */
+  /** CHẨN ĐOÁN SAI trước đó: tưởng góc bo bị cắt là do cửa sổ quá nhỏ, nên
+   * đã gọi `ensureRoomyWindow()` (tự phình cửa sổ) mỗi lần mở menu — SAI, vì
+   * menu này chỉ là 1 popover nhỏ, không đáng để đụng tới kích thước cả cửa
+   * sổ (khác hẳn ảnh/video/sơ đồ phóng to — những modal THẬT SỰ cần nhiều
+   * chỗ). Đã bỏ lại — xem cách sửa đúng ở `max-h` cố định của chính popover
+   * bên dưới (luôn vừa trong cửa sổ nhỏ nhất có thể, tự cuộn bên trong nếu
+   * thiếu chỗ, không đụng gì tới kích thước cửa sổ). */
   function toggleMoreMenu() {
     moreMenuOpen = !moreMenuOpen;
-    if (moreMenuOpen) ensureRoomyWindow();
   }
 
   async function handleAsk() {
@@ -1157,12 +1158,14 @@
             ></button>
             <!-- Xổ lên trên (bottom-full) — hàng nút này nằm sát đáy cửa sổ,
             xổ xuống dưới sẽ tràn ra ngoài màn hình. -->
-            <!-- max-h + overflow-y-auto: lưới an toàn PHÒNG THÊM (bên cạnh
-            ensureRoomyWindow ở toggleMoreMenu) — cửa sổ có thể đã bị người
-            dùng tự kéo nhỏ lại sau khi phình, hoặc phình chưa kịp xong lúc
-            menu vừa mở. Tự cuộn bên trong thay vì tràn/bị cắt góc bo. -->
+            <!-- max-h CỐ ĐỊNH (không phải %/vh) — Rust cho phép cửa sổ nhỏ
+            tới 360x280 logical (set_min_size trong commands.rs). 150px luôn
+            vừa lọt trong khoảng trống phía trên nút "+" kể cả ở kích thước
+            NHỎ NHẤT đó (trừ header ~48px + hàng nhập liệu ~60-70px), không
+            cần đụng gì tới kích thước cửa sổ — tự cuộn bên trong nếu 4 mục
+            không vừa hết, còn hơn tràn ra ngoài/bị cắt góc bo. -->
             <div
-              class="absolute bottom-full mb-2 right-0 w-64 max-h-[70vh] overflow-y-auto card p-1.5 z-40"
+              class="absolute bottom-full mb-2 right-0 w-64 max-h-[150px] overflow-y-auto card p-1.5 z-40"
               transition:fade={{ duration: 120 }}
             >
               <button
