@@ -1099,7 +1099,14 @@
         đoán icon). Chấm nhỏ góc trên-phải báo hiệu đang có toggle nào BẬT dù
         đã đóng menu — không thì bật "Vẽ sơ đồ"/"Tra cứu web" xong đóng menu
         lại sẽ trông như chưa bật gì. -->
-        <div class="relative">
+        <!-- h-full trên CẢ wrapper lẫn nút bên trong: hàng `flex gap-2` bọc
+        ngoài mặc định stretch (align-items:stretch) đúng div `relative` này
+        cho cao bằng ô nhập/nút Gửi, nhưng bọc thêm 1 lớp div (để định vị
+        menu xổ ra) làm NÚT BÊN TRONG không tự cao theo — nó chỉ cao vừa đủ
+        nội dung của chính nó, thấp lùn hẳn so với 2 bên (lỗi thực tế đã gặp:
+        nút "+" không cao hết hàng như nút Gửi). `h-full` ép nút ăn theo đúng
+        chiều cao div cha đã được stretch. -->
+        <div class="relative h-full">
           <button
             type="button"
             onclick={toggleMoreMenu}
@@ -1107,7 +1114,7 @@
             aria-label="Thêm hành động"
             aria-pressed={moreMenuOpen}
             data-tooltip="Chụp thêm bước / sơ đồ từ vựng / vẽ sơ đồ / tra cứu web"
-            class="relative rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {moreMenuOpen
+            class="relative h-full rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {moreMenuOpen
               ? 'btn-accent'
               : 'btn-ghost'}"
           >
