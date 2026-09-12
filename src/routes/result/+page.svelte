@@ -513,6 +513,16 @@
    * MÔ TẢ SẴN (không phải chỉ icon trần + hy vọng người dùng hover đúng lúc). */
   let moreMenuOpen = $state(false);
 
+  /** Cửa sổ mặc định khá nhỏ — menu xổ LÊN (bottom-full) có thể không đủ chỗ
+   * phía trên nút "+", bị cửa sổ (overflow-hidden) CẮT MẤT góc bo tròn phía
+   * trên, chỉ còn thấy phần vuông ở giữa (lỗi thực tế đã gặp). Tự phình cửa
+   * sổ mỗi lần mở menu, cùng cách `openMediaPreview`/`openDiagramZoom` đã
+   * làm cho đúng vấn đề này. */
+  function toggleMoreMenu() {
+    moreMenuOpen = !moreMenuOpen;
+    if (moreMenuOpen) ensureRoomyWindow();
+  }
+
   async function handleAsk() {
     const typed = question.trim();
     const q = typed || (isVideoSession ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
@@ -1092,7 +1102,7 @@
         <div class="relative">
           <button
             type="button"
-            onclick={() => (moreMenuOpen = !moreMenuOpen)}
+            onclick={toggleMoreMenu}
             disabled={busy}
             aria-label="Thêm hành động"
             aria-pressed={moreMenuOpen}
@@ -1120,7 +1130,14 @@
             ></button>
             <!-- Xổ lên trên (bottom-full) — hàng nút này nằm sát đáy cửa sổ,
             xổ xuống dưới sẽ tràn ra ngoài màn hình. -->
-            <div class="absolute bottom-full mb-2 right-0 w-64 card p-1.5 z-40" transition:fade={{ duration: 120 }}>
+            <!-- max-h + overflow-y-auto: lưới an toàn PHÒNG THÊM (bên cạnh
+            ensureRoomyWindow ở toggleMoreMenu) — cửa sổ có thể đã bị người
+            dùng tự kéo nhỏ lại sau khi phình, hoặc phình chưa kịp xong lúc
+            menu vừa mở. Tự cuộn bên trong thay vì tràn/bị cắt góc bo. -->
+            <div
+              class="absolute bottom-full mb-2 right-0 w-64 max-h-[70vh] overflow-y-auto card p-1.5 z-40"
+              transition:fade={{ duration: 120 }}
+            >
               <button
                 type="button"
                 onclick={() => {
