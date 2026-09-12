@@ -507,6 +507,12 @@
    * theo không liên quan. */
   let diagramMode = $state(false);
 
+  /** Hàng nút phụ ở ô "Hỏi tiếp" (chụp thêm bước/sơ đồ từ vựng/vẽ sơ đồ/tra
+   * cứu web) từng để RỜI từng nút 1 — quá nhiều nút chen chúc, khó nhìn ra
+   * chức năng nào là gì. Gom vào 1 menu "..." bấm mới xổ ra, mỗi mục có CHỮ
+   * MÔ TẢ SẴN (không phải chỉ icon trần + hy vọng người dùng hover đúng lúc). */
+  let moreMenuOpen = $state(false);
+
   async function handleAsk() {
     const typed = question.trim();
     const q = typed || (isVideoSession ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
@@ -800,7 +806,7 @@
         onclick={() => (diagramMode = !diagramMode)}
         disabled={!mediaB64}
         aria-label="Ép AI vẽ sơ đồ cho câu hỏi này"
-        data-tooltip="Vẽ sơ đồ"
+        data-tooltip="Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ ngay trong ô nhập nếu muốn"
         aria-pressed={diagramMode}
         class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
           ? 'btn-accent'
@@ -813,7 +819,7 @@
         onclick={() => (searchEnabled = !searchEnabled)}
         disabled={!mediaB64}
         aria-label="Tra cứu web thật khi trả lời"
-        data-tooltip="Web search"
+        data-tooltip="Tra cứu web thật khi trả lời (Google Search) — chỉ áp dụng cho câu hỏi này"
         aria-pressed={searchEnabled}
         class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
           ? 'btn-accent'
@@ -1077,56 +1083,115 @@
           class="field selectable flex-1 disabled:opacity-50"
           onkeydown={(e) => e.key === "Enter" && handleSend()}
         />
-        <button
-          type="button"
-          onclick={triggerAppendCapture}
-          disabled={busy || appendCaptureBusy}
-          title={`${isVideoSession ? "Quay" : "Chụp"} thêm bước tiếp theo, thêm vào cùng cuộc hội thoại này`}
-          class="btn-ghost rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40"
-        >
-          {#if appendCaptureBusy}
-            <Icon name="loader" size={15} class="animate-spin" />
-          {:else}
-            <Icon name="plus" size={15} />
-          {/if}
-        </button>
-        {#if !isVideoSession}
+        <!-- Trước đây 4 nút "+"/sơ đồ từ vựng/vẽ sơ đồ/tra cứu web nằm RỜI
+        cạnh nhau — chen chúc, chỉ có icon trần nên khó đoán chức năng. Gom
+        vào 1 menu bấm mới xổ ra, mỗi mục có CHỮ MÔ TẢ SẴN (không cần hover
+        đoán icon). Chấm nhỏ góc trên-phải báo hiệu đang có toggle nào BẬT dù
+        đã đóng menu — không thì bật "Vẽ sơ đồ"/"Tra cứu web" xong đóng menu
+        lại sẽ trông như chưa bật gì. -->
+        <div class="relative">
           <button
             type="button"
-            onclick={askDiagram}
+            onclick={() => (moreMenuOpen = !moreMenuOpen)}
             disabled={busy}
-            title="Vẽ sơ đồ từ vựng cho ảnh này"
-            class="btn-ghost rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40"
+            aria-label="Thêm hành động"
+            aria-pressed={moreMenuOpen}
+            data-tooltip="Chụp thêm bước / sơ đồ từ vựng / vẽ sơ đồ / tra cứu web"
+            class="relative rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {moreMenuOpen
+              ? 'btn-accent'
+              : 'btn-ghost'}"
           >
-            <Icon name="network" size={15} />
+            <Icon name="plus" size={15} />
+            {#if !moreMenuOpen && (diagramMode || searchEnabled)}
+              <span
+                class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full"
+                style="background: var(--color-accent);"
+              ></span>
+            {/if}
           </button>
-        {/if}
-        <button
-          type="button"
-          onclick={() => (diagramMode = !diagramMode)}
-          disabled={busy}
-          aria-label="Ép AI vẽ sơ đồ cho câu hỏi này"
-        data-tooltip="Vẽ sơ đồ"
-          aria-pressed={diagramMode}
-          class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {diagramMode
-            ? 'btn-accent'
-            : 'btn-ghost'}"
-        >
-          <Icon name="flowchart" size={15} />
-        </button>
-        <button
-          type="button"
-          onclick={() => (searchEnabled = !searchEnabled)}
-          disabled={busy}
-          aria-label="Tra cứu web thật khi trả lời"
-        data-tooltip="Web search"
-          aria-pressed={searchEnabled}
-          class="rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {searchEnabled
-            ? 'btn-accent'
-            : 'btn-ghost'}"
-        >
-          <Icon name="globe" size={15} />
-        </button>
+
+          {#if moreMenuOpen}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <button
+              class="fixed inset-0 z-30 cursor-default"
+              style="background: transparent;"
+              onclick={() => (moreMenuOpen = false)}
+              aria-label="Đóng menu"
+            ></button>
+            <!-- Xổ lên trên (bottom-full) — hàng nút này nằm sát đáy cửa sổ,
+            xổ xuống dưới sẽ tràn ra ngoài màn hình. -->
+            <div class="absolute bottom-full mb-2 right-0 w-64 card p-1.5 z-40" transition:fade={{ duration: 120 }}>
+              <button
+                type="button"
+                onclick={() => {
+                  moreMenuOpen = false;
+                  triggerAppendCapture();
+                }}
+                disabled={appendCaptureBusy}
+                class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5 disabled:opacity-50"
+              >
+                {#if appendCaptureBusy}
+                  <Icon name="loader" size={15} class="animate-spin mt-0.5 shrink-0" />
+                {:else}
+                  <Icon name="plus" size={15} class="mt-0.5 shrink-0" />
+                {/if}
+                <span>
+                  <div class="text-[12.5px] font-semibold">{isVideoSession ? "Quay" : "Chụp"} thêm bước</div>
+                  <div class="text-[10.5px] text-text-muted">Nối thêm vào cùng cuộc hội thoại này</div>
+                </span>
+              </button>
+              {#if !isVideoSession}
+                <button
+                  type="button"
+                  onclick={() => {
+                    moreMenuOpen = false;
+                    askDiagram();
+                  }}
+                  class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+                >
+                  <Icon name="network" size={15} class="mt-0.5 shrink-0" />
+                  <span>
+                    <div class="text-[12.5px] font-semibold">Sơ đồ từ vựng</div>
+                    <div class="text-[10.5px] text-text-muted">Vẽ sơ đồ liên kết từ cho ảnh này</div>
+                  </span>
+                </button>
+              {/if}
+              <div class="h-px bg-border my-0.5"></div>
+              <!-- 2 mục dưới là TOGGLE (bật/tắt) — KHÔNG đóng menu khi bấm,
+              để bật được cả 2 cùng lúc rồi mới đóng, xem trạng thái ngay. -->
+              <button
+                type="button"
+                onclick={() => (diagramMode = !diagramMode)}
+                aria-pressed={diagramMode}
+                class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+              >
+                <Icon name="flowchart" size={15} class="mt-0.5 shrink-0 {diagramMode ? 'text-accent' : ''}" />
+                <span class="flex-1">
+                  <div class="text-[12.5px] font-semibold flex items-center gap-1.5">
+                    Vẽ sơ đồ
+                    {#if diagramMode}<span class="text-[9.5px] font-bold text-accent">BẬT</span>{/if}
+                  </div>
+                  <div class="text-[10.5px] text-text-muted">Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ trong ô nhập</div>
+                </span>
+              </button>
+              <button
+                type="button"
+                onclick={() => (searchEnabled = !searchEnabled)}
+                aria-pressed={searchEnabled}
+                class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+              >
+                <Icon name="globe" size={15} class="mt-0.5 shrink-0 {searchEnabled ? 'text-accent' : ''}" />
+                <span class="flex-1">
+                  <div class="text-[12.5px] font-semibold flex items-center gap-1.5">
+                    Tra cứu web
+                    {#if searchEnabled}<span class="text-[9.5px] font-bold text-accent">BẬT</span>{/if}
+                  </div>
+                  <div class="text-[10.5px] text-text-muted">Google Search thật, chỉ áp dụng cho câu hỏi này</div>
+                </span>
+              </button>
+            </div>
+          {/if}
+        </div>
         <button onclick={handleSend} disabled={busy} class="btn-accent px-4 rounded-lg">
           <Icon name="send" size={15} strokeWidth={2.2} />
         </button>
