@@ -533,6 +533,23 @@
    * MÔ TẢ SẴN (không phải chỉ icon trần + hy vọng người dùng hover đúng lúc). */
   let moreMenuOpen = $state(false);
 
+  /** ĐO THẬT chiều cao 1 mục trong menu "+" thay vì ĐOÁN bằng px cố định —
+   * đã đoán sai 1 lần (mô tả 2 dòng dài hơn tưởng, item thật cao hơn hẳn
+   * ~44px đã tính, mới 3 mục đã phải cuộn dù mục tiêu là vừa đủ 5 mục). Đo
+   * xong dùng số đo THẬT để tính max-height cho ĐÚNG 5 mục, không đoán nữa. */
+  let moreMenuFirstItemEl = $state<HTMLElement | null>(null);
+  let moreMenuItemHeight = $state(0);
+  $effect(() => {
+    if (moreMenuOpen && moreMenuFirstItemEl) {
+      moreMenuItemHeight = moreMenuFirstItemEl.getBoundingClientRect().height;
+    }
+  });
+  /** 5 mục + 1 dải phân cách (~5px) + đệm khung p-1.5 (~12px) — 0 lúc chưa đo
+   * được (lần đầu mount, hiếm khi thấy vì $effect chạy gần như ngay) thì rơi
+   * về `undefined` (không giới hạn) qua nhánh `|| undefined` bên dưới, tránh
+   * menu bị bóp về 0px 1 nhịp trước khi đo xong. */
+  const moreMenuMaxHeight = $derived(moreMenuItemHeight > 0 ? moreMenuItemHeight * 5 + 17 : undefined);
+
   /** CHẨN ĐOÁN SAI trước đó: tưởng góc bo bị cắt là do cửa sổ quá nhỏ, nên
    * đã gọi `ensureRoomyWindow()` (tự phình cửa sổ) mỗi lần mở menu — SAI, vì
    * menu này chỉ là 1 popover nhỏ, không đáng để đụng tới kích thước cả cửa
@@ -1158,23 +1175,22 @@
             ></button>
             <!-- Xổ lên trên (bottom-full) — hàng nút này nằm sát đáy cửa sổ,
             xổ xuống dưới sẽ tràn ra ngoài màn hình. -->
-            <!-- max-h = min(đủ cho 5 mục, khoảng trống thật phía trên nút
-            "+") — 2 mục tiêu cùng lúc:
-            1. Đang có 4 mục, chừa sẵn chỗ cho ĐÚNG 5 mục không cần cuộn (mỗi
-               mục ~44px cao + 1 dải phân cách ~5px + đệm khung ~12px = 248px)
-               — quá 5 mục (thêm chức năng sau này) mới cần cuộn.
-            2. KHÔNG BAO GIỜ vượt quá khoảng trống thật phía trên nút "+" —
-               100vh trừ ~170px (header ~48px + hàng nhập liệu ~70px + đệm)
-               — Rust cho phép cửa sổ nhỏ tới 360x280 logical (set_min_size
-               trong commands.rs), 248px cố định sẽ vượt khoảng trống đó ở
-               kích thước nhỏ nhất, quay lại đúng bug "bị cắt góc bo" đã sửa
-               trước đây. `min()` đảm bảo lấy đúng cái NHỎ HƠN giữa 2 giới
-               hạn, tự cuộn bên trong nếu cửa sổ đang nhỏ. -->
+            <!-- max-height = min(ĐO THẬT cho đúng 5 mục, khoảng trống thật
+            phía trên nút "+") — xem moreMenuItemHeight/moreMenuMaxHeight.
+            Vế thứ 2 (100vh trừ ~170px header+hàng nhập liệu) vẫn cần giữ dù
+            đã đo thật vế 1 — cửa sổ có thể đang ở kích thước NHỎ NHẤT
+            (360x280, set_min_size trong commands.rs) khiến ngay cả 5 mục đo
+            đúng cũng còn dài hơn khoảng trống thật, nếu không có vế này sẽ
+            tràn ra ngoài/bị cắt góc bo (bug đã sửa trước đây). -->
             <div
-              class="absolute bottom-full mb-2 right-0 w-64 max-h-[min(248px,calc(100vh_-_170px))] overflow-y-auto card p-1.5 z-40"
+              class="absolute bottom-full mb-2 right-0 w-64 overflow-y-auto card p-1.5 z-40"
+              style={moreMenuMaxHeight !== undefined
+                ? `max-height: min(${moreMenuMaxHeight}px, calc(100vh - 170px))`
+                : ""}
               transition:fade={{ duration: 120 }}
             >
               <button
+                bind:this={moreMenuFirstItemEl}
                 type="button"
                 onclick={() => {
                   moreMenuOpen = false;
