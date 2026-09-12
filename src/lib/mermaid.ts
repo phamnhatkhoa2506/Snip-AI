@@ -142,7 +142,7 @@ function openMermaidZoomModal(svgMarkup: string): void {
     "cursor:grab;touch-action:none;";
 
   const stage = document.createElement("div");
-  stage.style.cssText = "position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;";
+  stage.style.cssText = "position:absolute;top:0;left:0;";
   stage.innerHTML = svgMarkup;
   const svgEl = stage.querySelector("svg");
   if (svgEl) {
@@ -157,22 +157,45 @@ function openMermaidZoomModal(svgMarkup: string): void {
   let scale = 1;
   let x = 0;
   let y = 0;
+  // Kích thước THẬT của sơ đồ ở scale=1 (đo 1 LẦN, xem fitToView) — phóng to
+  // bằng cách đặt lại width/height THẬT của thẻ <svg> (ép trình duyệt vẽ lại
+  // vector ở đúng độ phân giải mới), KHÔNG dùng `transform: scale()`. Lý do:
+  // scale() qua CSS transform + `will-change` dễ khiến trình duyệt CACHE 1
+  // bitmap đã "chụp" sẵn ở kích thước ban đầu rồi chỉ phóng to TẤM BITMAP đó
+  // lên — sơ đồ (vốn là vector, đáng lẽ luôn nét dù zoom cỡ nào) bị MỜ hẳn đi
+  // giống phóng to 1 tấm ảnh raster (lỗi thực tế đã gặp). Resize width/height
+  // thật thì trình duyệt buộc phải render lại từ đầu, luôn nét.
+  let baseWidth = 0;
+  let baseHeight = 0;
 
   function applyTransform() {
-    stage.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    stage.style.transform = `translate(${x}px, ${y}px)`;
+    if (svgEl && baseWidth > 0 && baseHeight > 0) {
+      svgEl.style.width = `${baseWidth * scale}px`;
+      svgEl.style.height = `${baseHeight * scale}px`;
+    }
   }
 
   /** Co/giãn cho vừa khung nhìn lần đầu mở — sơ đồ nhỏ thì hiện đúng size
    * thật (không phóng to vô nghĩa), sơ đồ lớn hơn khung thì thu nhỏ vừa đủ
    * để thấy toàn cảnh trước, sau đó người dùng tự zoom sâu vào phần cần xem. */
   function fitToView() {
-    const rect = stage.getBoundingClientRect();
+    if (!svgEl) return;
+    if (baseWidth === 0 || baseHeight === 0) {
+      // Đo kích thước GỐC (chưa co giãn gì) đúng 1 lần duy nhất — mọi lần
+      // fitToView/zoom SAU đó đều tính lại TỪ con số gốc này, không đo lại
+      // qua getBoundingClientRect() (lúc đó đã bị style width/height của
+      // chính ta áp vào, đo lại sẽ ra kích thước ĐÃ SCALE chứ không phải gốc).
+      const rect0 = svgEl.getBoundingClientRect();
+      baseWidth = rect0.width;
+      baseHeight = rect0.height;
+    }
+    if (baseWidth === 0 || baseHeight === 0) return;
     const overlayRect = overlay.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    const fit = Math.min(1, (overlayRect.width - 80) / rect.width, (overlayRect.height - 80) / rect.height);
+    const fit = Math.min(1, (overlayRect.width - 80) / baseWidth, (overlayRect.height - 80) / baseHeight);
     scale = Number.isFinite(fit) && fit > 0 ? fit : 1;
-    x = (overlayRect.width - rect.width * scale) / 2;
-    y = (overlayRect.height - rect.height * scale) / 2;
+    x = (overlayRect.width - baseWidth * scale) / 2;
+    y = (overlayRect.height - baseHeight * scale) / 2;
     applyTransform();
   }
 
@@ -196,6 +219,14 @@ function openMermaidZoomModal(svgMarkup: string): void {
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
+  // Bấm-thả TẠI CHỖ (không di chuyển) trên nền tối vẫn phát sinh 1 sự kiện
+  // "click" bình thường (đúng ý muốn: đóng modal) — nhưng NẾU đã có kéo
+  // (dù bắt đầu từ nền tối, không phải từ sơ đồ) thì "click" đó KHÔNG được
+  // tính là "bấm ra ngoài để đóng" nữa, chỉ là điểm kết thúc của thao tác
+  // kéo. Thiếu cờ này thì kéo qua lại vài lần là modal tự đóng ngang xương
+  // (lỗi thực tế đã gặp) — trình duyệt vẫn bắn "click" sau "pointerup" dù
+  // đã di chuyển, miễn đích bắt đầu/kết thúc trùng 1 phần tử.
+  let didDrag = false;
   function onPointerDown(e: PointerEvent) {
     // Bấm vào 1 nút (thanh công cụ +/-/vừa khung/đóng) — TUYỆT ĐỐI không bắt
     // đầu kéo/chiếm pointer ở đây. `setPointerCapture` trên `overlay` khiến
@@ -205,6 +236,7 @@ function openMermaidZoomModal(svgMarkup: string): void {
     // bấm bất kỳ nút nào trong thanh công cụ (lỗi thực tế đã gặp).
     if ((e.target as HTMLElement).closest("button")) return;
     dragging = true;
+    didDrag = false;
     lastX = e.clientX;
     lastY = e.clientY;
     overlay.style.cursor = "grabbing";
@@ -212,8 +244,13 @@ function openMermaidZoomModal(svgMarkup: string): void {
   }
   function onPointerMove(e: PointerEvent) {
     if (!dragging) return;
-    x += e.clientX - lastX;
-    y += e.clientY - lastY;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    // Ngưỡng nhỏ (3px) — phân biệt "kéo thật" với rung tay lúc bấm/thả tại
+    // chỗ (chuột không bao giờ đứng yên tuyệt đối 100%).
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag = true;
+    x += dx;
+    y += dy;
     lastX = e.clientX;
     lastY = e.clientY;
     applyTransform();
@@ -233,6 +270,12 @@ function openMermaidZoomModal(svgMarkup: string): void {
     if (e.key === "Escape") close();
   }
   function onOverlayClick(e: MouseEvent) {
+    // Vừa kéo xong (dù thả tay trên nền tối) — KHÔNG tính là "bấm ra ngoài
+    // để đóng", chỉ là điểm kết thúc thao tác kéo. Xem giải thích ở `didDrag`.
+    if (didDrag) {
+      didDrag = false;
+      return;
+    }
     // Chỉ đóng khi bấm ĐÚNG vào nền tối (backdrop) — `stage` chỉ chiếm đúng
     // khung sơ đồ (không phủ hết overlay), nên click ra ngoài sơ đồ luôn có
     // `e.target === overlay`, không cần chặn nổi bọt event thủ công.
