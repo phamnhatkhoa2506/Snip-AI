@@ -13,6 +13,7 @@
     setRecordHotkey,
   } from "$lib/hotkey";
   import { loadTheme, setTheme, type ThemeMode } from "$lib/theme";
+  import { loadTextSize, setTextSize, type TextSizeMode } from "$lib/textSize";
 
   let toast = $state<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -92,6 +93,17 @@
   ];
   const currentThemeOption = $derived(THEME_OPTIONS.find((o) => o.mode === themeMode) ?? THEME_OPTIONS[1]);
 
+  // ── Cỡ chữ toàn app (nhỏ/vừa/lớn) — xem textSize.ts. Chữ "A" hiện theo
+  // đúng KÍCH THƯỚC THẬT của mức đang chọn (nhỏ/vừa/lớn khác nhau rõ), tự nó
+  // đã là 1 kiểu "xem trước", không cần icon riêng cho từng mức. ────────────
+  let textSizeMode = $state<TextSizeMode>("medium");
+  const TEXT_SIZE_OPTIONS: { mode: TextSizeMode; title: string; iconPx: number }[] = [
+    { mode: "small", title: "Nhỏ", iconPx: 11 },
+    { mode: "medium", title: "Vừa", iconPx: 14 },
+    { mode: "large", title: "Lớn", iconPx: 17 },
+  ];
+  const currentTextSizeOption = $derived(TEXT_SIZE_OPTIONS.find((o) => o.mode === textSizeMode) ?? TEXT_SIZE_OPTIONS[1]);
+
   // ── Nút "+ New" — bấm trực tiếp để snip/quay (thay vì phải nhớ bấm phím
   // tắt). Chạy đúng hành động theo `captureMode` đang chọn ở toggle header. ──
   let newActionBusy = $state(false);
@@ -115,6 +127,15 @@
     const next = THEME_OPTIONS[(i + 1) % THEME_OPTIONS.length];
     themeMode = next.mode;
     setTheme(next.mode);
+  }
+
+  /** Cùng kiểu bấm-để-chuyển-vòng với `cycleTheme` — nhất quán, không cần
+   * học thêm 1 kiểu UI mới cho 1 cài đặt tương tự. */
+  function cycleTextSize() {
+    const i = TEXT_SIZE_OPTIONS.findIndex((o) => o.mode === textSizeMode);
+    const next = TEXT_SIZE_OPTIONS[(i + 1) % TEXT_SIZE_OPTIONS.length];
+    textSizeMode = next.mode;
+    setTextSize(next.mode);
   }
 
   // ── Đăng nhập Google — DUY NHẤT cách dùng AI trong app, không còn mục
@@ -295,6 +316,7 @@
     loadVideoHotkey();
     refreshLoginStatus();
     themeMode = loadTheme();
+    textSizeMode = loadTextSize();
     // Trễ 1 chút lúc mới mở app — không tranh giành sự chú ý với các bước
     // đầu (đăng nhập...) diễn ra ngay khi cửa sổ vừa hiện.
     setTimeout(checkSurveyEligibility, 1500);
@@ -353,6 +375,19 @@
       style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
     >
       <Icon name={currentThemeOption.icon} size={13} strokeWidth={2.2} />
+    </button>
+
+    <!-- Cỡ chữ toàn app — cùng kiểu bấm-để-chuyển-vòng với công tắc sáng/tối
+    ngay trên (Nhỏ -> Vừa -> Lớn -> Nhỏ...). Chữ "A" tự hiện đúng kích thước
+    thật của mức đang chọn, không cần icon riêng. -->
+    <button
+      onclick={cycleTextSize}
+      title={`Cỡ chữ: ${currentTextSizeOption.title} (bấm để đổi)`}
+      aria-label="Đổi cỡ chữ"
+      class="btn-ghost w-7 h-7 rounded-full flex items-center justify-center shrink-0 font-bold leading-none"
+      style={`font-size: ${currentTextSizeOption.iconPx}px;`}
+    >
+      A
     </button>
 
     <!-- Tài khoản — góc trên bên phải, avatar thật nếu có ảnh Google -->
