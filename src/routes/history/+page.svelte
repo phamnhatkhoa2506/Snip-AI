@@ -294,7 +294,7 @@
               {#if turn.role === "user"}
                 <div class="flex justify-end">
                   <div
-                    class="max-w-[86%] rounded-2xl rounded-br-md px-3.5 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap text-accent-text font-medium"
+                    class="max-w-[86%] rounded-2xl rounded-br-md px-3.5 py-2 text-[calc(12.5px*var(--chat-text-scale,1))] leading-relaxed whitespace-pre-wrap text-accent-text font-medium"
                     style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
                   >
                     {turn.displayLabel ?? turn.content}
@@ -318,7 +318,7 @@
                   này rộng hơn max-w-[88%] nếu thiếu dòng này, xem giải thích
                   đầy đủ ở result/+page.svelte (cùng bug, cùng cách sửa). -->
                   <div
-                    class="markdown-body card max-w-[88%] min-w-0 rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[12.5px]"
+                    class="markdown-body card max-w-[88%] min-w-0 rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[calc(12.5px*var(--chat-text-scale,1))]"
                     onclick={handleAnswerLinkClick}
                     use:mermaidBlocks={turn.content}
                   >

@@ -1148,7 +1148,7 @@
         {#if turn.role === "user"}
           <div class="flex justify-end msg-in">
             <div
-              class="max-w-[86%] rounded-2xl rounded-br-md px-3.5 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap text-accent-text font-medium"
+              class="max-w-[86%] rounded-2xl rounded-br-md px-3.5 py-2 text-[calc(12.5px*var(--chat-text-scale,1))] leading-relaxed whitespace-pre-wrap text-accent-text font-medium"
               style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
             >
               {turn.displayLabel ?? turn.content}
@@ -1216,7 +1216,7 @@
                   bấm (xem handleTimestampClick) — không gắn onclick trực tiếp
                   vào chuỗi HTML vì DOMPurify đã xoá sạch onclick lúc sanitize. -->
                   <div
-                    class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[12.5px]"
+                    class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[calc(12.5px*var(--chat-text-scale,1))]"
                     onclick={handleAnswerClick}
                     use:mermaidBlocks={turn.content}
                   >
@@ -1244,7 +1244,7 @@
           >
             <Icon name="sparkles" size={12} strokeWidth={2.3} />
           </div>
-          <div class="card max-w-[88%] rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[12.5px] leading-relaxed">
+          <div class="card max-w-[88%] rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[calc(12.5px*var(--chat-text-scale,1))] leading-relaxed">
             {#if streamChunks.length === 0}
               <span class="thinking-dots inline-flex items-center h-4"><span></span><span></span><span></span></span>
             {:else}

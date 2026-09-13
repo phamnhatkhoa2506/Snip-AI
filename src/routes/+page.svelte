@@ -382,7 +382,7 @@
     thật của mức đang chọn, không cần icon riêng. -->
     <button
       onclick={cycleTextSize}
-      title={`Cỡ chữ: ${currentTextSizeOption.title} (bấm để đổi)`}
+      title={`Cỡ chữ trong hội thoại: ${currentTextSizeOption.title} (bấm để đổi)`}
       aria-label="Đổi cỡ chữ"
       class="btn-ghost w-7 h-7 rounded-full flex items-center justify-center shrink-0 font-bold leading-none"
       style={`font-size: ${currentTextSizeOption.iconPx}px;`}

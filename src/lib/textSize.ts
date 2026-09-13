@@ -1,36 +1,38 @@
-// Cỡ chữ toàn app: nhỏ / vừa (mặc định) / lớn — cho người mắt kém/màn hình
-// độ phân giải cao thấy chữ hiện tại (nhiều chỗ dùng cỡ chữ cố định khá nhỏ,
-// VD 10.5-13px) đọc thoải mái hơn, không cần zoom cả hệ điều hành.
+// Cỡ chữ TRONG BONG BÓNG CHAT (câu hỏi + câu trả lời AI): nhỏ / vừa (mặc
+// định) / lớn — cho người mắt kém/màn hình độ phân giải cao thấy chữ hiện
+// tại (12.5px cố định) đọc thoải mái hơn.
 //
-// CÁCH LÀM: dùng CSS `zoom` trên toàn bộ <html> thay vì đổi từng class chữ —
-// app dùng RẤT NHIỀU cỡ chữ cố định theo px (Tailwind arbitrary value, VD
-// `text-[12.5px]`) rải khắp hàng trăm chỗ, không phải đơn vị `rem` co giãn
-// theo font-size gốc — sửa lại toàn bộ thành rem là việc quá lớn so với lợi
-// ích. `zoom` (WebView2/Chromium hỗ trợ tốt, dù không phải chuẩn CSS chính
-// thức — không vấn đề gì vì app CHỈ chạy trên WebView2, không cần tương
-// thích trình duyệt khác) phóng to/thu nhỏ TOÀN BỘ layout+chữ cùng lúc,
-// giống hệt Ctrl+"+"/"-" trong Chrome, không cần đụng gì tới CSS có sẵn.
+// ⚠️ THỬ dùng CSS `zoom` trên toàn bộ <html> TRƯỚC — phóng gọn cả layout lẫn
+// chữ cùng lúc — nhưng gặp lỗi thực tế NGHIÊM TRỌNG: cửa sổ có KÍCH THƯỚC
+// VẬT LÝ CỐ ĐỊNH (Rust set lúc mở, xem commands.rs), `zoom` chỉ phóng to nội
+// dung HIỂN THỊ chứ không tự phóng theo cửa sổ — phóng chữ lên thì các phần
+// cố định (header, hàng nút bấm, ô nhập ở đáy) bị đẩy tràn ra ngoài/che mất
+// lẫn nhau, vỡ hẳn giao diện. Đổi hướng: CHỈ phóng to chữ BÊN TRONG bong
+// bóng chat (câu hỏi/câu trả lời) — nơi đã nằm trong vùng CUỘN ĐƯỢC
+// (ScrollArea, xem result/+page.svelte), phóng to chữ ở đó chỉ làm mỗi bong
+// bóng cao lên, cuộn nhiều hơn — KHÔNG đụng gì tới bố cục cố định còn lại
+// (header/nút bấm/ô nhập luôn giữ đúng kích thước ban đầu).
+//
+// CÁCH LÀM: 1 biến CSS `--chat-text-scale` đặt trên <html>, các class chữ
+// bong bóng chat dùng `text-[calc(12.5px*var(--chat-text-scale,1))]` thay vì
+// `text-[12.5px]` cố định (xem result/+page.svelte, history/+page.svelte) —
+// Tailwind v4 cho phép arbitrary value là biểu thức CSS bất kỳ, không chỉ
+// số cố định.
 //
 // Lưu localStorage — CHUNG cho mọi cửa sổ (main/result/history, cùng
 // origin), nên đổi 1 lần ở Settings là mọi cửa sổ khác đồng bộ theo (cần tự
 // apply lại ở mỗi cửa sổ lúc mount, xem +layout.svelte — localStorage không
 // tự đồng bộ real-time giữa các cửa sổ đang mở sẵn, chỉ đọc đúng khi mở cửa
 // sổ mới/reload, giống hệt cơ chế theme.ts).
-//
-// ⚠️ CỐ TÌNH KHÔNG áp dụng cho cửa sổ "overlay" (chọn vùng chụp) — overlay
-// tính khung chọn trực tiếp từ `e.clientX`/`e.clientY` để suy ra toạ độ pixel
-// THẬT trên màn hình (xem overlay/+page.svelte); `zoom` sẽ làm lệch phép
-// tính đó, có thể chụp sai vùng. Xem điều kiện loại trừ theo route trong
-// +layout.svelte.
 
 export type TextSizeMode = "small" | "medium" | "large";
 
 const STORAGE_KEY = "snip-ai:textSize";
 
-const ZOOM_BY_MODE: Record<TextSizeMode, string> = {
+const SCALE_BY_MODE: Record<TextSizeMode, string> = {
   small: "0.9",
   medium: "1",
-  large: "1.15",
+  large: "1.25",
 };
 
 export function loadTextSize(): TextSizeMode {
@@ -43,13 +45,9 @@ export function loadTextSize(): TextSizeMode {
   return "medium";
 }
 
-/** Áp dụng lên <html> của cửa sổ HIỆN TẠI — gọi lúc mount mọi route (trừ
- * overlay, xem giải thích ở đầu file). */
+/** Áp dụng lên <html> của cửa sổ HIỆN TẠI — gọi lúc mount mọi route. */
 export function applyTextSize(mode: TextSizeMode): void {
-  // `setProperty` thay vì gán thẳng `style.zoom` — `zoom` không phải thuộc
-  // tính CSS chuẩn nên kiểu TypeScript của CSSStyleDeclaration không khai
-  // báo sẵn, `setProperty` nhận chuỗi tên bất kỳ nên luôn hợp lệ về kiểu.
-  document.documentElement.style.setProperty("zoom", ZOOM_BY_MODE[mode]);
+  document.documentElement.style.setProperty("--chat-text-scale", SCALE_BY_MODE[mode]);
 }
 
 export function setTextSize(mode: TextSizeMode): void {
