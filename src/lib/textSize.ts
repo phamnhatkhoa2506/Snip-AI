@@ -20,12 +20,20 @@
 // số cố định.
 //
 // Lưu localStorage — CHUNG cho mọi cửa sổ (main/result/history, cùng
-// origin), nên đổi 1 lần ở Settings là mọi cửa sổ khác đồng bộ theo (cần tự
-// apply lại ở mỗi cửa sổ lúc mount, xem +layout.svelte — localStorage không
-// tự đồng bộ real-time giữa các cửa sổ đang mở sẵn, chỉ đọc đúng khi mở cửa
-// sổ mới/reload, giống hệt cơ chế theme.ts).
+// origin) NHƯNG localStorage KHÔNG tự đẩy thay đổi real-time giữa các cửa sổ
+// ĐANG MỞ SẴN (chỉ đọc đúng khi mở cửa sổ mới/reload) — lỗi thực tế đã gặp:
+// đổi cỡ chữ ở Settings trong lúc cửa sổ "Kết quả AI" đang mở sẵn thì chữ ở
+// đó không đổi gì cả, trông như nút "không ăn". Sửa bằng cách BẮN THÊM 1 sự
+// kiện Tauri (`emit`, không phải `emitTo` — cần tới MỌI cửa sổ đang mở, không
+// chỉ 1 cửa sổ cụ thể) ngay khi đổi, các cửa sổ khác lắng nghe rồi tự áp
+// dụng lại NGAY, không cần đóng/mở lại (xem +layout.svelte).
+
+import { emit } from "@tauri-apps/api/event";
 
 export type TextSizeMode = "small" | "medium" | "large";
+
+/** Tên sự kiện Tauri dùng để đồng bộ real-time giữa các cửa sổ đang mở. */
+export const TEXT_SIZE_CHANGED_EVENT = "snip-ai:text-size-changed";
 
 const STORAGE_KEY = "snip-ai:textSize";
 
@@ -50,11 +58,18 @@ export function applyTextSize(mode: TextSizeMode): void {
   document.documentElement.style.setProperty("--chat-text-scale", SCALE_BY_MODE[mode]);
 }
 
-export function setTextSize(mode: TextSizeMode): void {
+export async function setTextSize(mode: TextSizeMode): Promise<void> {
   try {
     localStorage.setItem(STORAGE_KEY, mode);
   } catch {
     // bỏ qua nếu không lưu được — vẫn apply cho phiên hiện tại
   }
   applyTextSize(mode);
+  try {
+    // `emit` (không phải `emitTo`) — cần tới MỌI cửa sổ đang mở (result-*,
+    // history...), không biết trước có bao nhiêu cửa sổ hay label gì.
+    await emit(TEXT_SIZE_CHANGED_EVENT, mode);
+  } catch (e) {
+    console.warn("[snip-ai] Không đồng bộ được cỡ chữ real-time tới cửa sổ khác:", e);
+  }
 }
