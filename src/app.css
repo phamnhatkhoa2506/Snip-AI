@@ -563,6 +563,12 @@ textarea,
 .thinking-dots span:nth-child(3) {
   animation-delay: 0.3s;
 }
+/* Biến thể chấm màu TRẮNG — dùng khi nền chỗ đặt chấm loading đã là gradient
+   accent (VD nút "Tiếp tục hội thoại"), chấm mặc định cũng tô gradient accent
+   nên chìm hẳn vào nền, gần như không thấy đang loading. */
+.thinking-dots-light span {
+  background: #fff;
+}
 
 /* Tin nhắn trượt lên khi xuất hiện */
 @keyframes msg-in {
@@ -665,6 +671,26 @@ textarea,
 }
 .markdown-body h3 {
   font-size: 1.02em;
+}
+/* "Bước 1", "Bước 2"... khi AI giải bài tập nhiều bước (xem rule 10,
+   SYSTEM_PROMPT trong ai.rs — model tự format mỗi bước bằng `#### Bước N:`)
+   — cố ý style KHÁC HẲN h1-h3 (chữ đậm thường) thành 1 badge/pill nổi bật
+   riêng, để mắt dễ nhận ra ranh giới giữa các bước khi bài dài 5-6 bước,
+   thay vì phải đọc lướt tìm chữ đậm giữa đoạn văn. */
+.markdown-body h4 {
+  display: inline-flex;
+  align-items: center;
+  margin: 12px 0 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.86em;
+  font-weight: 700;
+  line-height: 1.6;
+  color: var(--color-accent-text);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));
+}
+.markdown-body h4:first-child {
+  margin-top: 0;
 }
 .markdown-body strong {
   font-weight: 700;
@@ -802,6 +828,21 @@ textarea,
   /* Đệm dọc nhỏ — không cắt phần trên/dưới của phân số, dấu tổng... khi
      thanh cuộn ngang xuất hiện (thanh cuộn chiếm mất vài px chiều cao). */
   padding: 3px 0;
+}
+/* Lỗi thực tế đã gặp: model đôi khi viết dính liền công thức inline với chữ
+   xung quanh, không chừa khoảng trắng (VD "tam giác đều$ABD$và$CBD$đều" —
+   không có dấu cách nào quanh "$...$") — bóc "$...$" ra render KaTeX xong thì
+   chữ thường và công thức dính sát nhau, đọc rất khó chịu. Không sửa bằng
+   cách chèn thêm khoảng trắng vào text gốc (dễ sai với công thức ĐÃ có sẵn
+   khoảng trắng, tạo khoảng cách đôi) — thêm hẳn margin ngang nhỏ cho MỌI công
+   thức inline, tự nhiên tách khỏi chữ xung quanh dù nguồn có/không có sẵn
+   dấu cách. Không áp cho `.katex-display` (công thức khối, đã tự căn dòng
+   riêng, không cần margin ngang). */
+.markdown-body .katex {
+  margin: 0 0.12em;
+}
+.markdown-body .katex-display .katex {
+  margin: 0;
 }
 
 /* Các vùng cuộn NGANG (công thức toán dài, khối code, bảng) — KHÁC hẳn vùng

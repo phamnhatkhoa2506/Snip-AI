@@ -16,16 +16,10 @@
 // ít nhất 1 khối mermaid cần vẽ (dynamic import), tránh làm chậm mọi cửa sổ
 // "Kết quả AI"/Lịch sử kể cả khi câu trả lời không hề có sơ đồ nào.
 import type { Action } from "svelte/action";
+import { exportSvgAsPng } from "./exportImage";
 
 let mermaidPromise: ReturnType<typeof loadMermaid> | null = null;
 let idSeq = 0;
-
-function isDarkMode(): boolean {
-  const attr = document.documentElement.getAttribute("data-theme");
-  if (attr === "dark") return true;
-  if (attr === "light") return false;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
 
 async function loadMermaid() {
   const mod = await import("mermaid");
@@ -36,7 +30,15 @@ async function loadMermaid() {
     // qua nội dung sơ đồ — cần thiết vì nguồn sơ đồ đến từ AI (bán tin cậy),
     // giống lý do phải DOMPurify câu trả lời markdown thường.
     securityLevel: "strict",
-    theme: isDarkMode() ? "dark" : "default",
+    // LUÔN "default" (nền/chữ sáng) — KHÔNG đổi theo theme sáng/tối của app
+    // nữa (trước đây dùng isDarkMode() để chọn theme "dark" cho mermaid).
+    // Người dùng phản hồi: sơ đồ dễ nhìn hơn hẳn khi LUÔN nền trắng, kể cả
+    // đang bật giao diện tối — nền trắng + nét/chữ tối tương phản rõ hơn nền
+    // tối mermaid tự chọn màu theo bảng màu "dark" của nó (dễ bị nhoè/quá
+    // rực trên nhiều loại sơ đồ). Wrapper bên dưới (renderMermaidBlocks) và
+    // modal zoom (openSvgZoomModal) đều tự set nền trắng khớp với lựa chọn
+    // này, không phụ thuộc theme app.
+    theme: "default",
   });
   return mermaid;
 }
@@ -71,7 +73,12 @@ async function renderMermaidBlocks(container: HTMLElement): Promise<void> {
       const { svg } = await mermaid.render(id, source);
       const wrapper = document.createElement("div");
       wrapper.className = "mermaid-diagram";
-      wrapper.style.position = "relative";
+      // Nền TRẮNG CỐ ĐỊNH (không theo `var(--color-bg-elevated)` đổi theo
+      // theme app) — sơ đồ mermaid tự vẽ nét/chữ tối theo theme "default"
+      // (xem loadMermaid), cần nền sáng cố định mới tương phản rõ, kể cả khi
+      // đang bật giao diện tối cho cả app.
+      wrapper.style.cssText =
+        "position:relative;background:#fff;border-radius:10px;padding:10px;overflow:auto;";
       wrapper.innerHTML = svg;
 
       // Sơ đồ phức tạp (nhiều node) hiện nhúng trong bong bóng chat quá nhỏ
@@ -90,9 +97,34 @@ async function renderMermaidBlocks(container: HTMLElement): Promise<void> {
         "justify-content:center;padding:0;";
       zoomBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        openMermaidZoomModal(svg);
+        openSvgZoomModal(svg);
       });
       wrapper.appendChild(zoomBtn);
+
+      // Tải PNG — nằm NGAY DƯỚI nút phóng to (top:34px, không phải top:6px)
+      // để 2 nút không đè lên nhau. Lấy đúng <svg> VỪA CHÈN vào wrapper (không
+      // phải parse lại chuỗi `svg`) để `getBoundingClientRect()` trong
+      // `exportSvgAsPng` đo được kích thước THẬT đang hiển thị.
+      const svgEl = wrapper.querySelector("svg");
+      if (svgEl) {
+        const downloadBtn = document.createElement("button");
+        downloadBtn.type = "button";
+        downloadBtn.title = "Tải ảnh PNG";
+        downloadBtn.setAttribute("aria-label", "Tải ảnh PNG");
+        downloadBtn.innerHTML = DOWNLOAD_ICON_SVG;
+        downloadBtn.style.cssText =
+          "position:absolute;top:34px;right:6px;width:26px;height:26px;border-radius:6px;" +
+          "border:1px solid var(--color-border);background:var(--color-bg-elevated);" +
+          "color:var(--color-text-muted);cursor:pointer;display:flex;align-items:center;" +
+          "justify-content:center;padding:0;";
+        downloadBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          exportSvgAsPng(svgEl as SVGSVGElement, "so-do.png").catch((err) =>
+            console.warn("[snip-ai] Xuất PNG sơ đồ thất bại:", err),
+          );
+        });
+        wrapper.appendChild(downloadBtn);
+      }
 
       pre.replaceWith(wrapper);
     } catch (e) {
@@ -125,16 +157,28 @@ export const mermaidBlocks: Action<HTMLElement, unknown> = (node) => {
 // đơn giản hơn nhiều so với việc nối dây state qua lại giữa 2 component cha
 // khác nhau. Style viết INLINE (không dùng class Tailwind) vì phần tử này
 // KHÔNG nằm trong 1 file .svelte nào để Tailwind quét thấy lúc build.
+//
+// `openSvgZoomModal` HOÀN TOÀN GENERIC — chỉ nhận 1 chuỗi SVG bất kỳ, không
+// phụ thuộc gì vào Mermaid — nên `svgFigure.ts` (khối ```svg, hình học AI tự
+// vẽ) TÁI DÙNG THẲNG hàm này thay vì viết lại 1 bộ pan/zoom riêng. Export ở
+// đây (thay vì tách file `zoomModal.ts` riêng) vì đây là nơi tính năng này
+// được viết ra đầu tiên — tách file riêng chỉ đáng làm nếu sau này có thêm 1
+// nơi thứ 3 cũng cần dùng.
 
 const ZOOM_ICON_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" ' +
   'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
   '<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>';
 
+const DOWNLOAD_ICON_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" ' +
+  'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19h16"/></svg>';
+
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 8;
 
-function openMermaidZoomModal(svgMarkup: string): void {
+export function openSvgZoomModal(svgMarkup: string): void {
   const overlay = document.createElement("div");
   overlay.style.cssText =
     "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.82);" +
@@ -151,6 +195,14 @@ function openMermaidZoomModal(svgMarkup: string): void {
     svgEl.style.display = "block";
     svgEl.style.maxWidth = "none";
     svgEl.style.maxHeight = "none";
+    // Nền TRẮNG CỐ ĐỊNH — set thẳng trên chính thẻ <svg> (không phải `stage`
+    // bọc ngoài) để khớp CHÍNH XÁC khung đo kích thước thật dùng để tính zoom
+    // "vừa khung" (baseWidth/baseHeight, xem fitToView) — nếu set ở `stage`
+    // sẽ lệch nếu sau này thêm padding. Nền tối của overlay (rgba(0,0,0,.82))
+    // chỉ là backdrop làm nổi bật khung đang xem, còn bản thân sơ đồ/hình vẽ
+    // LUÔN có nền trắng riêng, không đổi theo theme app.
+    svgEl.style.background = "#fff";
+    svgEl.style.borderRadius = "8px";
   }
   overlay.appendChild(stage);
 

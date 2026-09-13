@@ -262,6 +262,12 @@
       { t: "path", d: "M6.5 9v4a2 2 0 0 0 2 2h4.5" },
       { t: "path", d: "m11 12.5 2 2.5-2 2.5" },
     ],
+    // Mũi tên xuống + khay — nút "Tải PNG"/"Xuất file" (biểu đồ, bảng, văn bản)
+    download: [
+      { t: "path", d: "M12 3v12" },
+      { t: "path", d: "m7 10 5 5 5-5" },
+      { t: "path", d: "M4 19h16" },
+    ],
     // Mạng lưới nút liên kết — chip "Sơ đồ từ vựng"
     network: [
       { t: "circle", cx: 12, cy: 5, r: 2.5 },

@@ -7,6 +7,11 @@
   import ScrollArea from "$lib/ScrollArea.svelte";
   import { renderMarkdown } from "$lib/markdown";
   import { mermaidBlocks } from "$lib/mermaid";
+  import { plotBlocks } from "$lib/plot";
+  import { svgFigureBlocks } from "$lib/svgFigure";
+  import { chartBlocks } from "$lib/chart";
+  import { csvBlocks } from "$lib/csvBlock";
+  import { scene3dBlocks } from "$lib/scene3d";
 
   /** Link trong câu trả lời đã lưu (VD nguồn trích dẫn) — mở bằng trình
    * duyệt hệ thống thay vì để WebView2 điều hướng nguyên cửa sổ app sang
@@ -159,6 +164,25 @@
     return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
   }
 
+  /** "Tiếp tục hội thoại" — mở 1 cửa sổ "Kết quả AI" MỚI nạp lại đúng ảnh/
+   * video + toàn bộ turns của mục này (xem history.rs::history_resume), các
+   * lượt hỏi tiếp trong cửa sổ mới đó tự cập nhật lại ĐÚNG bản ghi này (không
+   * tạo bản ghi trùng). Cửa sổ Lịch sử (cửa sổ hiện tại) không đóng lại — có
+   * thể mở tiếp nhiều mục khác song song, giống hành vi "Kết quả AI" bình
+   * thường (nhiều cửa sổ độc lập). */
+  let resumingId = $state<string | null>(null);
+  async function resumeConversation(id: string) {
+    if (resumingId) return;
+    resumingId = id;
+    try {
+      await invoke("history_resume", { id });
+    } catch (e) {
+      detailError = String(e);
+    } finally {
+      resumingId = null;
+    }
+  }
+
   onMount(() => {
     loadList();
   });
@@ -260,6 +284,23 @@
         <div class="text-[12px] text-[color:var(--color-danger)]">{detailError}</div>
       {:else if detail}
         <div class="max-w-2xl mx-auto flex flex-col gap-4">
+          {#if !detail.mediaMissing}
+            <button
+              onclick={() => detail && resumeConversation(detail.id)}
+              disabled={resumingId === detail.id}
+              class="self-start px-3 py-1.5 rounded-lg text-[12px] font-semibold text-accent-text flex items-center gap-1.5 disabled:opacity-60 transition-opacity"
+              style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
+            >
+              {#if resumingId === detail.id}
+                <span class="thinking-dots thinking-dots-light inline-flex items-center h-3"
+                  ><span></span><span></span><span></span></span
+                >
+              {:else}
+                <Icon name="sparkles" size={13} strokeWidth={2.3} />
+              {/if}
+              Tiếp tục hội thoại
+            </button>
+          {/if}
           {#if detail.mediaMissing}
             <div
               class="rounded-xl border border-dashed border-[color:var(--color-danger)]/40 bg-[color:var(--color-danger)]/5 px-4 py-6 flex flex-col items-center gap-2 text-center"
@@ -321,6 +362,11 @@
                     class="markdown-body card max-w-[88%] min-w-0 rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[calc(12.5px*var(--chat-text-scale,1))]"
                     onclick={handleAnswerLinkClick}
                     use:mermaidBlocks={turn.content}
+                    use:plotBlocks={turn.content}
+                    use:svgFigureBlocks={turn.content}
+                    use:chartBlocks={turn.content}
+                    use:csvBlocks={turn.content}
+                    use:scene3dBlocks={turn.content}
                   >
                     {@html renderMarkdown(turn.content)}
                   </div>

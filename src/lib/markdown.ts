@@ -59,16 +59,45 @@ function renderMath(src: string, displayMode: boolean): string {
   return katex.renderToString(src, { throwOnError: false, displayMode, output: "html" });
 }
 
+/** "$...$" (1 dấu $ đơn) mà NỘI DUNG BÊN TRONG rõ ràng là LaTeX/biểu thức hình
+ * học, KHÔNG PHẢI tiền tệ — dùng làm lưới AN TOÀN bắt lại khi model lỡ dùng
+ * "$...$" dù đã dặn không dùng (xem giải thích ở `extractMath` bên dưới, lỗi
+ * thực tế đã gặp: model tự ý dùng "$ABCD$", "$\widehat{A}=60^\circ$",
+ * "$AB = AD = a$" dù rule 7 trong SYSTEM_PROMPT cấm rõ ràng — không thể tin
+ * tưởng model tuân thủ 100% chỉ dẫn định dạng, giống bài học đã rút ra với
+ * mốc giờ video/dòng "Nguồn:"). CHỈ nhận khi chắc chắn không phải giá tiền —
+ * xem từng nhánh trong hàm bên dưới. Mọi trường hợp KHÁC (VD "50, còn phí
+ * ship " — đúng ca đã lo ngại ban đầu) đều bị BỎ QUA, giữ nguyên "$" làm chữ
+ * thường — an toàn hơn là cố đoán. */
+function looksLikeSingleDollarMath(src: string): boolean {
+  if (/\\[a-zA-Z]/.test(src)) return true; // lệnh LaTeX (\widehat, \frac, \circ...)
+  // Danh sách 1-vài TÊN ĐIỂM/ĐOẠN kiểu hình học (chữ HOA, có thể liệt kê bằng
+  // dấu phẩy) — VD "ABCD", "AC", "E, F, G, H", "B, D".
+  if (/^[A-Z][A-Z0-9]{0,7}(?:\s*,\s*[A-Z][A-Z0-9]{0,7})*$/.test(src)) return true;
+  // Ký hiệu mũ/chỉ số dưới hoặc ký hiệu toán học đặc trưng — không phải cách
+  // viết tiền tệ thông thường.
+  if (/[°∠√π×÷≤≥≠→∞±≈_^]/.test(src)) return true;
+  // Đẳng thức/biểu thức NGẮN kiểu hình học (VD "AB = AD = a", "R = a/2") —
+  // CHỈ gồm chữ cái KHÔNG DẤU/số/dấu toán cơ bản, VÀ không có "từ" thật nào
+  // (chuỗi 2+ chữ thường liền nhau, VD "ship"/"thang" viết không dấu) — câu
+  // văn tiếng Việt bình thường (kể cả lỡ gõ thiếu dấu) hầu như luôn có ít
+  // nhất 1 từ như vậy, còn biến/tên điểm trong công thức chỉ là chữ đơn lẻ.
+  if (/^[A-Za-z0-9=+\-×÷/.,()°\s]+$/.test(src) && !/[a-z]{2,}/.test(src)) return true;
+  return false;
+}
+
 /** Trích công thức LaTeX ra khỏi 1 đoạn text THƯỜNG (không phải code), thay
  * bằng token, trả về text đã thay + danh sách khối đã render.
  *
- * CỐ TÌNH KHÔNG hỗ trợ "$...$" (1 dấu $ đơn) cho công thức inline — app này
+ * KHÔNG ưu tiên hỗ trợ "$...$" (1 dấu $ đơn) cho công thức inline — app này
  * hay được hỏi về GIÁ CẢ ("$50", "$10/tháng"...), 1 dấu $ đơn rất dễ đụng độ
  * thật (VD "Giá là $50, còn phí ship $10" sẽ bị hiểu nhầm "50, còn phí ship "
- * là công thức toán nằm giữa 2 dấu $ đó). Chỉ nhận "$$...$$" (khối, ít khi
- * lẫn với tiền vì luôn tách dòng riêng) và "\(...\)"/"\[...\]" (dấu \ đứng
- * trước gần như chắc chắn là LaTeX, không phải cách viết tiền tệ thông
- * thường) — đã dặn lại AI dùng đúng quy ước này trong SYSTEM_PROMPT (ai.rs).
+ * là công thức toán nằm giữa 2 dấu $ đó). Chỉ nhận NGAY "$$...$$" (khối, ít
+ * khi lẫn với tiền vì luôn tách dòng riêng) và "\(...\)"/"\[...\]" (dấu \
+ * đứng trước gần như chắc chắn là LaTeX) — đã dặn AI dùng đúng quy ước này
+ * trong SYSTEM_PROMPT (ai.rs). PHÍA SAU CÙNG mới thử bắt thêm "$...$" đơn lẻ
+ * qua lưới an toàn `looksLikeSingleDollarMath` ở trên, phòng model không tuân
+ * thủ đúng quy ước đã dặn (thực tế đã gặp với bài hình học).
  */
 function extractMath(text: string, blocks: MathBlock[]): string {
   let out = text;
@@ -84,6 +113,11 @@ function extractMath(text: string, blocks: MathBlock[]): string {
   out = out.replace(/\\\[([\s\S]+?)\\\]/g, (_m, src: string) => push(src, true));
   // Inline — "\(...\)".
   out = out.replace(/\\\(([\s\S]+?)\\\)/g, (_m, src: string) => push(src, false));
+  // Lưới an toàn cuối cùng — "$...$" đơn lẻ, CHỈ khi nội dung khớp
+  // `looksLikeSingleDollarMath` (không phải giá tiền). Không xuống dòng bên
+  // trong (`[^$\n]`) — công thức inline thật luôn nằm gọn 1 dòng, giá tiền
+  // nhắc tới nhiều lần trong 1 đoạn dài cũng vậy nên không mất an toàn gì.
+  out = out.replace(/\$([^$\n]{1,300}?)\$/g, (m, src: string) => (looksLikeSingleDollarMath(src) ? push(src, false) : m));
 
   return out;
 }

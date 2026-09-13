@@ -23,6 +23,12 @@
   import { askAIStream, askAIDiagram, type ChatTurn, type VocabDiagramData } from "$lib/aiClient";
   import { renderMarkdown, markdownToPlainText, linkifyTimestamps } from "$lib/markdown";
   import { mermaidBlocks } from "$lib/mermaid";
+  import { plotBlocks } from "$lib/plot";
+  import { svgFigureBlocks } from "$lib/svgFigure";
+  import { chartBlocks } from "$lib/chart";
+  import { csvBlocks } from "$lib/csvBlock";
+  import { scene3dBlocks } from "$lib/scene3d";
+  import { extractFirstTable, exportTableAsCsv, exportTableAsExcel, exportMarkdownAsDocx, printHtmlAsPdf } from "$lib/exportFile";
   import VocabDiagram from "$lib/VocabDiagram.svelte";
 
   type Phase = "ask" | "chat";
@@ -389,12 +395,40 @@
     }
   }
 
+  /** Tên field khớp CHÍNH XÁC với Rust `ResumeData` (serde mặc định
+   * camelCase field name giữ nguyên vì đã đặt sẵn `turns`/`model` snake==camel). */
+  interface ResumeData {
+    turns: ChatTurn[];
+    model: string;
+  }
+
+  /** "Tiếp tục hội thoại" từ Lịch sử (xem history.rs::history_resume) — cửa
+   * sổ này được Rust mở kèm sẵn ảnh/video gốc trong crop_sessions/
+   * video_sessions (y hệt vừa chụp xong) NHƯNG còn có thêm turns cũ đã lưu ở
+   * Lịch sử, cần nạp thẳng vào và nhảy VÀO THẲNG "chat" — bỏ qua màn hình
+   * "hỏi lần đầu". Trả về `null` cho MỌI phiên bình thường khác (không phải
+   * resume), giữ nguyên luồng cũ. Gọi 1 LẦN DUY NHẤT — Rust tự xoá khỏi
+   * `resume_pending` ngay khi trả về, gọi lại lần 2 sẽ luôn ra `null`. */
+  async function loadResumeIfAny() {
+    try {
+      const resume = await invoke<ResumeData | null>("get_resume_data", { windowLabel: getCurrentWindow().label });
+      if (resume) {
+        history = resume.turns;
+        modelLabel = resume.model;
+        phase = "chat";
+      }
+    } catch (e) {
+      console.warn("[snip-ai] Không nạp được dữ liệu resume (bỏ qua, coi như phiên bình thường):", e);
+    }
+  }
+
   onMount(() => {
     // Cửa sổ này luôn được TẠO MỚI mỗi lần snip/quay (xem commands.rs), nên
     // onMount chạy fresh mỗi lần — không cần lắng nghe event reset.
     const unlistens: (() => void)[] = [];
     const s = loadSettings();
     modelLabel = currentModel(s);
+    loadResumeIfAny();
 
     if (isVideoSession) {
       // Phiên video: cửa sổ chỉ mở SAU KHI quay xong, video đã sẵn sàng ngay
@@ -464,6 +498,32 @@
   /** Khung của câu trả lời GẦN NHẤT — dùng riêng cho ảnh phóng to (modal),
    * nơi chỉ có 1 chỗ hiển thị chung cho cả cuộc hội thoại. */
   let latestBox = $derived<Box2d | null>(turnBoxes[history.length - 1] ?? null);
+
+  // ── "Đáp số" nổi bật (giải bài tập) — cùng ý tưởng với box_2d ở trên: Rust
+  // dặn Gemini thêm 1 dòng JSON `{"final_answer":"..."}` ở CUỐI CÙNG khi câu
+  // trả lời có 1 đáp số/đáp án rõ ràng (xem rule 11, SYSTEM_PROMPT trong
+  // ai.rs) — bóc ra khỏi văn bản hiển thị, hiện lại thành 1 card riêng nổi
+  // bật thay vì để chìm lẫn trong đoạn văn giải thích dài. Luôn thử bóc (cả
+  // ảnh lẫn video, khác box_2d — đáp số bài tập không phụ thuộc có ảnh hay
+  // không), nên gọi TRƯỚC extractBoxFromAnswer (final_answer là dòng cuối
+  // TUYỆT ĐỐI, box_2d nếu có nằm ngay trước nó — xem rule bbox đã cập nhật).
+  function extractFinalAnswerFromAnswer(text: string): { text: string; finalAnswer: string | null } {
+    const m = text.match(/\n*\{\s*"final_answer"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}\s*$/);
+    if (!m) return { text, finalAnswer: null };
+    let value: string;
+    try {
+      // Bung lại các ký tự escape (\", \n...) đúng chuẩn JSON string thay vì
+      // giữ nguyên chuỗi thô — model có thể trả đáp số chứa dấu ngoặc kép.
+      value = JSON.parse(`"${m[1]}"`);
+    } catch {
+      value = m[1];
+    }
+    return { text: text.slice(0, m.index).trimEnd(), finalAnswer: value || null };
+  }
+
+  /** Đáp số theo TỪNG LƯỢT trả lời (key = index trong `history`) — cùng cơ
+   * chế với `turnBoxes`, không chỉ giữ "đáp số gần nhất". */
+  let turnFinalAnswers = $state<Record<number, string>>({});
 
   // ── "Sơ đồ từ vựng" — thay modal văn xuôi phẳng bằng 1 sơ đồ liên kết từ
   // (xem VocabDiagram.svelte). KHÁC HẲN các chip khác: không đi qua
@@ -536,19 +596,21 @@
     try {
       const settings = loadSettings();
 
-      // Trễ hiển thị ~50 ký tự cuối so với luồng stream thật — KHÔNG đưa
-      // thẳng từng mẩu vào hiệu ứng "gõ chữ" ngay khi nhận được. Lý do: dòng
-      // JSON `{"box_2d":[...]}` (nếu có) luôn nằm Ở CUỐI câu trả lời, và nếu
-      // hiện thẳng theo stream thì người dùng sẽ thấy nó NHÁY LÊN vài trăm ms
-      // trước khi bị cắt bỏ ở bước làm sạch cuối cùng (extractBoxFromAnswer)
-      // — trông như lỗi hiển thị. Giữ lại 50 ký tự cuối (đủ dư so với độ dài
-      // dòng JSON thực tế, ~35 ký tự) chưa hiện ngay, đợi đủ dữ liệu mới hiện
-      // tiếp; phần đuôi còn lại (rất ngắn) chỉ đơn giản xuất hiện cùng lúc
-      // khi bong bóng chuyển sang bản render markdown đã làm sạch — mất hiệu
-      // ứng fade-in ở đúng vài chục ký tự cuối, không đáng kể.
+      // Trễ hiển thị ~180 ký tự cuối so với luồng stream thật — KHÔNG đưa
+      // thẳng từng mẩu vào hiệu ứng "gõ chữ" ngay khi nhận được. Lý do: các
+      // dòng JSON `{"box_2d":[...]}`/`{"final_answer":"..."}` (nếu có) luôn
+      // nằm Ở CUỐI câu trả lời, và nếu hiện thẳng theo stream thì người dùng
+      // sẽ thấy chúng NHÁY LÊN vài trăm ms trước khi bị cắt bỏ ở bước làm
+      // sạch cuối cùng (extractFinalAnswerFromAnswer/extractBoxFromAnswer) —
+      // trông như lỗi hiển thị. Giữ lại đủ ký tự cuối (dư so với CẢ HAI dòng
+      // cộng lại — box_2d ~35 ký tự, final_answer có thể dài hơn nếu đáp số
+      // nhiều chữ, VD "y = 2x + 1 và x = 5") chưa hiện ngay, đợi đủ dữ liệu
+      // mới hiện tiếp; phần đuôi còn lại (rất ngắn) chỉ đơn giản xuất hiện
+      // cùng lúc khi bong bóng chuyển sang bản render markdown đã làm sạch —
+      // mất hiệu ứng fade-in ở đúng vài chục ký tự cuối, không đáng kể.
       let rawSoFar = "";
       let shownLength = 0;
-      const REVEAL_LAG_CHARS = 50;
+      const REVEAL_LAG_CHARS = 180;
       const answer = await askAIStream(
         history,
         settings,
@@ -565,9 +627,14 @@
         region,
         search,
       );
-      const { text: cleanAnswer, box } = isVideoSession ? { text: answer, box: null } : extractBoxFromAnswer(answer);
+      // final_answer LUÔN thử bóc trước (dòng cuối tuyệt đối, cả ảnh lẫn
+      // video), rồi mới tới box_2d (chỉ ảnh, nằm ngay TRƯỚC final_answer nếu
+      // cả hai cùng có) — đúng thứ tự đã dặn ở rule 11/bbox trong ai.rs.
+      const { text: afterFinal, finalAnswer } = extractFinalAnswerFromAnswer(answer);
+      const { text: cleanAnswer, box } = isVideoSession ? { text: afterFinal, box: null } : extractBoxFromAnswer(afterFinal);
       const newTurnIndex = history.length; // đúng vị trí lượt assistant sắp thêm vào bên dưới
       if (box) turnBoxes = { ...turnBoxes, [newTurnIndex]: box };
+      if (finalAnswer) turnFinalAnswers = { ...turnFinalAnswers, [newTurnIndex]: finalAnswer };
       history = [...history, { role: "assistant", content: cleanAnswer }];
       saveHistoryTurn(settings);
     } catch (e) {
@@ -718,6 +785,34 @@
       }, 1600);
     } catch (e) {
       error = String(e);
+    }
+  }
+
+  // ── "Xuất file" (CSV/Excel/Word/PDF) TỪNG câu trả lời — khác hẳn "Chép"
+  // (chỉ đưa vào clipboard): tạo ra FILE THẬT trên đĩa qua hộp thoại "Lưu
+  // file". Chỉ hiện lựa chọn CSV/Excel khi câu trả lời CÓ bảng Markdown (xem
+  // extractFirstTable) — hiện 2 nút đó cho câu trả lời không có bảng sẽ xuất
+  // ra file trống vô nghĩa.
+  let exportMenuOpenIndex = $state<number | null>(null);
+  let exportBusy = $state(false);
+
+  function toggleExportMenu(i: number) {
+    exportMenuOpenIndex = exportMenuOpenIndex === i ? null : i;
+  }
+
+  /** Bọc mọi thao tác xuất file — nuốt lỗi (VD người dùng bấm Huỷ ở hộp
+   * thoại lưu file KHÔNG phải lỗi, các lib xuất file khác lỡ ném lỗi thật thì
+   * hiện ra `error` sẵn có của trang thay vì làm vỡ UI). */
+  async function runExport(action: () => Promise<unknown>) {
+    if (exportBusy) return;
+    exportBusy = true;
+    exportMenuOpenIndex = null;
+    try {
+      await action();
+    } catch (e) {
+      error = String(e).replace(/^Error:\s*/, "");
+    } finally {
+      exportBusy = false;
     }
   }
 
@@ -1219,6 +1314,11 @@
                     class="markdown-body card rounded-2xl rounded-tl-md px-3.5 py-2.5 pr-8 text-[calc(12.5px*var(--chat-text-scale,1))]"
                     onclick={handleAnswerClick}
                     use:mermaidBlocks={turn.content}
+                    use:plotBlocks={turn.content}
+                    use:svgFigureBlocks={turn.content}
+                    use:chartBlocks={turn.content}
+                    use:csvBlocks={turn.content}
+                    use:scene3dBlocks={turn.content}
                   >
                     {@html renderMarkdown(isVideoSession ? linkifyTimestamps(turn.content) : turn.content)}
                   </div>
@@ -1230,7 +1330,82 @@
               >
                 <Icon name={copiedTurnIndex === i ? "check" : "copy"} size={12} />
               </button>
+              {#if !turnDiagrams[i]}
+                <!-- "Xuất file" — KHÔNG hiện cho bong bóng "Sơ đồ từ vựng"
+                (turnDiagrams[i], xem askDiagram) — nội dung đó không phải
+                Markdown thường, extractFirstTable/markdownToPlainText không
+                áp dụng đúng. right-8 (không phải right-1.5) — tránh chồng
+                lên nút "Chép" ngay bên cạnh. -->
+                <div class="absolute top-1.5 right-8">
+                  <button
+                    onclick={() => toggleExportMenu(i)}
+                    disabled={exportBusy}
+                    class="p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-white/8 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-40"
+                    class:!opacity-100={exportMenuOpenIndex === i}
+                    title="Xuất file"
+                  >
+                    <Icon name="download" size={12} />
+                  </button>
+                  {#if exportMenuOpenIndex === i}
+                    {@const table = extractFirstTable(turn.content)}
+                    <button
+                      class="fixed inset-0 z-30 cursor-default"
+                      style="background: transparent;"
+                      onclick={() => (exportMenuOpenIndex = null)}
+                      aria-label="Đóng menu xuất file"
+                    ></button>
+                    <div class="absolute right-0 top-full mt-1 w-52 card p-1.5 z-40" transition:fade={{ duration: 120 }}>
+                      {#if table}
+                        <button
+                          onclick={() => runExport(() => exportTableAsCsv(table, "du-lieu.csv"))}
+                          class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors text-[12px]"
+                        >
+                          Xuất CSV
+                        </button>
+                        <button
+                          onclick={() => runExport(() => exportTableAsExcel(table, "du-lieu.xlsx"))}
+                          class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors text-[12px]"
+                        >
+                          Xuất Excel (.xlsx)
+                        </button>
+                        <div class="h-px bg-border my-1"></div>
+                      {/if}
+                      <button
+                        onclick={() => runExport(() => exportMarkdownAsDocx(turn.content, "cau-tra-loi.docx"))}
+                        class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors text-[12px]"
+                      >
+                        Xuất Word (.docx)
+                      </button>
+                      <button
+                        onclick={() =>
+                          runExport(async () => printHtmlAsPdf(renderMarkdown(turn.content), "Câu trả lời AI"))}
+                        class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors text-[12px]"
+                      >
+                        In / Lưu PDF
+                      </button>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
               </div>
+              {#if turnFinalAnswers[i]}
+                <!-- "Đáp số" nổi bật (giải bài tập) — bóc từ dòng
+                {"final_answer":"..."} model tự thêm cuối câu trả lời (xem
+                extractFinalAnswerFromAnswer + rule 11 trong ai.rs). Tách
+                RIÊNG khỏi bong bóng markdown ở trên, không phải 1 dòng chữ
+                lẫn trong đó — để người đang ôn thi/làm bài gấp LƯỚT THẤY
+                NGAY, không phải đọc hết đoạn giải thích mới tìm ra. -->
+                <div
+                  class="rounded-xl px-3 py-2 flex items-start gap-2 text-[calc(12.5px*var(--chat-text-scale,1))]"
+                  style="background: color-mix(in srgb, var(--color-accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);"
+                >
+                  <Icon name="check" size={14} class="text-accent shrink-0 mt-0.5" strokeWidth={2.6} />
+                  <div class="min-w-0">
+                    <div class="text-[10.5px] font-semibold uppercase tracking-wide text-accent">Đáp số</div>
+                    <div class="font-semibold leading-snug break-words">{turnFinalAnswers[i]}</div>
+                  </div>
+                </div>
+              {/if}
             </div>
           </div>
         {/if}

@@ -81,7 +81,77 @@ MỌI tin nhắn sau đó đều phải xoay quanh ảnh/video đó. Nếu tin n
 KHÔNG liên quan gì tới ảnh/video/tài liệu đang có (VD chào hỏi xã giao \"hello\", \"cảm ơn bạn\", \
 hỏi chuyện ngoài lề không cần nhìn lại ảnh mới trả lời được), hãy trả lời ĐÚNG THEO Ý ĐÓ một \
 cách tự nhiên, bình thường — TUYỆT ĐỐI không gượng ép quay lại phân tích/nhắc tới ảnh/video nếu \
-người dùng không hề hỏi gì liên quan tới nó ở tin nhắn đó.";
+người dùng không hề hỏi gì liên quan tới nó ở tin nhắn đó.
+10. Khi người dùng nhờ GIẢI BÀI TẬP (toán, lý, hoá, sinh, lập trình, ngoại ngữ, trắc nghiệm...), \
+TỰ NHẬN DIỆN đúng DẠNG bài rồi chọn khuôn trả lời tương ứng — KHÔNG áp 1 khuôn cứng cho mọi loại:
+- Trắc nghiệm (đề đã cho sẵn các lựa chọn A/B/C/D...): trả lời NGẮN GỌN — nêu đáp án đúng rồi \
+giải thích vắn tắt vì sao, KHÔNG trình bày dài dòng từng bước như bài tự luận.
+- Tự luận nhiều bước (toán/lý/hoá cần tính toán/chứng minh...): tóm tắt đề 1 câu, nêu hướng giải \
+1-2 câu, rồi TỪNG BƯỚC tính — mỗi bước là 1 heading cấp 4 dạng `#### Bước 1: <mô tả ngắn bước đó>` \
+với nội dung bước ngay bên dưới (không gộp nhiều bước vào chung 1 đoạn văn). Với bài có số liệu, \
+sau khi ra kết quả hãy THỬ LẠI/đối chiếu ngược 1 lần trước khi chốt đáp số cuối cùng, để giảm rủi \
+ro sai số học.
+- Bài lập trình: trình bày code (khối ```code, ghi rõ ngôn ngữ) + giải thích cách hoạt động + (nếu \
+phù hợp) độ phức tạp/trường hợp biên — KHÔNG áp khuôn \"Bước 1, 2, 3\" kiểu toán vào đây.
+- Đề có nhiều câu con (a, b, c...): tách riêng từng câu bằng heading cấp 3 dạng `### Câu a)`, \
+không gộp chung các câu vào 1 khối.
+- Đồ thị hàm số/khảo sát hàm (y = f(x), parabol, hàm lượng giác...): TUYỆT ĐỐI không dùng Mermaid \
+(chỉ vẽ được sơ đồ logic, không vẽ đồ thị đúng tỉ lệ). Dùng ĐÚNG 1 khối mã ```plot chứa JSON đúng \
+cấu trúc sau — CHỈ khai báo công thức/miền giá trị, KHÔNG tự vẽ path hay tự tính toạ độ pixel gì cả \
+(hệ thống tự tính và vẽ chính xác từ công thức bạn đưa):\n\
+{\"xDomain\": [-5, 5], \"yDomain\": [-10, 10], \"functions\": [{\"fn\": \"x^2 - 3*x + 2\", \"color\": \"#7c5cff\"}], \"points\": [{\"x\": 1, \"y\": 0, \"label\": \"A(1,0)\"}]}\n\
+`fn` viết theo cú pháp toán bình thường (^, *, /, sin, cos, sqrt, abs...). `xDomain`/`yDomain`/\
+`points` không bắt buộc — chỉ thêm khi thực sự cần.
+- Hình học phẳng thuần tuý (tam giác, đường tròn, góc, chứng minh...) — KHÔNG có công thức để tính- \
+vẽ tự động như trên, KHÔNG dùng Mermaid: dùng ĐÚNG 1 khối mã ```svg chứa mã SVG hợp lệ (thẻ <svg> \
+cùng <line>/<circle>/<polygon>/<path>/<text>...) tự vẽ hình minh hoạ, ghi rõ nhãn điểm/góc/độ dài \
+bằng <text>. LUÔN vẽ với GIẢ ĐỊNH NỀN TRẮNG (hệ thống luôn hiện khối này trên nền trắng cố định, \
+không đổi theo giao diện sáng/tối của app) — dùng màu nét/chữ TỐI (đen, xám đậm, hoặc màu sắc rõ) \
+để tương phản tốt, TUYỆT ĐỐI không dùng nét/chữ màu trắng hay màu quá nhạt (sẽ biến mất trên nền \
+trắng). Hình vẽ tay kiểu này CHỈ MINH HOẠ, KHÔNG đảm bảo đúng tỉ lệ/số đo tuyệt đối — số liệu THẬT \
+(độ dài, số đo góc...) vẫn phải nêu rõ bằng lời/LaTeX, người xem không được đo trực tiếp trên hình \
+để suy ra kết quả.
+- Hình học KHÔNG GIAN (khối chóp, lăng trụ, hình cầu/trụ/nón...) — dùng ĐÚNG 1 khối mã ```3d chứa \
+JSON, KHÔNG được viết code lập trình (KHÔNG viết code Three.js/JavaScript hay bất kỳ ngôn ngữ nào — \
+hệ thống sẽ TỪ CHỐI thực thi mọi thứ không phải JSON thuần số/chuỗi). 2 cách khai báo, dùng 1 hoặc \
+kết hợp cả 2 trong CÙNG 1 object:\n\
+  a) Khối cơ bản (hình cầu/trụ/nón/hộp/xuyến): {\"objects\": [{\"type\": \"cone\", \"radius\": 1, \"height\": 2, \"color\": \"#7c5cff\"}]} \
+— `type` là 1 trong: sphere, cylinder, cone, box, torus.\n\
+  b) Đa diện tuỳ ý (khối chóp/lăng trụ...): tự TÍNH TOẠ ĐỘ (x,y,z) từng đỉnh rồi khai báo:\n\
+{\"vertices\": [[0,0,0],[2,0,0],[2,2,0],[0,2,0],[1,1,2]], \"faces\": [[0,1,2,3],[0,1,4],[1,2,4],[2,3,4],[3,0,4]], \"labels\": [{\"vertex\": 0, \"text\": \"A\"}, {\"vertex\": 4, \"text\": \"S\"}]}\n\
+`faces` là mảng CHỈ SỐ đỉnh (trong `vertices`) theo thứ tự quanh biên mặt đó — hỗ trợ mặt tam giác \
+lẫn đa giác LỒI (tứ giác, ngũ giác...). Hình dựng ra CHỈ MINH HOẠ, KHÔNG đảm bảo đúng tỉ lệ tuyệt \
+đối (cùng giới hạn như khối ```svg) — số liệu thật vẫn nêu bằng lời/LaTeX.\n\
+  c) Phân tử hoá học (nước, mê-tan, benzen...) — CŨNG dùng khối ```3d, field `molecule` riêng, \
+KHÔNG dùng `objects`/hình cầu thường cho phân tử (hệ thống tự tô màu/kích thước chuẩn CPK theo ký \
+hiệu nguyên tố, tự vẽ liên kết bằng hình trụ — dùng `objects` sẽ ra màu/hình sai quy ước hoá học):\n\
+{\"molecule\": {\"atoms\": [{\"element\": \"O\", \"position\": [0,0,0]}, {\"element\": \"H\", \"position\": [0.76,0.59,0]}, {\"element\": \"H\", \"position\": [-0.76,0.59,0]}], \"bonds\": [{\"from\": 0, \"to\": 1}, {\"from\": 0, \"to\": 2}]}}\n\
+`element` là ký hiệu hoá học chuẩn (H, C, N, O, Cl...), TỰ TÍNH toạ độ theo đúng góc/độ dài liên kết \
+thật (VD góc H-O-H trong nước ~104.5°) khi biết trước, `bonds[].order` là 1 (đơn, mặc định)/2 (đôi)/ \
+3 (ba).
+- Dữ liệu thống kê cần SO SÁNH/TỔNG HỢP (doanh thu theo tháng, kết quả khảo sát, điểm số nhiều \
+người/nhiều đợt, tỉ lệ phần trăm...) — KHÔNG dùng Mermaid/```plot/```svg cho trường hợp này. Dùng \
+ĐÚNG 1 khối mã ```chart chứa THẲNG object `option` đúng cú pháp thư viện Apache ECharts (title/\
+xAxis/yAxis/series/legend...) — dùng đúng field/cấu trúc chuẩn của ECharts, KHÔNG tự bịa field lạ. \
+VD biểu đồ cột đơn giản:\n\
+{\"xAxis\": {\"type\": \"category\", \"data\": [\"T1\", \"T2\", \"T3\"]}, \"yAxis\": {\"type\": \"value\"}, \"series\": [{\"type\": \"bar\", \"data\": [120, 200, 150]}]}\n\
+Các loại `series[].type` được hỗ trợ: bar, line, pie, radar, scatter, gauge, funnel, heatmap, \
+graph, treemap, sankey — chọn loại khớp nhất với dữ liệu/câu hỏi.
+11. Nếu câu trả lời có 1 ĐÁP SỐ/ĐÁP ÁN CUỐI CÙNG rõ ràng (kết quả bài toán, đáp án trắc nghiệm, \
+giá trị/đại lượng cần tìm...), sau khi trình bày xong PHẢI thêm CHÍNH XÁC 1 dòng JSON riêng ở CUỐI \
+CÙNG (không nằm trong đoạn văn, không có chữ nào khác trên dòng đó; nếu cùng có dòng box_2d theo \
+rule bbox thì dòng final_answer này nằm SAU dòng box_2d, tức là dòng cuối cùng tuyệt đối):\n\
+{\"final_answer\": \"<đáp số>\"}\n\
+Value CHỈ là đáp số ngắn gọn (VD \"x = 5\", \"B\", \"42 cm²\"), KHÔNG phải cả câu giải thích. Nếu \
+câu trả lời KHÔNG có đáp số cụ thể nào (giải thích chung, dịch thuật, tóm tắt, trò chuyện xã \
+giao...) thì TUYỆT ĐỐI không thêm dòng này.
+12. Nếu người dùng NHỜ THẲNG \"tạo/xuất/export file CSV\" (hoặc tương đương) từ dữ liệu dạng bảng \
+đang có, dùng ĐÚNG 1 khối mã ```csv chứa NGUYÊN VĂN nội dung CSV chuẩn (dòng đầu là tiêu đề cột, \
+phân cách bằng dấu phẩy, field có dấu phẩy/xuống dòng/ngoặc kép bên trong phải bọc trong dấu ngoặc \
+kép theo đúng chuẩn CSV) — KHÔNG giải thích dài dòng trước/sau, hệ thống TỰ ĐỘNG thêm nút tải file \
+CSV/Excel ngay dưới khối này. Nếu người dùng chỉ hỏi bình thường (không nhờ xuất file), cứ trình \
+bày bảng bằng Markdown như rule 4, người dùng có thể tự bấm nút \"Xuất file\" ở góc câu trả lời khi \
+cần — KHÔNG cần chủ động dùng khối ```csv cho mọi câu hỏi có bảng.";
 
 /// Chỉ dẫn thêm cho Gemini khi phiên đang hỏi là ẢNH (không áp dụng cho
 /// video — 1 khung toạ độ không rõ "thuộc khung hình nào" trên video, để
@@ -92,12 +162,13 @@ người dùng không hề hỏi gì liên quan tới nó ở tin nhắn đó.";
 /// bình thường — không cần tắt stream hay tách lệnh gọi riêng.
 const GEMINI_BBOX_INSTRUCTION: &str = "\
 \n\nNếu câu trả lời có nhắc đến 1 VỊ TRÍ/PHẦN TỬ CỤ THỂ trong ảnh (1 nút, 1 dòng chữ, 1 ô, \
-1 vùng...), sau khi trả lời xong bằng lời, thêm CHÍNH XÁC 1 dòng JSON riêng ở CUỐI CÙNG \
+1 vùng...), sau khi trả lời xong bằng lời, thêm CHÍNH XÁC 1 dòng JSON riêng \
 (không nằm trong đoạn văn, không có chữ nào khác trên dòng đó):\n\
 {\"box_2d\": [ymin, xmin, ymax, xmax]}\n\
 Toạ độ chuẩn hoá theo thang 0-1000 so với kích thước ảnh. Nếu câu trả lời KHÔNG nhắc đến vị \
 trí cụ thể nào (VD tóm tắt tổng quát, dịch toàn bộ văn bản, giải thích chung), KHÔNG thêm \
-dòng JSON này.";
+dòng JSON này. Nếu câu trả lời CŨNG có dòng final_answer (rule 11), dòng box_2d này đứng \
+NGAY TRƯỚC dòng final_answer — final_answer luôn là dòng cuối cùng tuyệt đối.";
 
 /// Chỉ dẫn thêm khi bật "Tra cứu web" (Google Search grounding). KHÔNG dặn
 /// model tự viết "Nguồn: ..." vào câu trả lời nữa — đã thử ở bản đầu và gặp
@@ -389,35 +460,23 @@ pub async fn ask_ai_gemini(
     // generateContent cổ điển thì không tìm được ví dụ chính thức. Thử
     // "googleSearch" (khớp quy ước camelCase của các field cấp cao khác app
     // đang dùng thành công: systemInstruction, generationConfig) trước; có
-    // cơ chế tự đổi sang "google_search" nếu bị 400 (xem bên dưới, cùng kỹ
-    // thuật đã dùng cho thinkingLevel).
+    // cơ chế tự đổi sang "google_search" nếu bị 400 (xem bên dưới).
     if use_search {
         base_body["tools"] = serde_json::json!([{"googleSearch": {}}]);
     }
 
-    // Giảm "thinking" (suy luận ẩn trước khi trả lời, cộng thêm độ trễ) bằng
-    // "thinkingLevel: minimal" — tham số MỚI của Gemini 3, thay thế
-    // "thinkingBudget" của Gemini 2.5 (2 field không tương thích ngược, gửi
-    // nhầm field cho model không hỗ trợ sẽ bị 400 "invalid argument" — đã gặp
-    // thực tế với gemini-3.6-flash + thinkingBudget).
-    //
-    // KHÔNG đoán cứng theo tên model có hỗ trợ "minimal" hay không — theo bảng
-    // hỗ trợ chính thức của Google, ngay trong CÙNG dòng Gemini 3, một số biến
-    // thể (VD Gemini 3.7/3.8 Flash) lại KHÔNG hỗ trợ "minimal" và trả lỗi,
-    // trong khi Gemini 3.5/3.6 Flash thì có — danh sách này có thể đổi theo
-    // thời gian khi Google ra model mới. Thay vào đó: thử gửi kèm field này
-    // trước, nếu bị 400 thì tự động gửi lại KHÔNG kèm field (fallback), không
-    // cần cập nhật code mỗi khi có model Gemini mới.
-    // Gọi qua backend thì KHÔNG biết chắc model server chọn có hỗ trợ
-    // "thinkingLevel" hay không (model đó nằm trong cấu hình backend, app
-    // không biết chính xác) — cứ thử, có sẵn cơ chế fallback-khi-400 bên dưới
-    // rồi nên không sao. Gọi trực tiếp thì vẫn theo đúng tên model người dùng
-    // chọn như cũ.
-    let with_thinking = matches!(auth, GeminiAuth::Backend { .. }) || model.starts_with("gemini-3");
-    let mut body = base_body.clone();
-    if with_thinking {
-        body["generationConfig"] = serde_json::json!({"thinkingConfig": {"thinkingLevel": "minimal"}});
-    }
+    // TỪNG ép "thinkingLevel: minimal" (giảm suy luận ẩn để trả lời nhanh
+    // hơn) cho mọi câu hỏi — ĐÃ BỎ. Lỗi thực tế đã gặp: với bài toán cần suy
+    // luận nhiều bước (VD chứng minh hình học, tính đường chéo rồi mới ra bán
+    // kính), "suy luận tối thiểu" khiến model dễ NHẢY TẮT sang 1 công thức
+    // quen mắt nhưng SAI (đã kiểm chứng bằng tay 1 ca cụ thể: model tự tin
+    // trả lời bán kính bằng nửa đường chéo AC thay vì đúng phải là nửa đường
+    // chéo BD) — hỏi lại y hệt nhiều lần còn ra nhiều đáp số khác nhau (suy
+    // luận càng ít, dao động giữa các lần hỏi càng lớn). Đổi lại chấp nhận
+    // ĐÁNH ĐỔI: mọi câu hỏi (kể cả OCR/dịch đơn giản) chậm hơn 1 chút, đổi lấy
+    // độ tin cậy cao hơn hẳn cho các bài cần suy luận nhiều bước — hợp lý hơn
+    // khi app đã mở rộng sang "giải bài tập" (xem rule 10, SYSTEM_PROMPT).
+    let body = base_body.clone();
 
     let endpoint = match &auth {
         GeminiAuth::Backend { .. } => format!("{}/v1/gemini/stream", crate::oauth::backend_base_url()),
@@ -436,14 +495,8 @@ pub async fn ask_ai_gemini(
     };
 
     let mut resp = send_with_timeout(send(&body)).await?;
-    if with_thinking && resp.status() == reqwest::StatusCode::BAD_REQUEST {
-        eprintln!("[snip-ai][ai] Gemini từ chối thinkingLevel, thử lại không kèm field này");
-        resp = send_with_timeout(send(&base_body)).await?;
-    }
     if use_search && resp.status() == reqwest::StatusCode::BAD_REQUEST {
-        // "googleSearch" (thử ở trên) bị từ chối -> đổi sang "google_search",
-        // bỏ luôn thinkingConfig cho lần thử cuối này (đơn giản hoá, không cần
-        // tổ hợp cả 4 khả năng thinking x tools).
+        // "googleSearch" (thử ở trên) bị từ chối -> đổi sang "google_search".
         eprintln!("[snip-ai][ai] Gemini từ chối tools=googleSearch, thử lại với google_search");
         let mut retry_body = base_body.clone();
         retry_body["tools"] = serde_json::json!([{"google_search": {}}]);
