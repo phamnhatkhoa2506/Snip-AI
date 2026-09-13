@@ -104,6 +104,9 @@
   ];
   const currentTextSizeOption = $derived(TEXT_SIZE_OPTIONS.find((o) => o.mode === textSizeMode) ?? TEXT_SIZE_OPTIONS[1]);
 
+  /** Menu "Cài đặt" gộp Lịch sử/Giao diện/Cỡ chữ — xem markup ở header. */
+  let showMoreMenu = $state(false);
+
   // ── Nút "+ New" — bấm trực tiếp để snip/quay (thay vì phải nhớ bấm phím
   // tắt). Chạy đúng hành động theo `captureMode` đang chọn ở toggle header. ──
   let newActionBusy = $state(false);
@@ -353,42 +356,69 @@
       <p class="text-[11px] text-text-muted leading-tight">Chụp màn hình · Hỏi AI</p>
     </div>
 
-    <!-- Mở cửa sổ Lịch sử — singleton (Rust tự show/focus lại cửa sổ cũ nếu
-    đã mở, không tạo chồng), xem commands.rs::open_history_window. -->
-    <button
-      onclick={() => invoke("open_history_window")}
-      title="Lịch sử"
-      aria-label="Mở lịch sử"
-      class="btn-ghost w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-    >
-      <Icon name="clock" size={14} />
-    </button>
+    <!-- Gộp Lịch sử/Giao diện/Cỡ chữ vào 1 menu "..." — càng thêm cài đặt
+    (cỡ chữ vừa thêm gần đây) thì hàng icon trần rời rạc càng chật, khó đoán
+    chức năng. Cùng mẫu popover với menu tài khoản ngay bên dưới. -->
+    <div class="relative shrink-0">
+      <button
+        onclick={() => (showMoreMenu = !showMoreMenu)}
+        title="Cài đặt"
+        aria-label="Mở menu cài đặt"
+        aria-pressed={showMoreMenu}
+        class="btn-ghost w-7 h-7 rounded-full flex items-center justify-center"
+      >
+        <Icon name="settings" size={14} />
+      </button>
 
-    <!-- Công tắc sáng/tối/hệ thống — 1 nút bấm để chuyển vòng qua từng chế
-    độ (Sáng -> Hệ thống -> Tối -> Sáng...), thay vì hiện cả 3 lựa chọn dàn
-    trải cùng lúc. -->
-    <button
-      onclick={cycleTheme}
-      title={`Giao diện: ${currentThemeOption.title} (bấm để đổi)`}
-      aria-label="Đổi chế độ sáng/tối"
-      class="icon-btn-accent w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-accent-text"
-      style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
-    >
-      <Icon name={currentThemeOption.icon} size={13} strokeWidth={2.2} />
-    </button>
-
-    <!-- Cỡ chữ toàn app — cùng kiểu bấm-để-chuyển-vòng với công tắc sáng/tối
-    ngay trên (Nhỏ -> Vừa -> Lớn -> Nhỏ...). Chữ "A" tự hiện đúng kích thước
-    thật của mức đang chọn, không cần icon riêng. -->
-    <button
-      onclick={cycleTextSize}
-      title={`Cỡ chữ trong hội thoại: ${currentTextSizeOption.title} (bấm để đổi)`}
-      aria-label="Đổi cỡ chữ"
-      class="btn-ghost w-7 h-7 rounded-full flex items-center justify-center shrink-0 font-bold leading-none"
-      style={`font-size: ${currentTextSizeOption.iconPx}px;`}
-    >
-      A
-    </button>
+      {#if showMoreMenu}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <button
+          class="fixed inset-0 z-30 cursor-default"
+          style="background: transparent;"
+          onclick={() => (showMoreMenu = false)}
+          aria-label="Đóng menu cài đặt"
+        ></button>
+        <!-- z-40: xem giải thích ở menu tài khoản ngay bên dưới (thanh toggle
+        Ảnh/Video cùng z-20 sẽ đè lên nếu để thấp hơn). -->
+        <div class="absolute right-0 top-full mt-2 w-64 card p-1.5 z-40" transition:fade={{ duration: 120 }}>
+          <button
+            onclick={() => {
+              showMoreMenu = false;
+              invoke("open_history_window");
+            }}
+            class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+          >
+            <Icon name="clock" size={15} class="mt-0.5 shrink-0" />
+            <span>
+              <div class="text-[12.5px] font-semibold">Lịch sử</div>
+              <div class="text-[10.5px] text-text-muted">Xem lại ảnh/video đã hỏi trước đó</div>
+            </span>
+          </button>
+          <!-- 2 mục dưới KHÔNG đóng menu khi bấm — bấm nhiều lần liền để
+          chuyển nhanh qua từng mức mà không phải mở lại menu mỗi lần. -->
+          <button
+            onclick={cycleTheme}
+            class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+          >
+            <Icon name={currentThemeOption.icon} size={15} class="mt-0.5 shrink-0" />
+            <span class="flex-1">
+              <div class="text-[12.5px] font-semibold">Giao diện</div>
+              <div class="text-[10.5px] text-text-muted">Đang chọn: {currentThemeOption.title} — bấm để đổi</div>
+            </span>
+          </button>
+          <button
+            onclick={cycleTextSize}
+            class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+          >
+            <span class="w-[15px] mt-0.5 shrink-0 text-center font-bold text-[13px] leading-none">A</span>
+            <span class="flex-1">
+              <div class="text-[12.5px] font-semibold">Cỡ chữ hội thoại</div>
+              <div class="text-[10.5px] text-text-muted">Đang chọn: {currentTextSizeOption.title} — bấm để đổi</div>
+            </span>
+          </button>
+        </div>
+      {/if}
+    </div>
 
     <!-- Tài khoản — góc trên bên phải, avatar thật nếu có ảnh Google -->
     <div class="relative shrink-0">
