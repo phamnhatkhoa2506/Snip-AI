@@ -11,7 +11,8 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, State};
+use std::sync::atomic::Ordering;
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::state::AppState;
 
@@ -327,6 +328,103 @@ pub fn history_delete(app: AppHandle, state: State<'_, AppState>, id: String) ->
     }
     state.history_ids.lock().unwrap().retain(|_, v| *v != id);
     save_index_atomic(&app, &index)
+}
+
+#[derive(Serialize)]
+pub struct ResumeData {
+    pub turns: Vec<HistoryTurn>,
+    pub model: String,
+}
+
+/// Gọi 1 LẦN DUY NHẤT lúc cửa sổ "Kết quả AI" vừa mở do resume từ Lịch sử
+/// (xem `history_resume` bên dưới) — trả về turns/model đã ghim sẵn cho đúng
+/// window_label đó rồi XOÁ LUÔN khỏi `resume_pending` (dùng 1 lần). Trả về
+/// `None` cho MỌI cửa sổ "Kết quả AI" bình thường khác (không phải resume) —
+/// frontend coi `None` là "không phải phiên resume, chạy luồng cũ như thường".
+#[tauri::command]
+pub fn get_resume_data(state: State<'_, AppState>, window_label: String) -> Option<ResumeData> {
+    state
+        .resume_pending
+        .lock()
+        .unwrap()
+        .remove(&window_label)
+        .map(|(turns, model)| ResumeData { turns, model })
+}
+
+/// "Tiếp tục hội thoại" từ Lịch sử — mở 1 cửa sổ "Kết quả AI" MỚI, nạp lại
+/// đúng ảnh/video gốc (như vừa chụp xong) + toàn bộ turns cũ, rồi các lượt hỏi
+/// tiếp SAU ĐÓ cập nhật lại ĐÚNG bản ghi lịch sử này (không tạo bản ghi mới) —
+/// ghim sẵn `history_ids[window_label] = id` NGAY TỪ ĐẦU, tận dụng đúng cơ chế
+/// đã có ở `history_save_turn` (xem ở trên: "id đã lưu -> chỉ update turns").
+///
+/// Khác `open_result_window` (commands.rs): KHÔNG có toạ độ vùng vừa chọn để
+/// định vị cửa sổ theo (người dùng đang ở cửa sổ Lịch sử, không phải overlay)
+/// — đặt cửa sổ giữa màn hình chính thay vì cạnh vùng chụp.
+///
+/// `async fn` — BẮT BUỘC, cùng lý do với `trigger_capture`/`crop_and_open_result`
+/// (commands.rs): lệnh này tạo cửa sổ mới (`WebviewWindowBuilder::build()`).
+/// Gọi tạo cửa sổ TRỰC TIẾP trong 1 command ĐỒNG BỘ được dispatch từ luồng IPC
+/// tự-deadlock trên Windows/WebView2 (lệnh chờ main thread xử lý việc tạo cửa
+/// sổ, trong khi chính main thread đang bị command này chiếm dụng) — bug thực
+/// tế đã gặp: bấm "Tiếp tục hội thoại" bị treo loading vô thời hạn, y hệt lỗi
+/// từng gặp ở `trigger_capture` trước khi đánh dấu `async`.
+#[tauri::command]
+pub async fn history_resume(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let (kind, model, turns, media_file) = {
+        let index = state.history_index.lock().unwrap();
+        let item = index.iter().find(|it| it.id == id).ok_or("Không tìm thấy mục lịch sử này (có thể đã bị xoá)")?;
+        (item.kind.clone(), item.model.clone(), item.turns.clone(), item.media_file.clone())
+    };
+
+    let dir = media_dir(&app)?;
+    let bytes = fs::read(dir.join(&media_file))
+        .map_err(|_| "Ảnh/video gốc của mục này đã bị xoá, không thể tiếp tục hội thoại".to_string())?;
+
+    let session_id = state.next_session_id.fetch_add(1, Ordering::Relaxed);
+    let prefix = if kind == "video" { crate::commands::RECORD_LABEL_PREFIX } else { crate::commands::RESULT_LABEL_PREFIX };
+    let window_label = format!("{prefix}{session_id}");
+
+    if kind == "video" {
+        state.video_sessions.lock().unwrap().insert(window_label.clone(), vec![bytes]);
+    } else {
+        state.crop_sessions.lock().unwrap().insert(window_label.clone(), vec![bytes]);
+    }
+    // Ghim NGAY từ đầu -> lượt hỏi tiếp đầu tiên trong cửa sổ này (qua
+    // history_save_turn) sẽ thấy "existing_id" và chỉ update turns, không tạo
+    // bản ghi lịch sử mới trùng lặp.
+    state.history_ids.lock().unwrap().insert(window_label.clone(), id);
+    state.resume_pending.lock().unwrap().insert(window_label.clone(), (turns, model));
+
+    let scale = app.primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(1.0);
+    let (mon_x, mon_y, mon_w, mon_h) = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| {
+            let pos = m.position();
+            let size = m.size();
+            (pos.x, pos.y, size.width, size.height)
+        })
+        .unwrap_or((0, 0, 1920, 1080));
+
+    let win_w = (480.0_f64 * scale).round();
+    let win_h = (340.0_f64 * scale).round();
+    let pos_x = (mon_x as f64 + (mon_w as f64 - win_w) / 2.0).max(mon_x as f64);
+    let pos_y = (mon_y as f64 + (mon_h as f64 - win_h) / 2.0).max(mon_y as f64);
+
+    let win = WebviewWindowBuilder::new(&app, &window_label, WebviewUrl::App("result".into()))
+        .title("Kết quả AI")
+        .decorations(true)
+        .always_on_top(true)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("Không mở được cửa sổ kết quả: {e}"))?;
+    let _ = win.set_size(PhysicalSize::new(win_w, win_h));
+    let _ = win.set_min_size(Some(PhysicalSize::new(360.0 * scale, 280.0 * scale)));
+    let _ = win.set_position(PhysicalPosition::new(pos_x, pos_y));
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
 }
 
 /// Xoá SẠCH toàn bộ lịch sử — nút "dọn nhanh" cho máy dùng chung (phòng máy

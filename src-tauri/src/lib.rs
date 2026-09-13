@@ -2,6 +2,7 @@ mod ai;
 mod attachments;
 mod capture;
 mod commands;
+mod export;
 mod history;
 mod hotkey;
 mod oauth;
@@ -68,6 +69,10 @@ pub fn run() {
                     state.video_sessions.lock().unwrap().remove(window.label());
                     state.attachment_sessions.lock().unwrap().remove(window.label());
                     state.history_ids.lock().unwrap().remove(window.label());
+                    // Phòng trường hợp resume rồi đóng cửa sổ NGAY trước khi
+                    // frontend kịp gọi get_resume_data (VD lỡ tay đóng lúc còn
+                    // đang loading) — dọn để không rò rỉ trong RAM vô thời hạn.
+                    state.resume_pending.lock().unwrap().remove(window.label());
                 }
             }
         })
@@ -85,6 +90,7 @@ pub fn run() {
             attachments::attach_files_to_session,
             attachments::get_attachment_list,
             attachments::remove_attachment_from_session,
+            export::write_export_file,
             ai::ask_ai_gemini,
             ai::ask_ai_diagram,
             secrets::save_api_key,
@@ -110,6 +116,8 @@ pub fn run() {
             history::history_get,
             history::history_delete,
             history::history_clear_all,
+            history::history_resume,
+            history::get_resume_data,
             survey::survey_status,
             survey::dismiss_survey,
             survey::submit_survey,

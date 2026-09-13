@@ -114,6 +114,13 @@ pub struct AppState {
     /// tường minh từng phần tử. Dọn dẹp khi cửa sổ đóng, cùng chỗ với
     /// crop_sessions/video_sessions (xem on_window_event trong lib.rs).
     pub attachment_sessions: Mutex<HashMap<String, Vec<(Vec<u8>, String, String)>>>,
+
+    /// Dữ liệu tạm để cửa sổ "Kết quả AI" MỚI MỞ nạp thẳng vào chế độ "đang
+    /// chat" khi người dùng bấm "Tiếp tục hội thoại" từ Lịch sử — key = label
+    /// cửa sổ vừa tạo cho phiên resume đó. Frontend gọi `get_resume_data` đúng
+    /// 1 lần lúc mount rồi entry bị lấy ra luôn (dùng 1 lần, không cần dọn
+    /// riêng ở on_window_event vì đã tự rỗng ngay khi đọc).
+    pub resume_pending: Mutex<HashMap<String, (Vec<crate::history::HistoryTurn>, String)>>,
 }
 
 /// Trần số lượng media (ảnh HOẶC video) cho phép gom vào CÙNG 1 chuỗi/phiên —
