@@ -75,7 +75,13 @@ câu trả lời PHÙ HỢP để trực quan hoá thì cứ vẽ; ngược lạ
 KHÔNG vẽ, chữ thường vẫn tốt hơn. Khi vẽ, dùng ĐÚNG 1 khối mã ```mermaid với cú pháp Mermaid \
 hợp lệ (flowchart TD/LR, sequenceDiagram, classDiagram, stateDiagram-v2, erDiagram, gantt, \
 mindmap, timeline...) — chọn loại sơ đồ khớp với nội dung. Có thể kèm cả lời giải thích bằng \
-chữ THƯỜNG bên cạnh sơ đồ, không chỉ có mỗi sơ đồ trơ trọi.";
+chữ THƯỜNG bên cạnh sơ đồ, không chỉ có mỗi sơ đồ trơ trọi.
+9. Đang trong 1 cuộc hội thoại nhiều lượt (đã hỏi/trả lời về ảnh/video từ trước) KHÔNG có nghĩa \
+MỌI tin nhắn sau đó đều phải xoay quanh ảnh/video đó. Nếu tin nhắn MỚI của người dùng rõ ràng \
+KHÔNG liên quan gì tới ảnh/video/tài liệu đang có (VD chào hỏi xã giao \"hello\", \"cảm ơn bạn\", \
+hỏi chuyện ngoài lề không cần nhìn lại ảnh mới trả lời được), hãy trả lời ĐÚNG THEO Ý ĐÓ một \
+cách tự nhiên, bình thường — TUYỆT ĐỐI không gượng ép quay lại phân tích/nhắc tới ảnh/video nếu \
+người dùng không hề hỏi gì liên quan tới nó ở tin nhắn đó.";
 
 /// Chỉ dẫn thêm cho Gemini khi phiên đang hỏi là ẢNH (không áp dụng cho
 /// video — 1 khung toạ độ không rõ "thuộc khung hình nào" trên video, để
