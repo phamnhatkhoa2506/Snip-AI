@@ -19,7 +19,7 @@
     DIAGRAM_MODE_SUFFIX,
     type QuickPrompt,
   } from "$lib/config";
-  import { currentModel, loadSettings, type Settings } from "$lib/settings";
+  import { currentModel, loadSettings, saveSettings, REASONING_EFFORT_OPTIONS, type Settings, type ReasoningEffort } from "$lib/settings";
   import { askAIStream, askAIDiagram, type ChatTurn, type VocabDiagramData } from "$lib/aiClient";
   import { renderMarkdown, markdownToPlainText, linkifyTimestamps } from "$lib/markdown";
   import { mermaidBlocks } from "$lib/mermaid";
@@ -428,6 +428,7 @@
     const unlistens: (() => void)[] = [];
     const s = loadSettings();
     modelLabel = currentModel(s);
+    reasoningEffort = s.reasoningEffort;
     loadResumeIfAny();
 
     if (isVideoSession) {
@@ -594,7 +595,11 @@
     }, 1000);
 
     try {
-      const settings = loadSettings();
+      // Đè lại `reasoningEffort` bằng lựa chọn ĐANG HIỆN trong cửa sổ này
+      // (xem nút chọn ở menu "+") — `loadSettings()` đọc từ localStorage nên
+      // vẫn đúng cho `geminiModel`, nhưng mức suy luận có thể vừa đổi trong
+      // TURN NÀY mà chưa kịp ghi/đọc lại qua localStorage kịp thời.
+      const settings = { ...loadSettings(), reasoningEffort };
 
       // Trễ hiển thị ~180 ký tự cuối so với luồng stream thật — KHÔNG đưa
       // thẳng từng mẩu vào hiệu ứng "gõ chữ" ngay khi nhận được. Lý do: các
@@ -670,6 +675,28 @@
    * giống `searchEnabled` — tránh "dính" ép vẽ sơ đồ cho cả các câu hỏi tiếp
    * theo không liên quan. */
   let diagramMode = $state(false);
+
+  // ── Mức độ suy luận Gemini (5 mức) — KHÁC diagramMode/searchEnabled: KHÔNG
+  // dùng 1-lần-rồi-tắt, mà LƯU LẠI xuyên suốt phiên chat này (đổi 1 lần, áp
+  // dụng cho MỌI câu hỏi tiếp theo trong cùng cửa sổ) — hợp lý hơn vì đây là
+  // lựa chọn "phong cách trả lời" chung, không phải 1 hành vi chỉ cần cho
+  // đúng 1 câu hỏi cụ thể như bật tra cứu web/ép vẽ sơ đồ. Nạp giá trị đã lưu
+  // lúc mount (xem onMount), và LƯU LẠI mỗi khi đổi (xem chooseReasoningEffort)
+  // để lần mở cửa sổ "Kết quả AI" SAU cũng nhớ đúng lựa chọn gần nhất — không
+  // cần vào riêng 1 màn Cài đặt nào khác. */
+  let reasoningEffort = $state<ReasoningEffort>("auto");
+  const currentReasoningOption = $derived(
+    REASONING_EFFORT_OPTIONS.find((o) => o.value === reasoningEffort) ?? REASONING_EFFORT_OPTIONS[0],
+  );
+  let showReasoningSubmenu = $state(false);
+
+  function chooseReasoningEffort(value: ReasoningEffort) {
+    reasoningEffort = value;
+    showReasoningSubmenu = false;
+    // Lưu lại luôn — cửa sổ "Kết quả AI" MỚI mở sau (kể cả phiên khác) cũng
+    // nhớ đúng lựa chọn gần nhất, không phải chọn lại từ đầu mỗi lần.
+    saveSettings({ ...loadSettings(), reasoningEffort: value });
+  }
 
   /** Hàng nút phụ ở ô "Hỏi tiếp" (chụp thêm bước/sơ đồ từ vựng/vẽ sơ đồ/tra
    * cứu web) từng để RỜI từng nút 1 — quá nhiều nút chen chúc, khó nhìn ra
@@ -1045,6 +1072,47 @@
     </button>
   {/snippet}
 
+  {#snippet reasoningEffortItem()}
+    <!-- Dùng CHUNG cho CẢ 2 menu "+" — KHÁC 2 toggle trên: đây là lựa chọn
+    LÂU DÀI (áp dụng mọi câu hỏi sau, không tự tắt) nên hiện dạng danh sách
+    xổ ra (accordion) thay vì 1 nút bật/tắt đơn giản — 5 mức không hợp cách
+    "bấm để chuyển vòng" (mất tới 4 lần bấm mới quay hết vòng). -->
+    <button
+      type="button"
+      onclick={() => (showReasoningSubmenu = !showReasoningSubmenu)}
+      aria-expanded={showReasoningSubmenu}
+      class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+    >
+      <Icon name="lightbulb" size={15} class="mt-0.5 shrink-0 {reasoningEffort !== 'auto' ? 'text-accent' : ''}" />
+      <span class="flex-1">
+        <div class="text-[12.5px] font-semibold">Mức độ suy luận</div>
+        <div class="text-[10.5px] text-text-muted">Đang chọn: {currentReasoningOption.title} — áp dụng cho các câu hỏi sau</div>
+      </span>
+      <Icon name="chevronDown" size={13} class="mt-1 shrink-0 transition-transform {showReasoningSubmenu ? 'rotate-180' : ''}" />
+    </button>
+    {#if showReasoningSubmenu}
+      <div class="pl-2.5 flex flex-col gap-0.5 pb-1">
+        {#each REASONING_EFFORT_OPTIONS as option (option.value)}
+          <button
+            type="button"
+            onclick={() => chooseReasoningEffort(option.value)}
+            class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2"
+          >
+            <span
+              class="w-3 h-3 mt-0.5 shrink-0 rounded-full border {option.value === reasoningEffort
+                ? 'border-accent bg-accent'
+                : 'border-border'}"
+            ></span>
+            <span class="flex-1">
+              <div class="text-[12px] font-medium">{option.title}</div>
+              <div class="text-[10px] text-text-muted">{option.description}</div>
+            </span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+  {/snippet}
+
   {#if phase === "ask"}
     <!-- ── Giai đoạn 1: xem ảnh/video + đặt câu hỏi ── -->
     <div class="flex-1 min-h-0 p-3 pb-0 flex items-center justify-center">
@@ -1164,6 +1232,8 @@
             {@render attachFileItem()}
             <div class="h-px bg-border my-0.5"></div>
             {@render diagramSearchToggles()}
+            <div class="h-px bg-border my-0.5"></div>
+            {@render reasoningEffortItem()}
           </div>
         {/if}
       </div>
@@ -1609,6 +1679,8 @@
               <!-- 2 mục dưới là TOGGLE (bật/tắt) — KHÔNG đóng menu khi bấm,
               để bật được cả 2 cùng lúc rồi mới đóng, xem trạng thái ngay. -->
               {@render diagramSearchToggles()}
+              <div class="h-px bg-border my-0.5"></div>
+              {@render reasoningEffortItem()}
             </div>
           {/if}
         </div>

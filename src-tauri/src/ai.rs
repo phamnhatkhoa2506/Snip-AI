@@ -360,6 +360,11 @@ pub async fn ask_ai_gemini(
     // ngoài internet (giá cả, tin tức, thứ không có trong ảnh/video) khi cần,
     // kèm trích nguồn. `Option` để không bắt buộc frontend phải truyền.
     search: Option<bool>,
+    // Mức độ "suy luận ẩn" (thinkingLevel) người dùng TỰ CHỌN trong Cài đặt —
+    // "auto" (hoặc thiếu field) nghĩa là KHÔNG ép gì cả, để model tự chọn mặc
+    // định. Xem giải thích chi tiết ở đoạn build request bên dưới và ở
+    // `ReasoningEffort`/`REASONING_EFFORT_OPTIONS` trong settings.ts.
+    reasoning_effort: Option<String>,
 ) -> Result<String, String> {
     let use_search = search.unwrap_or(false);
     // Ưu tiên session đăng nhập Google nếu có — chỉ fallback về API key tự
@@ -466,17 +471,34 @@ pub async fn ask_ai_gemini(
     }
 
     // TỪNG ép "thinkingLevel: minimal" (giảm suy luận ẩn để trả lời nhanh
-    // hơn) cho mọi câu hỏi — ĐÃ BỎ. Lỗi thực tế đã gặp: với bài toán cần suy
+    // hơn) cho MỌI câu hỏi — ĐÃ BỎ. Lỗi thực tế đã gặp: với bài toán cần suy
     // luận nhiều bước (VD chứng minh hình học, tính đường chéo rồi mới ra bán
     // kính), "suy luận tối thiểu" khiến model dễ NHẢY TẮT sang 1 công thức
-    // quen mắt nhưng SAI (đã kiểm chứng bằng tay 1 ca cụ thể: model tự tin
-    // trả lời bán kính bằng nửa đường chéo AC thay vì đúng phải là nửa đường
-    // chéo BD) — hỏi lại y hệt nhiều lần còn ra nhiều đáp số khác nhau (suy
-    // luận càng ít, dao động giữa các lần hỏi càng lớn). Đổi lại chấp nhận
-    // ĐÁNH ĐỔI: mọi câu hỏi (kể cả OCR/dịch đơn giản) chậm hơn 1 chút, đổi lấy
-    // độ tin cậy cao hơn hẳn cho các bài cần suy luận nhiều bước — hợp lý hơn
-    // khi app đã mở rộng sang "giải bài tập" (xem rule 10, SYSTEM_PROMPT).
-    let body = base_body.clone();
+    // quen mắt nhưng SAI — hỏi lại y hệt nhiều lần còn ra nhiều đáp số khác
+    // nhau (suy luận càng ít, dao động giữa các lần hỏi càng lớn).
+    //
+    // THAY VÌ áp 1 mức cố định cho mọi người/mọi câu hỏi, để NGƯỜI DÙNG TỰ
+    // CHỌN (xem `ReasoningEffort`/`REASONING_EFFORT_OPTIONS` trong settings.ts,
+    // 5 lựa chọn: auto/minimal/low/medium/high) — họ tự cân bằng tốc độ/độ
+    // chính xác theo TỪNG câu hỏi (VD OCR/dịch chọn thấp cho nhanh, bài toán
+    // nhiều bước chọn cao cho chắc), thay vì 1 lựa chọn chung áp cho tất cả.
+    // "auto" (mặc định, hoặc field thiếu/rỗng) = KHÔNG gửi field này, để
+    // model tự chọn mức mặc định của chính nó.
+    //
+    // "MINIMAL"/"LOW"/"MEDIUM"/"HIGH" là 4 giá trị CHÍNH THỨC Google công bố
+    // cho `thinkingLevel` (Gemini 3) — nhưng KHÔNG PHẢI model nào cũng hỗ trợ
+    // cả 4 (VD tài liệu Google ghi rõ 1 số biến thể Flash không nhận
+    // "MINIMAL", trả lỗi 400 validation). Gọi qua backend thì KHÔNG biết chắc
+    // model server chọn có hỗ trợ mức cụ thể này hay không (model nằm trong
+    // cấu hình backend, app không biết chính xác) — cứ thử gửi trước, bị 400
+    // thì tự động gửi lại KHÔNG kèm field (fallback về mức mặc định của
+    // model), không cần đoán cứng theo tên model.
+    let effort = reasoning_effort.as_deref().unwrap_or("auto");
+    let level_upper = effort.to_uppercase();
+    let mut body = base_body.clone();
+    if effort != "auto" {
+        body["generationConfig"] = serde_json::json!({"thinkingConfig": {"thinkingLevel": level_upper}});
+    }
 
     let endpoint = match &auth {
         GeminiAuth::Backend { .. } => format!("{}/v1/gemini/stream", crate::oauth::backend_base_url()),
@@ -495,6 +517,12 @@ pub async fn ask_ai_gemini(
     };
 
     let mut resp = send_with_timeout(send(&body)).await?;
+    if effort != "auto" && resp.status() == reqwest::StatusCode::BAD_REQUEST {
+        // Model không hỗ trợ đúng mức thinkingLevel đã chọn -> bỏ hẳn field
+        // này, dùng lại mức mặc định của model thay vì lỗi hẳn cho người dùng.
+        eprintln!("[snip-ai][ai] Gemini từ chối thinkingLevel={level_upper}, thử lại không kèm field này");
+        resp = send_with_timeout(send(&base_body)).await?;
+    }
     if use_search && resp.status() == reqwest::StatusCode::BAD_REQUEST {
         // "googleSearch" (thử ở trên) bị từ chối -> đổi sang "google_search".
         eprintln!("[snip-ai][ai] Gemini từ chối tools=googleSearch, thử lại với google_search");

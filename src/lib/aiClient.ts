@@ -66,6 +66,7 @@ export async function askAIStream(
       history,
       region: region ?? null,
       search: search ?? false,
+      reasoningEffort: settings.reasoningEffort,
     });
 
     onStatus("");

@@ -7,14 +7,26 @@
 // oauth.rs): key thật quản lý ở backend, người dùng phổ thông không cần
 // biết/chọn provider gì cả. Chỉ còn Gemini.
 
+/** Mức độ "suy luận ẩn" (thinking) Gemini 3 làm trước khi trả lời — tham số
+ * `thinkingLevel` của Google, 4 mức chính thức MINIMAL/LOW/MEDIUM/HIGH (một
+ * số model KHÔNG hỗ trợ MINIMAL, xem retry-khi-400 trong ai.rs) + "auto"
+ * (KHÔNG ép field này, để model tự chọn mặc định — hành vi trước đây sau khi
+ * bỏ hẳn việc ép cứng "minimal" cho mọi câu hỏi, xem lịch sử ai.rs). Cho
+ * người dùng TỰ CHỌN thay vì áp 1 mức chung: suy luận nhiều hơn = chính xác
+ * hơn cho bài khó nhưng chậm hơn, câu hỏi đơn giản (OCR, dịch...) có thể chủ
+ * động chọn mức thấp để trả lời nhanh hơn. */
+export type ReasoningEffort = "auto" | "minimal" | "low" | "medium" | "high";
+
 export interface Settings {
   geminiModel: string;
+  reasoningEffort: ReasoningEffort;
 }
 
 const STORAGE_KEY = "snip-ai:settings";
 
 export const DEFAULT_SETTINGS: Settings = {
   geminiModel: "gemini-3.6-flash",
+  reasoningEffort: "auto",
 };
 
 export function loadSettings(): Settings {
@@ -36,3 +48,14 @@ export function saveSettings(settings: Settings): void {
 export function currentModel(settings: Settings): string {
   return settings.geminiModel.trim();
 }
+
+/** Danh sách 5 lựa chọn hiện trong UI Cài đặt (result/+page.svelte và
+ * +page.svelte) — 1 nguồn DUY NHẤT, tránh lặp lại nhãn/mô tả ở nhiều nơi rồi
+ * lệch nhau khi sửa sau này. */
+export const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort; title: string; description: string }[] = [
+  { value: "auto", title: "Tự động", description: "Để Gemini tự chọn mức phù hợp (mặc định)" },
+  { value: "minimal", title: "Tối thiểu", description: "Nhanh nhất — chỉ hợp câu hỏi rất đơn giản" },
+  { value: "low", title: "Thấp", description: "Nhanh — OCR, dịch, hỏi nhanh" },
+  { value: "medium", title: "Vừa", description: "Cân bằng tốc độ/độ chính xác" },
+  { value: "high", title: "Cao", description: "Suy luận kỹ nhất — bài toán/chứng minh nhiều bước" },
+];
