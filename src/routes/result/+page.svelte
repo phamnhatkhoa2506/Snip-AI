@@ -1010,6 +1010,32 @@
     {/if}
   {/snippet}
 
+  {#snippet appendCaptureItem()}
+    <!-- Dùng CHUNG cho CẢ 2 menu "+" (lúc mới mở CHƯA hỏi gì LẪN lúc đang
+    chat) — trước đây chỉ có ở menu lúc đang chat, nghĩa là muốn chụp/quay
+    NHIỀU bước phải hỏi 1 câu trước rồi mới bắt đầu nối chuỗi được. Giờ cho
+    phép xây chuỗi nhiều ảnh/video NGAY TỪ ĐẦU, trước khi hỏi câu nào cả. -->
+    <button
+      type="button"
+      onclick={() => {
+        moreMenuOpen = false;
+        triggerAppendCapture();
+      }}
+      disabled={appendCaptureBusy}
+      class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5 disabled:opacity-50"
+    >
+      {#if appendCaptureBusy}
+        <Icon name="loader" size={15} class="animate-spin mt-0.5 shrink-0" />
+      {:else}
+        <Icon name="plus" size={15} class="mt-0.5 shrink-0" />
+      {/if}
+      <span>
+        <div class="text-[12.5px] font-semibold">{isVideoSession ? "Quay" : "Chụp"} thêm bước</div>
+        <div class="text-[10.5px] text-text-muted">Nối thêm vào cùng cuộc hội thoại này</div>
+      </span>
+    </button>
+  {/snippet}
+
   {#snippet attachFileItem()}
     <!-- Dùng CHUNG cho CẢ 2 menu "+" — luôn là mục ĐẦU TIÊN trong menu (cả
     lúc mới hỏi lẫn lúc hỏi tiếp), nên `bind:this` đo chiều cao thật ở ĐÂY
@@ -1192,9 +1218,9 @@
         }}
       ></textarea>
       <!-- Menu "+" — CÙNG mẫu với ô "Hỏi tiếp" bên dưới (đã gom lại từ 2 nút
-      icon trần rời rạc), chỉ khác: ở đây chỉ có 2 mục toggle (Vẽ sơ đồ/Tra
-      cứu web) — "Chụp thêm bước"/"Sơ đồ từ vựng" đã có sẵn dạng chip riêng
-      phía trên (dòng chip gợi ý), không cần lặp lại trong menu này. -->
+      icon trần rời rạc). Có thêm mục "Chụp/Quay thêm bước" NGAY TỪ ĐÂY (trước
+      đây chỉ có ở menu lúc đang chat) — cho phép xây chuỗi nhiều ảnh/video
+      TRƯỚC KHI hỏi câu đầu tiên, không cần hỏi 1 câu rồi mới nối chuỗi được. -->
       <div class="relative">
         <button
           type="button"
@@ -1202,7 +1228,7 @@
           disabled={!mediaB64}
           aria-label="Thêm hành động"
           aria-pressed={moreMenuOpen}
-          data-tooltip="Vẽ sơ đồ / tra cứu web"
+          data-tooltip="Chụp thêm bước / Vẽ sơ đồ / tra cứu web"
           class="relative h-9 shrink-0 rounded-lg px-2.5 flex items-center justify-center transition-colors disabled:opacity-40 {moreMenuOpen
             ? 'btn-accent'
             : 'btn-ghost'}"
@@ -1230,6 +1256,7 @@
             transition:fade={{ duration: 120 }}
           >
             {@render attachFileItem()}
+            {@render appendCaptureItem()}
             <div class="h-px bg-border my-0.5"></div>
             {@render diagramSearchToggles()}
             <div class="h-px bg-border my-0.5"></div>
@@ -1640,25 +1667,7 @@
               transition:fade={{ duration: 120 }}
             >
               {@render attachFileItem()}
-              <button
-                type="button"
-                onclick={() => {
-                  moreMenuOpen = false;
-                  triggerAppendCapture();
-                }}
-                disabled={appendCaptureBusy}
-                class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5 disabled:opacity-50"
-              >
-                {#if appendCaptureBusy}
-                  <Icon name="loader" size={15} class="animate-spin mt-0.5 shrink-0" />
-                {:else}
-                  <Icon name="plus" size={15} class="mt-0.5 shrink-0" />
-                {/if}
-                <span>
-                  <div class="text-[12.5px] font-semibold">{isVideoSession ? "Quay" : "Chụp"} thêm bước</div>
-                  <div class="text-[10.5px] text-text-muted">Nối thêm vào cùng cuộc hội thoại này</div>
-                </span>
-              </button>
+              {@render appendCaptureItem()}
               {#if !isVideoSession}
                 <button
                   type="button"
