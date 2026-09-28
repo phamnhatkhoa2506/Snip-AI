@@ -238,12 +238,15 @@ fn get_crop_base64(state: &State<'_, AppState>, window_label: &str) -> Result<St
 /// TỰ đã chụp/quay — ảnh và video có thể đan xen (xem AppState::media_sessions).
 /// Dùng cho `ask_ai_gemini` (chat nhiều lượt, có thể nhiều ảnh/video nhờ
 /// "+ Chụp thêm ảnh"/"+ Quay thêm video").
-fn get_media_chain_base64(state: &State<'_, AppState>, window_label: &str) -> Result<Vec<(String, &'static str)>, String> {
+///
+/// Chuỗi RỖNG (phiên "Hỏi AI" mở qua `open_text_chat_window`, không có ảnh/
+/// video nào — hỏi thẳng bằng chữ) trả về mảng rỗng, KHÔNG phải lỗi.
+fn get_media_chain_base64(state: &State<'_, AppState>, window_label: &str) -> Vec<(String, &'static str)> {
     let sessions = state.media_sessions.lock().unwrap();
-    let list = sessions
+    sessions
         .get(window_label)
-        .ok_or("Không tìm thấy ảnh/video cho phiên này (cửa sổ có thể đã bị đóng)")?;
-    Ok(list.iter().map(|m| (STANDARD.encode(&m.bytes), m.kind.mime())).collect())
+        .map(|list| list.iter().map(|m| (STANDARD.encode(&m.bytes), m.kind.mime())).collect())
+        .unwrap_or_default()
 }
 
 async fn send_with_timeout(req: reqwest::RequestBuilder) -> Result<reqwest::Response, String> {
@@ -388,16 +391,16 @@ pub async fn ask_ai_gemini(
     };
     let model = model.trim();
     // TOÀN BỘ chuỗi ảnh/video của phiên, đúng thứ tự đã chụp/quay — ảnh và
-    // video có thể ĐAN XEN (xem AppState::media_sessions).
-    let mut media_chain = get_media_chain_base64(&state, &window_label)?;
-    if media_chain.is_empty() {
-        return Err("Phiên này chưa có ảnh/video nào".into());
-    }
+    // video có thể ĐAN XEN (xem AppState::media_sessions). RỖNG là hợp lệ —
+    // phiên "Hỏi AI" (open_text_chat_window) hỏi thẳng bằng chữ, không có
+    // ảnh/video nào cả (có thể "+ Chụp/Quay thêm bước" bổ sung SAU đó).
+    let mut media_chain = get_media_chain_base64(&state, &window_label);
+    let chain_len = media_chain.len();
     // Khoanh vùng/cắt vùng luôn áp cho phần tử MỚI NHẤT (khung vẽ theo ảnh
     // đang hiện) — nên xét loại của phần tử CUỐI, không phải phần tử đầu (chuỗi
-    // bắt đầu bằng video vẫn có thể kết thúc bằng ảnh và ngược lại).
-    let mime_type = media_chain[media_chain.len() - 1].1;
-    let chain_len = media_chain.len();
+    // bắt đầu bằng video vẫn có thể kết thúc bằng ảnh và ngược lại). `None`
+    // khi chuỗi rỗng — mọi chỗ dùng bên dưới đều tự bỏ qua trong trường hợp đó.
+    let mime_type = media_chain.last().map(|m| m.1);
     // Tài liệu đính kèm THÊM (ảnh/PDF, xem attachments.rs) — hoàn toàn TÙY
     // CHỌN, phiên nào không đính gì thì đây luôn là mảng rỗng.
     let attachments = crate::attachments::get_attachment_chain_base64(&state, &window_label);
@@ -408,7 +411,7 @@ pub async fn ask_ai_gemini(
     // Áp dụng cho ảnh MỚI NHẤT trong chuỗi (khung khoanh vùng luôn vẽ theo
     // ảnh mới nhất, xem GEMINI_BBOX_INSTRUCTION + result/+page.svelte).
     if let Some([ymin, xmin, ymax, xmax]) = region {
-        if mime_type.starts_with("image/") {
+        if mime_type.is_some_and(|m| m.starts_with("image/")) {
             if let Some(last) = media_chain.last_mut() {
                 let raw = STANDARD.decode(&last.0).map_err(|e| format!("Lỗi giải mã ảnh: {e}"))?;
                 let cropped = crate::capture::crop_by_normalized_box(&raw, ymin, xmin, ymax, xmax)?;
@@ -466,7 +469,7 @@ pub async fn ask_ai_gemini(
     // thị), còn với chuỗi nhiều ảnh thì KHÔNG RÕ toạ độ trả về thuộc về ẢNH
     // NÀO trong chuỗi — cả 2 trường hợp frontend đều có thể vẽ khung sai chỗ
     // nếu không chặn. Đơn giản hoá: chỉ bật box_2d khi phiên có ĐÚNG 1 ảnh.
-    let mut system_text = if mime_type.starts_with("image/") && region.is_none() && media_chain.len() <= 1 {
+    let mut system_text = if mime_type.is_some_and(|m| m.starts_with("image/")) && region.is_none() && chain_len <= 1 {
         format!("{SYSTEM_PROMPT}{GEMINI_BBOX_INSTRUCTION}")
     } else {
         SYSTEM_PROMPT.to_string()

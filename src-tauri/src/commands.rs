@@ -479,12 +479,15 @@ pub struct MediaDto {
 /// — mỗi phần tử kèm loại riêng (`kind`: "image"/"video"), vì ảnh và video
 /// có thể đan xen trong cùng 1 chuỗi (xem `AppState::media_sessions`).
 /// Frontend tự dựng preview/thumbnail đúng thẻ <img>/<video> theo `kind`.
+///
+/// Chuỗi RỖNG (phiên chưa từng có ảnh/video nào, VD cửa sổ "Hỏi AI" mở qua
+/// `open_text_chat_window` — hỏi thẳng bằng chữ, không chụp/quay gì trước)
+/// KHÔNG PHẢI lỗi — trả về mảng rỗng, không phải `Err`. Chỉ báo lỗi khi phiên
+/// hoàn toàn không tồn tại trong `media_sessions`.
 #[tauri::command]
 pub fn get_media_chain(state: State<'_, AppState>, window_label: String) -> Result<Vec<MediaDto>, String> {
     let sessions = state.media_sessions.lock().unwrap();
-    let list = sessions
-        .get(&window_label)
-        .ok_or("Không tìm thấy ảnh/video cho phiên này (cửa sổ có thể đã bị đóng/dọn dẹp)")?;
+    let list = sessions.get(&window_label).map(|list| list.as_slice()).unwrap_or(&[]);
     Ok(list.iter().map(|m| MediaDto { kind: m.kind, data: STANDARD.encode(&m.bytes) }).collect())
 }
 
@@ -579,6 +582,59 @@ pub async fn open_history_window(app: AppHandle) -> Result<(), String> {
         .resizable(true)
         .build()
         .map_err(|e| format!("Không mở được cửa sổ lịch sử: {e}"))?;
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
+/// Mở 1 cửa sổ "Kết quả AI" MỚI nhưng KHÔNG cần chụp/quay gì trước — hỏi
+/// thẳng bằng chữ, giống ChatGPT/Claude bình thường. Dùng CHUNG route
+/// "result" như snip ảnh (tự nhận qua query `?mode=chat`, xem
+/// result/+page.svelte) — chat vẫn có thể "+ Chụp/Quay thêm ảnh/video" giữa
+/// chừng để bổ sung ngữ cảnh sau đó, đúng như đã làm cho việc trộn ảnh+video
+/// (xem AppState::media_sessions) — KHÔNG phải 1 luồng riêng biệt, chỉ là bắt
+/// đầu với chuỗi RỖNG thay vì có sẵn 1 ảnh/video.
+///
+/// Không có toạ độ vùng chụp nào để đặt cửa sổ gần — đặt GIỮA màn hình chính,
+/// cùng cách `history.rs::history_resume` đã làm cho việc mở lại 1 cuộc
+/// trò chuyện cũ (cũng không có toạ độ neo theo).
+///
+/// `async fn` — cùng lý do với `trigger_capture`/`open_history_window`: lệnh
+/// này tạo cửa sổ mới, gọi trực tiếp trong 1 command đồng bộ dễ tự-deadlock
+/// trên Windows/WebView2.
+#[tauri::command]
+pub async fn open_text_chat_window(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let session_id = state.next_session_id.fetch_add(1, Ordering::Relaxed);
+    let window_label = format!("{RESULT_LABEL_PREFIX}{session_id}");
+
+    let scale = app.primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(1.0);
+    let (mon_x, mon_y, mon_w, mon_h) = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| {
+            let pos = m.position();
+            let size = m.size();
+            (pos.x, pos.y, size.width, size.height)
+        })
+        .unwrap_or((0, 0, 1920, 1080));
+
+    let win_w = (480.0_f64 * scale).round();
+    let win_h = (340.0_f64 * scale).round();
+    let pos_x = (mon_x as f64 + (mon_w as f64 - win_w) / 2.0).max(mon_x as f64);
+    let pos_y = (mon_y as f64 + (mon_h as f64 - win_h) / 2.0).max(mon_y as f64);
+
+    let win = WebviewWindowBuilder::new(&app, &window_label, WebviewUrl::App("result?mode=chat".into()))
+        .title("Kết quả AI")
+        .decorations(true)
+        .always_on_top(true)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("Không mở được cửa sổ hỏi AI: {e}"))?;
+    let _ = win.set_size(PhysicalSize::new(win_w, win_h));
+    let _ = win.set_min_size(Some(PhysicalSize::new(360.0 * scale, 280.0 * scale)));
+    let _ = win.set_position(PhysicalPosition::new(pos_x, pos_y));
     let _ = win.show();
     let _ = win.set_focus();
     Ok(())

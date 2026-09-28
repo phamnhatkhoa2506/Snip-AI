@@ -41,6 +41,15 @@
   // — video LUÔN đã có sẵn ngay từ lúc cửa sổ này mount.
   const startedAsVideo = getCurrentWindow().label.startsWith("record-");
 
+  // Cửa sổ mở qua "Hỏi AI" (open_text_chat_window, commands.rs) — KHÔNG có
+  // ảnh/video nào cả lúc mở, hỏi thẳng bằng chữ giống chat bình thường. Cùng
+  // route "result" như snip ảnh/quay video, chỉ khác query `?mode=chat` để
+  // biết bỏ qua toàn bộ phần "chờ xử lý ảnh/video" và các chip/placeholder
+  // gắn với ảnh/video (OCR, dịch, Sơ đồ từ vựng...) — vẫn có thể "+ Chụp/Quay
+  // thêm bước" SAU ĐÓ để bổ sung ảnh/video giữa chừng, dùng chung đúng cơ chế
+  // trộn ảnh+video đã có (AppState::media_sessions), không phải luồng riêng.
+  const textOnlyMode = new URLSearchParams(window.location.search).get("mode") === "chat";
+
   type MediaKind = "image" | "video";
   interface MediaEntry {
     kind: MediaKind;
@@ -73,6 +82,11 @@
   // khung/giây) nên câu hỏi phải đặt khác hẳn — xem giải thích đầy đủ ở
   // config.ts, ngay trên PROMPT_VIDEO_OCR. Theo phần tử MỚI NHẤT.
   const quickPrompts = $derived(latestIsVideo ? VIDEO_PROMPTS : QUICK_PROMPTS);
+  /** Màn hình "ask" sẵn sàng cho hỏi — bình thường phải CHỜ có ảnh/video
+   * (`mediaB64`), nhưng phiên "Hỏi AI" (textOnlyMode) sẵn sàng NGAY từ đầu,
+   * không có gì để chờ cả. Dùng thay `!!mediaB64` cho mọi chỗ enable/disable
+   * ô nhập, nút gửi, menu "+" ở màn hình "ask". */
+  const askReady = $derived(!!mediaB64 || textOnlyMode);
   let question = $state("");
   let history = $state<ChatTurn[]>([]);
   let busy = $state(false);
@@ -487,9 +501,11 @@
     reasoningEffort = s.reasoningEffort;
     loadResumeIfAny();
 
-    if (startedAsVideo) {
+    if (startedAsVideo || textOnlyMode) {
       // Phiên video: cửa sổ chỉ mở SAU KHI quay xong, video đã sẵn sàng ngay
-      // từ đầu — nạp thẳng, không cần silent/event gì cả.
+      // từ đầu. Phiên "Hỏi AI" (textOnlyMode): KHÔNG có gì để chờ xử lý cả —
+      // cả 2 trường hợp đều nạp thẳng, không cần silent/lắng nghe "ai:crop-
+      // ready" (sẽ không bao giờ bắn cho phiên không hề chụp ảnh).
       loadMediaChain(false);
     } else {
       // Phiên ảnh: cửa sổ mở NGAY khi vừa chọn xong vùng (trước khi crop/resize
@@ -790,6 +806,10 @@
 
   async function handleAsk() {
     const typed = question.trim();
+    // Phiên "Hỏi AI" KHÔNG có ảnh/video mặc định để "giải thích nội dung" —
+    // câu hỏi rỗng thì không có gì để hỏi cả, khác hẳn phiên có ảnh/video
+    // (rỗng vẫn hợp lệ, ngầm hiểu là "giải thích ảnh/video này").
+    if (textOnlyMode && !typed) return;
     const q = typed || (latestIsVideo ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
     const search = searchEnabled;
     searchEnabled = false;
@@ -1234,6 +1254,19 @@
             transition:fade={{ duration: 180 }}
           />
         {/if}
+      {:else if textOnlyMode}
+        <!-- Phiên "Hỏi AI" — KHÔNG chờ xử lý gì cả (không hề chụp/quay), hiện
+        lời chào thay vì loading (khác ảnh/video luôn cần vài trăm ms xử lý
+        trước khi có gì để xem). -->
+        <div class="flex flex-col items-center gap-2 text-text-muted" transition:fade={{ duration: 140 }}>
+          <div
+            class="w-9 h-9 rounded-xl flex items-center justify-center text-accent-text"
+            style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
+          >
+            <Icon name="sparkles" size={17} strokeWidth={2.3} />
+          </div>
+          <span class="text-[12px]">Hỏi AI bất kỳ điều gì — không cần chụp/quay trước</span>
+        </div>
       {:else if !error}
         <!-- Cửa sổ mở ngay khi vừa chọn xong vùng/quay xong, ảnh/video còn
         đang xử lý ở backend — hiện loading thay vì để khoảng trống im lặng. -->
@@ -1259,23 +1292,29 @@
       {@render timeRangeSlider()}
     {/if}
 
-    <div class="shrink-0 px-3 pt-3 flex flex-wrap gap-1.5">
-      {#each quickPrompts as chip (chip.id)}
-        <button class="chip disabled:opacity-40" disabled={!mediaB64} onclick={() => askWithPrompt(chip)}>
-          <Icon name={chip.icon} size={13} />
-          {chip.label}
-        </button>
-      {/each}
-      {#if !latestIsVideo}
-        <!-- Riêng biệt với chip "Dịch" — dịch phẳng nguyên đoạn văn vẫn giữ
-        nguyên, đây là 1 hướng khác hẳn: sơ đồ liên kết từ vựng, dành cho ảnh
-        chụp 1 từ/cụm từ muốn học sâu hơn (xem VocabDiagram.svelte). -->
-        <button class="chip disabled:opacity-40" disabled={!mediaB64} onclick={askDiagram}>
-          <Icon name="network" size={13} />
-          Sơ đồ từ vựng
-        </button>
-      {/if}
-    </div>
+    {#if !textOnlyMode || mediaB64}
+      <!-- Chip gợi ý (OCR/dịch/Sơ đồ từ vựng...) đều gắn với ảnh/video —
+      không có ý nghĩa gì với phiên "Hỏi AI" CHƯA có ảnh/video nào (textOnlyMode
+      && !mediaB64). "+ Chụp thêm ảnh" bổ sung được ảnh/video giữa chừng, lúc
+      đó chip mới hiện trở lại — không phải ẩn vĩnh viễn. -->
+      <div class="shrink-0 px-3 pt-3 flex flex-wrap gap-1.5">
+        {#each quickPrompts as chip (chip.id)}
+          <button class="chip disabled:opacity-40" disabled={!mediaB64} onclick={() => askWithPrompt(chip)}>
+            <Icon name={chip.icon} size={13} />
+            {chip.label}
+          </button>
+        {/each}
+        {#if !latestIsVideo}
+          <!-- Riêng biệt với chip "Dịch" — dịch phẳng nguyên đoạn văn vẫn giữ
+          nguyên, đây là 1 hướng khác hẳn: sơ đồ liên kết từ vựng, dành cho ảnh
+          chụp 1 từ/cụm từ muốn học sâu hơn (xem VocabDiagram.svelte). -->
+          <button class="chip disabled:opacity-40" disabled={!mediaB64} onclick={askDiagram}>
+            <Icon name="network" size={13} />
+            Sơ đồ từ vựng
+          </button>
+        {/if}
+      </div>
+    {/if}
 
     {@render attachmentChips()}
 
@@ -1283,14 +1322,16 @@
       <textarea
         rows="1"
         bind:value={question}
-        disabled={!mediaB64}
+        disabled={!askReady}
         placeholder={mediaB64
           ? mediaChain.length > 1
             ? "Hỏi bất kỳ điều gì về các bước đã chụp/quay…"
             : `Hỏi bất kỳ điều gì về ${latestIsVideo ? "video" : "vùng"} đã ${latestIsVideo ? "quay" : "chụp"}…`
-          : startedAsVideo
-            ? "Đang xử lý video…"
-            : "Đang xử lý ảnh…"}
+          : textOnlyMode
+            ? "Hỏi AI bất kỳ điều gì…"
+            : startedAsVideo
+              ? "Đang xử lý video…"
+              : "Đang xử lý ảnh…"}
         class="field selectable flex-1 resize-none scroll-visible disabled:opacity-50"
         style="max-height: 120px; overflow-y: auto;"
         oninput={(e) => autoGrowTextarea(e.currentTarget)}
@@ -1309,7 +1350,7 @@
         <button
           type="button"
           onclick={toggleMoreMenu}
-          disabled={!mediaB64}
+          disabled={!askReady}
           aria-label="Thêm hành động"
           aria-pressed={moreMenuOpen}
           data-tooltip="Chụp thêm bước / Vẽ sơ đồ / tra cứu web"
@@ -1350,7 +1391,7 @@
       </div>
       <button
         onclick={handleAsk}
-        disabled={!mediaB64}
+        disabled={!askReady || (textOnlyMode && !question.trim())}
         class="h-9 shrink-0 btn-accent px-4 rounded-lg text-[13px] flex items-center gap-1.5 disabled:opacity-40"
       >
         <Icon name="send" size={15} strokeWidth={2.2} />
@@ -1395,7 +1436,7 @@
         </div>
       {/if}
       <div class="flex-1 min-w-0">
-        <div class="text-[12.5px] font-semibold leading-tight">Kết quả AI</div>
+        <div class="text-[12.5px] font-semibold leading-tight">{textOnlyMode && !mediaB64 ? "Hỏi AI" : "Kết quả AI"}</div>
       </div>
       <button
         onclick={handleCopy}
@@ -1752,7 +1793,10 @@
             >
               {@render attachFileItem()}
               {@render appendCaptureItem()}
-              {#if !latestIsVideo}
+              {#if !latestIsVideo && mediaB64}
+                <!-- "Sơ đồ từ vựng" cần 1 ảnh THẬT (xem askDiagram) — phiên
+                "Hỏi AI" chưa "+ Chụp thêm ảnh" thì ẩn hẳn, không hiện mục bấm
+                vào không có tác dụng gì. -->
                 <button
                   type="button"
                   onclick={() => {

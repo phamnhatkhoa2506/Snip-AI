@@ -123,6 +123,21 @@
     }
   }
 
+  /** Điểm khởi đầu THỨ 2 (xem open_text_chat_window trong commands.rs) — hỏi
+   * thẳng bằng chữ, không chụp/quay gì trước. Mở luôn được nhiều cửa sổ song
+   * song, giống nút "+ New" chính — không phải singleton như Lịch sử. */
+  let textChatBusy = $state(false);
+  async function handleOpenTextChat() {
+    textChatBusy = true;
+    try {
+      await invoke("open_text_chat_window");
+    } catch (e) {
+      flash("err", String(e));
+    } finally {
+      textChatBusy = false;
+    }
+  }
+
   /** Bấm 1 nút để chuyển vòng qua từng chế độ theo đúng thứ tự trong
    * THEME_OPTIONS, quay lại đầu khi hết — không cần hiện cả 3 lựa chọn cùng lúc. */
   function cycleTheme() {
@@ -688,6 +703,23 @@
           </p>
         {/if}
       {/if}
+
+      <!-- Điểm khởi đầu THỨ 2 — hỏi thẳng bằng chữ, không cần chụp/quay gì
+      trước (xem open_text_chat_window trong commands.rs). Đặt DƯỚI nút
+      "+ New" chính — snip/quay vẫn là hành động chính của app, đây chỉ là 1
+      lối vào phụ cho câu hỏi không liên quan tới màn hình. -->
+      <button
+        onclick={handleOpenTextChat}
+        disabled={textChatBusy}
+        class="btn-ghost mt-1 px-3 py-1.5 rounded-lg text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-50"
+      >
+        {#if textChatBusy}
+          <Icon name="loader" size={12} class="animate-spin" />
+        {:else}
+          <Icon name="sparkles" size={12} />
+        {/if}
+        Hỏi AI trực tiếp — không cần chụp/quay
+      </button>
     </div>
   {/if}
 

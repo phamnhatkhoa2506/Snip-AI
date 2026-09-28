@@ -104,6 +104,7 @@ pub fn run() {
             oauth::logout,
             record::stop_recording,
             commands::open_history_window,
+            commands::open_text_chat_window,
             history::history_save_turn,
             history::history_list,
             history::history_get,
