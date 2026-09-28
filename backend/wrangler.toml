@@ -14,6 +14,9 @@ GEMINI_MODEL = "gemini-3.6-flash"
 # tier riêng cho grounding (500 lượt/ngày). Có default cứng trong code
 # (index.ts) nên dòng này chỉ để dễ đổi mà không cần sửa code.
 GEMINI_SEARCH_MODEL = "gemini-2.5-flash"
+# Model đọc câu trả lời thành giọng nói (POST /v1/gemini/tts). Bản "lite"
+# nhanh + rẻ hơn, đủ tốt để đọc câu trả lời; có free tier.
+GEMINI_TTS_MODEL = "gemini-3.8-flash-lite-tts"
 # OAuth Client ID (loại "Desktop app", tạo ở Google Cloud Console > Google
 # Auth Platform > Clients) — KHÔNG bí mật, được nhúng thẳng vào app desktop
 # để mở URL đăng nhập Google, an toàn để commit lên git.

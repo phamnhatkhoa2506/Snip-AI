@@ -31,6 +31,7 @@
   import { csvBlocks } from "$lib/csvBlock";
   import { scene3dBlocks } from "$lib/scene3d";
   import { codeCopyButtons } from "$lib/codeCopyButtons";
+  import { speakMarkdown, stopSpeaking } from "$lib/speech";
   import { extractFirstTable, exportTableAsCsv, exportTableAsExcel, exportMarkdownAsDocx, printHtmlAsPdf } from "$lib/exportFile";
   import VocabDiagram from "$lib/VocabDiagram.svelte";
 
@@ -742,6 +743,8 @@
       if (finalAnswer) turnFinalAnswers = { ...turnFinalAnswers, [newTurnIndex]: finalAnswer };
       history = [...history, { role: "assistant", content: cleanAnswer }];
       saveHistoryTurn(settings);
+      // "Hỏi bằng giọng, nghe trả lời bằng giọng" — đang hỏi về 1 đoạn ghi âm.
+      if (latestIsAudio && settings.autoSpeakAudioAnswers) toggleSpeak(newTurnIndex, cleanAnswer);
     } catch (e) {
       // Luôn hiện lỗi + không bao giờ để `busy` treo mãi (bug đã gặp trước đây:
       // UI đứng im ở trạng thái đang chờ mà không báo gì).
@@ -902,6 +905,20 @@
     } catch (e) {
       error = String(e);
     }
+  }
+
+  // ── Đọc câu trả lời thành giọng nói (xem speech.ts) — 1 câu tại 1 thời
+  // điểm, bấm lại đúng nút đó thì dừng.
+  let speakingIndex = $state<number | null>(null);
+  async function toggleSpeak(i: number, content: string) {
+    if (speakingIndex === i) {
+      stopSpeaking();
+      speakingIndex = null;
+      return;
+    }
+    speakingIndex = i;
+    await speakMarkdown(content);
+    if (speakingIndex === i) speakingIndex = null;
   }
 
   // Copy TỪNG câu trả lời riêng lẻ, không chỉ câu cuối — theo dõi index vừa
@@ -1612,6 +1629,16 @@
                 <Icon name={copiedTurnIndex === i ? "check" : "copy"} size={12} />
               </button>
               {#if !turnDiagrams[i]}
+                <button
+                  onclick={() => toggleSpeak(i, turn.content)}
+                  class="absolute top-1.5 right-14 p-1.5 rounded-md hover:text-accent hover:bg-white/8 transition-opacity {speakingIndex ===
+                  i
+                    ? 'text-accent opacity-100'
+                    : 'text-text-muted opacity-0 group-hover:opacity-100'}"
+                  title={speakingIndex === i ? "Dừng đọc" : "Đọc to câu trả lời này"}
+                >
+                  <Icon name={speakingIndex === i ? "stopSquare" : "volume"} size={12} />
+                </button>
                 <!-- "Xuất file" — KHÔNG hiện cho bong bóng "Sơ đồ từ vựng"
                 (turnDiagrams[i], xem askDiagram) — nội dung đó không phải
                 Markdown thường, extractFirstTable/markdownToPlainText không

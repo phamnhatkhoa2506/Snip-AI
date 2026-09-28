@@ -14,6 +14,7 @@ mod record;
 mod secrets;
 mod state;
 mod survey;
+mod tts;
 
 use std::sync::Mutex;
 use state::{AppState, AudioHotkeyState, HotkeyState, HttpClientState, RecordHotkeyState};
@@ -114,6 +115,7 @@ pub fn run() {
             audio_snap::probe_microphone,
             audio_snap::open_mic_privacy_settings,
             commands::show_settings_window,
+            tts::speak_text,
             commands::trigger_recording_from_ui,
             commands::start_region_recording,
             commands::cancel_recording,

@@ -29,6 +29,9 @@ export interface Env {
   // lượt/ngày, miễn phí, không cần bật thanh toán). Optional với default bên
   // dưới nên không bắt buộc phải set lại secret/var cho deploy cũ.
   GEMINI_SEARCH_MODEL?: string;
+  // Model đọc câu trả lời thành giọng nói (POST /v1/gemini/tts) — xem
+  // wrangler.toml. Optional, có default trong code.
+  GEMINI_TTS_MODEL?: string;
 
   // OAuth Client ID/Secret lấy từ Google Cloud Console (loại "Desktop app").
   // Client ID KHÔNG bí mật (nhúng thẳng vào app), Client Secret PHẢI giữ bí
@@ -245,6 +248,48 @@ export default {
         body: bytes,
       });
 
+      return new Response(resp.body, {
+        status: resp.status,
+        headers: { "content-type": resp.headers.get("content-type") ?? "application/json" },
+      });
+    }
+
+    // Đọc câu trả lời thành giọng nói (Snap Audio / hỏi bằng giọng) — cùng
+    // Durable Object ghim vị trí như các lệnh gọi Gemini khác.
+    if (url.pathname === "/v1/gemini/tts" && request.method === "POST") {
+      const user = await authenticate(request, env);
+      if (!user) return unauthorized();
+
+      let payload: { text?: string; voice?: string };
+      try {
+        payload = await request.json();
+      } catch {
+        return json({ error: "Body phải là JSON" }, 400);
+      }
+      // Chặn đoạn quá dài — vừa tốn quota TTS vừa phát lâu vô ích; app đã tự
+      // rút gọn trước khi gửi (xem speech.ts), đây chỉ là lớp chặn cuối.
+      const text = (payload.text ?? "").trim().slice(0, 4000);
+      if (!text) return json({ error: "Thiếu text" }, 400);
+      const voice = /^[A-Za-z]{2,32}$/.test(payload.voice ?? "") ? payload.voice : undefined;
+
+      let keys: string[];
+      try {
+        keys = JSON.parse(env.GEMINI_API_KEYS);
+        if (!Array.isArray(keys) || keys.length === 0) throw new Error("empty");
+      } catch {
+        return json({ error: "Backend chưa cấu hình đúng GEMINI_API_KEYS (phải là JSON array khác rỗng)" }, 500);
+      }
+
+      const proxy = env.GEMINI_PROXY.getByName("gemini", { locationHint: "wnam" });
+      const resp = await proxy.fetch("https://gemini-proxy.internal/tts", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-gemini-keys": JSON.stringify(keys),
+          "x-gemini-model": env.GEMINI_TTS_MODEL || "gemini-3.8-flash-lite-tts",
+        },
+        body: JSON.stringify({ text, voice }),
+      });
       return new Response(resp.body, {
         status: resp.status,
         headers: { "content-type": resp.headers.get("content-type") ?? "application/json" },

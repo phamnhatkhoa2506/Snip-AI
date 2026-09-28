@@ -131,6 +131,41 @@ async function uploadFileWithFailover(keys: string[], mimeType: string, displayN
   return lastResp!;
 }
 
+/** Đọc 1 đoạn văn thành giọng nói bằng model TTS của Gemini (generateContent
+ * với responseModalities AUDIO) — trả về PCM 16-bit dạng base64 kèm mime
+ * (thường "audio/L16;codec=pcm;rate=24000"). Cùng kiểu failover key như
+ * `callGeminiWithFailover`. Không stream: câu trả lời cần đọc thường ngắn,
+ * app chỉ phát khi đã có đủ cả đoạn. */
+async function synthesizeSpeechWithFailover(
+  keys: string[],
+  model: string,
+  text: string,
+  voice: string,
+): Promise<Response> {
+  const upstream = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text }] }],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+    },
+  });
+
+  let lastResp: Response | null = null;
+  for (const key of shuffle(keys)) {
+    const resp = await fetch(upstream, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
+      body,
+    });
+    if (resp.ok) return resp;
+    lastResp = resp;
+    const retryable = resp.status === 429 || resp.status >= 500;
+    if (!retryable) return resp;
+  }
+  return lastResp!;
+}
+
 export class GeminiProxy implements DurableObject {
   // Không cần constructor lưu `state`/`env` — object này KHÔNG đọc/ghi
   // storage gì cả, chỉ tồn tại để ghim vị trí chạy (xem giải thích ở đầu
@@ -187,6 +222,37 @@ export class GeminiProxy implements DurableObject {
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    }
+
+    if (url.pathname === "/tts") {
+      const ttsModel = request.headers.get("x-gemini-model") ?? "";
+      const payload = await request.json<{ text?: string; voice?: string }>().catch(() => ({}) as { text?: string; voice?: string });
+      const text = (payload.text ?? "").trim();
+      if (!ttsModel || keys.length === 0 || !text) {
+        return new Response(JSON.stringify({ error: "GeminiProxy tts: thiếu model, keys hoặc text" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const googleResp = await synthesizeSpeechWithFailover(keys, ttsModel, text, payload.voice || "Kore");
+      if (!googleResp.ok) {
+        const errText = await googleResp.text();
+        return new Response(errText, { status: googleResp.status, headers: { "content-type": "application/json" } });
+      }
+      const data = await googleResp.json<{
+        candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string } }[] } }[];
+      }>();
+      const part = data.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data);
+      if (!part?.inlineData?.data) {
+        return new Response(JSON.stringify({ error: "Google không trả về dữ liệu âm thanh" }), {
+          status: 502,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(
+        JSON.stringify({ audio: part.inlineData.data, mimeType: part.inlineData.mimeType ?? "audio/L16;codec=pcm;rate=24000" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
     }
 
     const model = request.headers.get("x-gemini-model") ?? "";

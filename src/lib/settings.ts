@@ -36,6 +36,10 @@ export interface Settings {
   systemAudioAllowed: boolean;
   /** Nguồn mặc định của Snap Audio. */
   audioSnapSource: AudioSnapSource;
+  /** Hỏi về 1 đoạn ghi âm (Snap Audio) thì TỰ ĐỌC câu trả lời bằng giọng
+   * nói — "hỏi bằng giọng, nghe trả lời bằng giọng". Mọi câu trả lời khác
+   * vẫn có nút loa để bấm đọc thủ công. */
+  autoSpeakAudioAnswers: boolean;
 }
 
 export type AudioSnapSource = "mic" | "system" | "both";
@@ -49,6 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   micAllowed: false,
   systemAudioAllowed: false,
   audioSnapSource: "mic",
+  autoSpeakAudioAnswers: true,
 };
 
 /** Danh sách nguồn thật sẽ thu cho 1 lựa chọn — CHỈ gồm những nguồn đã được

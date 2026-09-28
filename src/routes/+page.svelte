@@ -177,6 +177,12 @@
     saveSettings({ ...loadSettings(), autoCopyOnCapture });
   }
 
+  let autoSpeakAudioAnswers = $state(true);
+  function toggleAutoSpeak() {
+    autoSpeakAudioAnswers = !autoSpeakAudioAnswers;
+    saveSettings({ ...loadSettings(), autoSpeakAudioAnswers });
+  }
+
   // ── Nút "+ New" — bấm trực tiếp để snip/quay (thay vì phải nhớ bấm phím
   // tắt). Chạy đúng hành động theo `captureMode` đang chọn ở toggle header. ──
   let newActionBusy = $state(false);
@@ -469,6 +475,7 @@
     micAllowed = initialSettings.micAllowed;
     systemAudioAllowed = initialSettings.systemAudioAllowed;
     audioSnapSource = initialSettings.audioSnapSource;
+    autoSpeakAudioAnswers = initialSettings.autoSpeakAudioAnswers;
     loadAudioHotkey();
     // Trễ 1 chút lúc mới mở app — không tranh giành sự chú ý với các bước
     // đầu (đăng nhập...) diễn ra ngay khi cửa sổ vừa hiện.
@@ -634,7 +641,19 @@
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Tự động chép vào clipboard</div>
               <div class="text-[10.5px] text-text-muted">
-                {autoCopyOnCapture ? "Đang bật" : "Đang tắt"} — chép ảnh/video sau khi chụp/quay xong, bấm để đổi
+                {autoCopyOnCapture ? "Đang bật" : "Đang tắt"} — chép ảnh/video/audio sau khi chụp/quay/ghi xong, bấm để đổi
+              </div>
+            </span>
+          </button>
+          <button
+            onclick={toggleAutoSpeak}
+            class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+          >
+            <Icon name="volume" size={15} class="mt-0.5 shrink-0" />
+            <span class="flex-1">
+              <div class="text-[12.5px] font-semibold">Đọc to câu trả lời</div>
+              <div class="text-[10.5px] text-text-muted">
+                {autoSpeakAudioAnswers ? "Đang bật" : "Đang tắt"} — tự đọc khi hỏi về đoạn ghi âm, bấm để đổi
               </div>
             </span>
           </button>

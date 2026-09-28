@@ -361,6 +361,17 @@ pub(crate) enum GeminiAuth {
     Direct { api_key: String },
 }
 
+/// Ưu tiên session đăng nhập Google nếu có — chỉ fallback về API key tự nhập
+/// khi CHƯA đăng nhập (không phải khi đăng nhập lỗi tạm thời, vì
+/// `read_session_token()` chỉ trả Err khi thật sự không có session nào).
+/// Dùng chung cho hỏi AI, đọc giọng nói (tts.rs), trò chuyện trực tiếp (live.rs).
+pub(crate) fn current_auth() -> Result<GeminiAuth, String> {
+    match crate::oauth::read_session_token() {
+        Ok(token) => Ok(GeminiAuth::Backend { token }),
+        Err(_) => Ok(GeminiAuth::Direct { api_key: secrets::read_api_key("gemini")? }),
+    }
+}
+
 #[tauri::command]
 pub async fn ask_ai_gemini(
     app: AppHandle,
@@ -384,13 +395,7 @@ pub async fn ask_ai_gemini(
     reasoning_effort: Option<String>,
 ) -> Result<String, String> {
     let use_search = search.unwrap_or(false);
-    // Ưu tiên session đăng nhập Google nếu có — chỉ fallback về API key tự
-    // nhập khi CHƯA đăng nhập (không phải khi đăng nhập lỗi tạm thời, vì
-    // `read_session_token()` chỉ trả Err khi thật sự không có session nào).
-    let auth = match crate::oauth::read_session_token() {
-        Ok(token) => GeminiAuth::Backend { token },
-        Err(_) => GeminiAuth::Direct { api_key: secrets::read_api_key("gemini")? },
-    };
+    let auth = current_auth()?;
     let model = model.trim();
     // TOÀN BỘ chuỗi ảnh/video của phiên, đúng thứ tự đã chụp/quay — ảnh và
     // video có thể ĐAN XEN (xem AppState::media_sessions). RỖNG là hợp lệ —
@@ -718,10 +723,7 @@ fn diagram_schema() -> serde_json::Value {
 
 #[tauri::command]
 pub async fn ask_ai_diagram(app: AppHandle, state: State<'_, AppState>, window_label: String, model: String) -> Result<DiagramData, String> {
-    let auth = match crate::oauth::read_session_token() {
-        Ok(token) => GeminiAuth::Backend { token },
-        Err(_) => GeminiAuth::Direct { api_key: secrets::read_api_key("gemini")? },
-    };
+    let auth = current_auth()?;
     let model = model.trim();
 
     // Chỉ ảnh MỚI NHẤT trong chuỗi — sơ đồ từ vựng là tra cứu 1-lần cho 1
