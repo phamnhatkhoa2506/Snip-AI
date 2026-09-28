@@ -5,7 +5,7 @@ use tauri::{
 };
 
 use crate::capture;
-use crate::state::{AppState, MonitorBounds, PendingRecordResult, MAX_CHAIN_ITEMS};
+use crate::state::{push_media, AppState, MediaItem, MediaKind, MonitorBounds, PendingRecordResult};
 
 const OVERLAY_LABEL: &str = "overlay";
 /// Label cửa sổ thanh công cụ nổi lúc đang quay video (Start/Stop/timer,
@@ -259,9 +259,13 @@ pub async fn crop_and_open_result(
         .map_err(|e| format!("Lỗi nội bộ khi xử lý ảnh: {e}"))??;
     eprintln!("[snip-ai] crop xong, {} bytes PNG", cropped.len());
 
-    state.crop_sessions.lock().unwrap().insert(window_label.clone(), vec![cropped]);
+    state
+        .media_sessions
+        .lock()
+        .unwrap()
+        .insert(window_label.clone(), vec![MediaItem { bytes: cropped, kind: MediaKind::Image }]);
 
-    // Cửa sổ kết quả đã mở TỪ TRƯỚC lúc ảnh chưa có trong `crop_sessions` —
+    // Cửa sổ kết quả đã mở TỪ TRƯỚC lúc ảnh chưa có trong `media_sessions` —
     // báo cho nó biết ảnh vừa sẵn sàng để tự gọi lại `get_crop_image_base64`
     // (xem `loadCropImage()` + lắng nghe event này ở result/+page.svelte).
     let _ = app.emit_to(&window_label, "ai:crop-ready", ());
@@ -373,10 +377,11 @@ pub async fn start_region_recording(
     y: u32,
     width: u32,
     height: u32,
-    // `Some(label)` = quay THÊM vào phiên đang mở (bấm "+ Chụp thêm bước" ở
-    // 1 phiên video) — quay xong KHÔNG mở cửa sổ mới, chỉ push vào chuỗi của
-    // đúng cửa sổ đó (xem finish() trong record.rs). `Option` nên luồng quay
-    // bình thường (không truyền) vẫn y hệt trước đây.
+    // `Some(label)` = quay THÊM vào phiên đang mở (bấm "+ Quay thêm video" —
+    // phiên đó bắt đầu bằng ảnh hay video đều được, chung 1 chuỗi) — quay xong
+    // KHÔNG mở cửa sổ mới, chỉ push vào chuỗi của đúng cửa sổ đó (xem finish()
+    // trong record.rs). `Option` nên luồng quay bình thường (không truyền) vẫn
+    // y hệt trước đây.
     append_to: Option<String>,
 ) -> Result<(), String> {
     let monitor = {
@@ -464,30 +469,23 @@ pub fn cancel_recording(app: AppHandle) -> Result<(), String> {
     crate::record::stop_recording(app)
 }
 
-/// `window_label`: label của cửa sổ "Kết quả AI" đang gọi lệnh này (frontend
-/// tự đọc qua `getCurrentWindow().label` rồi truyền vào) — xác định đúng ảnh
-/// của PHIÊN đó, vì giờ nhiều cửa sổ có thể mở cùng lúc, mỗi cửa sổ 1 ảnh
-/// khác nhau. 1 phiên có thể có NHIỀU ảnh (chuỗi snip) — trả về ảnh MỚI NHẤT
-/// (dùng cho preview chính); muốn cả chuỗi thì dùng `get_crop_chain_base64`.
-#[tauri::command]
-pub fn get_crop_image_base64(state: State<'_, AppState>, window_label: String) -> Result<String, String> {
-    let sessions = state.crop_sessions.lock().unwrap();
-    let list = sessions
-        .get(&window_label)
-        .ok_or("Không tìm thấy ảnh cho phiên này (cửa sổ có thể đã bị đóng/dọn dẹp)")?;
-    let bytes = list.last().ok_or("Phiên này chưa có ảnh nào")?;
-    Ok(STANDARD.encode(bytes))
+#[derive(serde::Serialize)]
+pub struct MediaDto {
+    kind: MediaKind,
+    data: String,
 }
 
-/// Toàn bộ chuỗi ảnh đã chụp cho phiên này, ĐÚNG THỨ TỰ đã chụp — dùng để vẽ
-/// dải thumbnail nhiều ảnh khi phiên có từ 2 ảnh trở lên (xem "Chụp thêm bước").
+/// TOÀN BỘ chuỗi ảnh/video của phiên `window_label`, ĐÚNG THỨ TỰ đã chụp/quay
+/// — mỗi phần tử kèm loại riêng (`kind`: "image"/"video"), vì ảnh và video
+/// có thể đan xen trong cùng 1 chuỗi (xem `AppState::media_sessions`).
+/// Frontend tự dựng preview/thumbnail đúng thẻ <img>/<video> theo `kind`.
 #[tauri::command]
-pub fn get_crop_chain_base64(state: State<'_, AppState>, window_label: String) -> Result<Vec<String>, String> {
-    let sessions = state.crop_sessions.lock().unwrap();
+pub fn get_media_chain(state: State<'_, AppState>, window_label: String) -> Result<Vec<MediaDto>, String> {
+    let sessions = state.media_sessions.lock().unwrap();
     let list = sessions
         .get(&window_label)
-        .ok_or("Không tìm thấy ảnh cho phiên này (cửa sổ có thể đã bị đóng/dọn dẹp)")?;
-    Ok(list.iter().map(|b| STANDARD.encode(b)).collect())
+        .ok_or("Không tìm thấy ảnh/video cho phiên này (cửa sổ có thể đã bị đóng/dọn dẹp)")?;
+    Ok(list.iter().map(|m| MediaDto { kind: m.kind, data: STANDARD.encode(&m.bytes) }).collect())
 }
 
 /// Bấm "+ Chụp thêm bước" ngay trong lúc đang chat — mở overlay chọn vùng
@@ -528,35 +526,28 @@ pub async fn append_capture_to_session(
         .await
         .map_err(|e| format!("Lỗi nội bộ khi xử lý ảnh: {e}"))??;
 
-    {
-        let mut sessions = state.crop_sessions.lock().unwrap();
-        let list = sessions.entry(window_label.clone()).or_default();
-        list.push(cropped);
-        // Trần chuỗi — vượt quá thì bỏ bớt ảnh CŨ NHẤT, giữ đúng MAX_CHAIN_ITEMS
-        // ảnh gần nhất. Không chặn hẳn việc chụp thêm (khó hiểu với người dùng
-        // hơn là tự động "trượt cửa sổ" như thế này).
-        while list.len() > MAX_CHAIN_ITEMS {
-            list.remove(0);
-        }
-    }
+    // Nối vào CÙNG chuỗi bất kể phiên bắt đầu bằng ảnh hay video — xem
+    // `push_media` (có trần MAX_CHAIN_ITEMS, trượt bỏ phần tử cũ nhất).
+    push_media(&state, &window_label, MediaItem { bytes: cropped, kind: MediaKind::Image });
 
     eprintln!("[snip-ai] append_capture_to_session({window_label}): đã thêm 1 ảnh vào chuỗi");
     let _ = app.emit_to(&window_label, "ai:chain-updated", ());
     Ok(())
 }
 
-/// Bỏ 1 ảnh KHỎI chuỗi của phiên (bấm nút xoá trên thumbnail) — LUÔN giữ lại
-/// ít nhất 1 ảnh (chuỗi rỗng thì không còn gì để hỏi AI, xem
-/// `ai.rs::ask_ai_gemini` — lỗi thẳng nếu chuỗi rỗng).
+/// Bỏ 1 ảnh/video KHỎI chuỗi của phiên (bấm nút xoá trên thumbnail) — dùng
+/// chung cho cả 2 loại vì giờ chung 1 chuỗi. LUÔN giữ lại ít nhất 1 phần tử
+/// (chuỗi rỗng thì không còn gì để hỏi AI, xem `ai.rs::ask_ai_gemini` — lỗi
+/// thẳng nếu chuỗi rỗng).
 #[tauri::command]
-pub fn remove_capture_from_session(app: AppHandle, state: State<'_, AppState>, window_label: String, index: usize) -> Result<(), String> {
-    let mut sessions = state.crop_sessions.lock().unwrap();
+pub fn remove_media_from_session(app: AppHandle, state: State<'_, AppState>, window_label: String, index: usize) -> Result<(), String> {
+    let mut sessions = state.media_sessions.lock().unwrap();
     let list = sessions.get_mut(&window_label).ok_or("Không tìm thấy phiên này")?;
     if list.len() <= 1 {
-        return Err("Phải giữ lại ít nhất 1 ảnh".into());
+        return Err("Phải giữ lại ít nhất 1 ảnh/video".into());
     }
     if index >= list.len() {
-        return Err("Chỉ số ảnh không hợp lệ".into());
+        return Err("Chỉ số ảnh/video không hợp lệ".into());
     }
     list.remove(index);
     drop(sessions);

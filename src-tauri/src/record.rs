@@ -36,7 +36,7 @@ use windows_capture::settings::{
 };
 
 use crate::commands::{self, RECORD_LABEL_PREFIX};
-use crate::state::AppState;
+use crate::state::{AppState, MediaItem, MediaKind};
 
 /// Giới hạn thời lượng quay tối đa — xem giải thích lý do ở đầu file.
 const MAX_RECORD_SECONDS: u64 = 30;
@@ -382,18 +382,12 @@ pub async fn start_recording(app: AppHandle, region: CropRegion) -> Result<(), S
 
             let state = app_clone.state::<AppState>();
 
-            // "+ Chụp thêm bước" ở 1 phiên video — PUSH vào chuỗi của cửa sổ
-            // ĐANG MỞ đó, không mở cửa sổ mới.
+            // "+ Quay thêm video" — PUSH vào chuỗi của cửa sổ ĐANG MỞ đó, không
+            // mở cửa sổ mới. Phiên đó có thể BẮT ĐẦU bằng ảnh — ảnh và video
+            // đan xen chung 1 chuỗi (xem AppState::media_sessions).
             if let Some(label) = pending.append_to {
                 eprintln!("[snip-ai] Quay xong, {} bytes MP4 -> thêm vào chuỗi ({label})", bytes.len());
-                {
-                    let mut sessions = state.video_sessions.lock().unwrap();
-                    let list = sessions.entry(label.clone()).or_default();
-                    list.push(bytes);
-                    while list.len() > crate::state::MAX_CHAIN_ITEMS {
-                        list.remove(0);
-                    }
-                }
+                crate::state::push_media(&state, &label, MediaItem { bytes, kind: MediaKind::Video });
                 let _ = app_clone.emit_to(&label, "ai:chain-updated", ());
                 return;
             }
@@ -401,7 +395,11 @@ pub async fn start_recording(app: AppHandle, region: CropRegion) -> Result<(), S
             let window_label = format!("{RECORD_LABEL_PREFIX}{}", pending.session_id);
             eprintln!("[snip-ai] Quay xong, {} bytes MP4 -> mở cửa sổ kết quả ({window_label})", bytes.len());
 
-            state.video_sessions.lock().unwrap().insert(window_label.clone(), vec![bytes]);
+            state
+                .media_sessions
+                .lock()
+                .unwrap()
+                .insert(window_label.clone(), vec![MediaItem { bytes, kind: MediaKind::Video }]);
 
             if let Err(e) = commands::open_result_window(
                 &app_clone,
@@ -432,54 +430,6 @@ pub fn stop_recording(app: AppHandle) -> Result<(), String> {
         }
         None => Err("Không có phiên quay nào đang chạy.".into()),
     }
-}
-
-/// 1 phiên có thể có NHIỀU video (chuỗi quay) — trả về video MỚI NHẤT (dùng
-/// cho preview chính); muốn cả chuỗi thì dùng `get_recording_chain_base64`.
-#[tauri::command]
-pub fn get_recording_base64(state: tauri::State<'_, AppState>, window_label: String) -> Result<String, String> {
-    use base64::{engine::general_purpose::STANDARD, Engine as _};
-    let sessions = state.video_sessions.lock().unwrap();
-    let list = sessions
-        .get(&window_label)
-        .ok_or("Không tìm thấy video cho phiên này (cửa sổ có thể đã bị đóng)")?;
-    let bytes = list.last().ok_or("Phiên này chưa có video nào")?;
-    Ok(STANDARD.encode(bytes))
-}
-
-/// Toàn bộ chuỗi video đã quay cho phiên này, ĐÚNG THỨ TỰ — xem
-/// `get_crop_chain_base64` (tương đương cho ảnh) để hiểu ngữ cảnh dùng.
-#[tauri::command]
-pub fn get_recording_chain_base64(state: tauri::State<'_, AppState>, window_label: String) -> Result<Vec<String>, String> {
-    use base64::{engine::general_purpose::STANDARD, Engine as _};
-    let sessions = state.video_sessions.lock().unwrap();
-    let list = sessions
-        .get(&window_label)
-        .ok_or("Không tìm thấy video cho phiên này (cửa sổ có thể đã bị đóng)")?;
-    Ok(list.iter().map(|b| STANDARD.encode(b)).collect())
-}
-
-/// Bỏ 1 video KHỎI chuỗi của phiên — xem giải thích ở
-/// `commands::remove_capture_from_session` (tương đương cho ảnh).
-#[tauri::command]
-pub fn remove_recording_from_session(
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-    window_label: String,
-    index: usize,
-) -> Result<(), String> {
-    let mut sessions = state.video_sessions.lock().unwrap();
-    let list = sessions.get_mut(&window_label).ok_or("Không tìm thấy phiên này")?;
-    if list.len() <= 1 {
-        return Err("Phải giữ lại ít nhất 1 video".into());
-    }
-    if index >= list.len() {
-        return Err("Chỉ số video không hợp lệ".into());
-    }
-    list.remove(index);
-    drop(sessions);
-    let _ = app.emit_to(&window_label, "ai:chain-updated", ());
-    Ok(())
 }
 
 /// ID ngẫu nhiên đủ dùng để đặt tên file tạm không trùng nhau — không cần cả

@@ -23,7 +23,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::secrets;
-use crate::state::{AppState, HttpClientState};
+use crate::state::{AppState, HttpClientState, MediaKind};
 
 /// Thời gian tối đa CHỜ PHẢN HỒI ĐẦU TIÊN (header) — không giới hạn tổng thời
 /// gian đọc hết stream, vì model sinh chậm vẫn nên cho chạy tiếp. Model lớn
@@ -210,28 +210,29 @@ struct DeltaPayload {
 /// đúng ảnh đang xem, không cần cả chuỗi). Chat nhiều lượt/nhiều ảnh dùng
 /// `get_media_chain_base64` bên dưới thay vì hàm này.
 fn get_crop_base64(state: &State<'_, AppState>, window_label: &str) -> Result<String, String> {
-    let sessions = state.crop_sessions.lock().unwrap();
+    let sessions = state.media_sessions.lock().unwrap();
     let list = sessions
         .get(window_label)
         .ok_or("Không tìm thấy ảnh cho phiên này (cửa sổ có thể đã bị đóng)")?;
-    let bytes = list.last().ok_or("Phiên này chưa có ảnh nào")?;
-    Ok(STANDARD.encode(bytes))
+    // Chuỗi có thể đan xen ảnh/video — lấy ẢNH gần nhất, bỏ qua video.
+    let item = list
+        .iter()
+        .rev()
+        .find(|m| m.kind == MediaKind::Image)
+        .ok_or("Phiên này chưa có ảnh nào")?;
+    Ok(STANDARD.encode(&item.bytes))
 }
 
-/// Giống `get_crop_base64` nhưng chấp nhận CẢ ẢNH LẪN VIDEO — 1 cửa sổ "Kết
-/// quả AI" là phiên ảnh (snip) hoặc phiên video (quay màn hình), không bao
-/// giờ cả hai, nên chỉ 1 trong 2 map (`crop_sessions`/`video_sessions`) có
-/// entry khớp `window_label`. Trả về TOÀN BỘ chuỗi media của phiên (mỗi phần
-/// tử: base64, mime_type), ĐÚNG THỨ TỰ đã chụp — dùng cho `ask_ai_gemini`
-/// (chat nhiều lượt, có thể nhiều ảnh/video nhờ "+ Chụp thêm bước").
+/// TOÀN BỘ chuỗi media của phiên (mỗi phần tử: base64, mime_type), ĐÚNG THỨ
+/// TỰ đã chụp/quay — ảnh và video có thể đan xen (xem AppState::media_sessions).
+/// Dùng cho `ask_ai_gemini` (chat nhiều lượt, có thể nhiều ảnh/video nhờ
+/// "+ Chụp thêm ảnh"/"+ Quay thêm video").
 fn get_media_chain_base64(state: &State<'_, AppState>, window_label: &str) -> Result<Vec<(String, &'static str)>, String> {
-    if let Some(list) = state.crop_sessions.lock().unwrap().get(window_label) {
-        return Ok(list.iter().map(|b| (STANDARD.encode(b), "image/png")).collect());
-    }
-    if let Some(list) = state.video_sessions.lock().unwrap().get(window_label) {
-        return Ok(list.iter().map(|b| (STANDARD.encode(b), "video/mp4")).collect());
-    }
-    Err("Không tìm thấy ảnh/video cho phiên này (cửa sổ có thể đã bị đóng)".into())
+    let sessions = state.media_sessions.lock().unwrap();
+    let list = sessions
+        .get(window_label)
+        .ok_or("Không tìm thấy ảnh/video cho phiên này (cửa sổ có thể đã bị đóng)")?;
+    Ok(list.iter().map(|m| (STANDARD.encode(&m.bytes), m.kind.mime())).collect())
 }
 
 async fn send_with_timeout(req: reqwest::RequestBuilder) -> Result<reqwest::Response, String> {
@@ -375,22 +376,24 @@ pub async fn ask_ai_gemini(
         Err(_) => GeminiAuth::Direct { api_key: secrets::read_api_key("gemini")? },
     };
     let model = model.trim();
-    // Chấp nhận cả ảnh (snip) lẫn video (quay màn hình) — 1 cửa sổ chỉ là 1
-    // trong 2, `get_media_chain_base64` tự tìm đúng loại và trả về TOÀN BỘ
-    // chuỗi (1 phiên có thể có nhiều ảnh/video nhờ "+ Chụp thêm bước", xem
-    // AppState::crop_sessions), đúng thứ tự đã chụp.
+    // TOÀN BỘ chuỗi ảnh/video của phiên, đúng thứ tự đã chụp/quay — ảnh và
+    // video có thể ĐAN XEN (xem AppState::media_sessions).
     let mut media_chain = get_media_chain_base64(&state, &window_label)?;
     if media_chain.is_empty() {
         return Err("Phiên này chưa có ảnh/video nào".into());
     }
-    let mime_type = media_chain[0].1;
+    // Khoanh vùng/cắt vùng luôn áp cho phần tử MỚI NHẤT (khung vẽ theo ảnh
+    // đang hiện) — nên xét loại của phần tử CUỐI, không phải phần tử đầu (chuỗi
+    // bắt đầu bằng video vẫn có thể kết thúc bằng ảnh và ngược lại).
+    let mime_type = media_chain[media_chain.len() - 1].1;
+    let chain_len = media_chain.len();
     // Tài liệu đính kèm THÊM (ảnh/PDF, xem attachments.rs) — hoàn toàn TÙY
     // CHỌN, phiên nào không đính gì thì đây luôn là mảng rỗng.
     let attachments = crate::attachments::get_attachment_chain_base64(&state, &window_label);
 
-    // Có `region` VÀ đang là ảnh (không áp dụng cho video) -> cắt tạm đúng
-    // vùng đó để gửi CHO LƯỢT NÀY, không đụng gì tới ảnh gốc lưu trong
-    // `crop_sessions` (các câu hỏi khác trong cùng phiên vẫn thấy toàn ảnh).
+    // Có `region` VÀ phần tử mới nhất là ảnh (không áp dụng cho video) -> cắt
+    // tạm đúng vùng đó để gửi CHO LƯỢT NÀY, không đụng gì tới ảnh gốc lưu
+    // trong `media_sessions` (các câu hỏi khác trong cùng phiên vẫn thấy toàn ảnh).
     // Áp dụng cho ảnh MỚI NHẤT trong chuỗi (khung khoanh vùng luôn vẽ theo
     // ảnh mới nhất, xem GEMINI_BBOX_INSTRUCTION + result/+page.svelte).
     if let Some([ymin, xmin, ymax, xmax]) = region {
@@ -418,7 +421,15 @@ pub async fn ask_ai_gemini(
             let role = if turn.role == "assistant" { "model" } else { "user" };
             let mut parts = vec![serde_json::json!({"text": turn.content})];
             if turn.role == "user" && Some(i) == last_user_idx {
-                for (b64, mime) in &media_chain {
+                for (i, (b64, mime)) in media_chain.iter().enumerate() {
+                    // Chuỗi nhiều bước (có thể đan xen ảnh/video) — ghi rõ
+                    // "Bước N (ảnh/video)" ngay trước mỗi phần tử để model
+                    // biết đúng thứ tự và loại, thay vì thấy 1 dãy inline_data
+                    // trần không rõ bước nào trước/sau.
+                    if chain_len > 1 {
+                        let kind = if mime.starts_with("video/") { "video" } else { "ảnh" };
+                        parts.push(serde_json::json!({"text": format!("Bước {} ({kind}):", i + 1)}));
+                    }
                     parts.push(serde_json::json!({
                         "inline_data": {"mime_type": mime, "data": b64}
                     }));

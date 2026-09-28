@@ -33,29 +33,46 @@
 
   type Phase = "ask" | "chat";
 
-  // Cửa sổ này dùng chung 1 route cho CẢ 2 loại phiên: snip ảnh (label
-  // "result-N") và quay video (label "record-N") — tự nhận biết qua tiền tố
-  // label, xem commands.rs (RESULT_LABEL_PREFIX/RECORD_LABEL_PREFIX). Khác
-  // ảnh: cửa sổ video chỉ được TẠO SAU KHI quay xong (xem
-  // record.rs::start_recording) — video LUÔN đã có sẵn trong `video_sessions`
-  // ngay từ lúc cửa sổ này mount, không cần chờ/nghe event gì thêm.
-  const isVideoSession = getCurrentWindow().label.startsWith("record-");
+  // Cửa sổ này dùng chung 1 route cho mọi phiên: bắt đầu bằng snip ảnh
+  // (label "result-N") hoặc quay video (label "record-N"). Tiền tố label giờ
+  // CHỈ cho biết phần tử ĐẦU TIÊN là gì — dùng lúc CHƯA nạp được chuỗi media
+  // (chữ "Đang xử lý ảnh/video…", có cần chờ event "ai:crop-ready" không).
+  // Cửa sổ video chỉ được TẠO SAU KHI quay xong (xem record.rs::start_recording)
+  // — video LUÔN đã có sẵn ngay từ lúc cửa sổ này mount.
+  const startedAsVideo = getCurrentWindow().label.startsWith("record-");
 
-  // Bộ chip gợi ý khác nhau giữa 2 chế độ. Không chỉ là đổi chữ "ảnh" thành
-  // "video": video có trục thời gian và bị Gemini lấy mẫu thưa (~1 khung/giây)
-  // nên câu hỏi phải đặt khác hẳn — xem giải thích đầy đủ ở config.ts, ngay
-  // trên PROMPT_VIDEO_OCR.
-  const quickPrompts = isVideoSession ? VIDEO_PROMPTS : QUICK_PROMPTS;
+  type MediaKind = "image" | "video";
+  interface MediaEntry {
+    kind: MediaKind;
+    /** base64 */
+    data: string;
+  }
 
   let phase = $state<Phase>("ask");
-  /** Toàn bộ chuỗi ảnh/video của phiên này, ĐÚNG THỨ TỰ đã chụp — 1 phiên có
-   * thể có NHIỀU media nhờ "+ Chụp thêm bước" (chuỗi snip có dẫn dắt, xem
-   * triggerAppendCapture bên dưới), không chỉ 1 như trước. */
-  let mediaChain = $state<string[]>([]);
-  /** Base64 của media MỚI NHẤT trong chuỗi — dùng cho mọi chỗ trước đây chỉ
-   * biết "1 ảnh/video" (avatar thu nhỏ, disabled-state của input...). Tên
-   * giữ nguyên "mediaB64" để không phải đổi lại toàn bộ chỗ dùng cũ. */
-  let mediaB64 = $derived(mediaChain[mediaChain.length - 1] ?? "");
+  /** Toàn bộ chuỗi ảnh/video của phiên này, ĐÚNG THỨ TỰ đã chụp/quay — ảnh
+   * và video ĐAN XEN tự do ("+ Chụp thêm ảnh"/"+ Quay thêm video", xem
+   * triggerAppend bên dưới), mỗi phần tử tự mang loại của nó (xem
+   * AppState::media_sessions trong state.rs). */
+  let mediaChain = $state<MediaEntry[]>([]);
+  /** Base64 của media MỚI NHẤT trong chuỗi — dùng cho mọi chỗ chỉ cần "1
+   * ảnh/video đang xem" (khung xem chính, avatar header, disabled-state...). */
+  let mediaB64 = $derived(mediaChain[mediaChain.length - 1]?.data ?? "");
+  /** Phần tử MỚI NHẤT là video? — thay cho cờ cố định "cả phiên là video"
+   * trước đây: chuỗi có thể đan xen, nên khung xem chính/thanh chọn thời
+   * điểm/chip gợi ý đều đi theo phần tử đang xem (mới nhất). Chưa nạp được
+   * gì thì đoán theo phần tử đầu (tiền tố label). */
+  const latestIsVideo = $derived(
+    mediaChain.length > 0 ? mediaChain[mediaChain.length - 1].kind === "video" : startedAsVideo,
+  );
+  /** Có ít nhất 1 video trong chuỗi — mốc giờ "[mm:ss]" trong câu trả lời chỉ
+   * có nghĩa khi có video (xem linkifyTimestamps). */
+  const chainHasVideo = $derived(mediaChain.some((m) => m.kind === "video"));
+
+  // Bộ chip gợi ý khác nhau giữa ảnh và video. Không chỉ là đổi chữ "ảnh"
+  // thành "video": video có trục thời gian và bị Gemini lấy mẫu thưa (~1
+  // khung/giây) nên câu hỏi phải đặt khác hẳn — xem giải thích đầy đủ ở
+  // config.ts, ngay trên PROMPT_VIDEO_OCR. Theo phần tử MỚI NHẤT.
+  const quickPrompts = $derived(latestIsVideo ? VIDEO_PROMPTS : QUICK_PROMPTS);
   let question = $state("");
   let history = $state<ChatTurn[]>([]);
   let busy = $state(false);
@@ -118,7 +135,10 @@
    * bóng chat) khi người dùng đã chỉ định thời điểm/khoảng. Rỗng nếu chưa
    * chỉnh gì -> hành vi giữ nguyên như trước (hỏi cả video). */
   const timeContextSuffix = $derived(
-    !rangeTouched
+    // Chuỗi đan xen: vừa chọn khoảng trên 1 video rồi chụp thêm 1 ẢNH -> phần
+    // tử mới nhất không còn là video, câu chỉ dẫn "đoạn video X–Y" không còn
+    // đúng ngữ cảnh nữa, bỏ hẳn thay vì gửi nhầm cho AI.
+    !rangeTouched || !latestIsVideo
       ? ""
       : isTimePoint
         ? `\n\n(Chỉ tập trung vào đúng thời điểm ${formatClock(rangeStart)} trong video, không phải toàn bộ video.)`
@@ -127,6 +147,13 @@
 
   function onVideoLoadedMetadata() {
     if (!videoEl || !Number.isFinite(videoEl.duration)) return;
+    // Nạp 1 video KHÁC (VD vừa "+ Quay thêm video", hoặc chuyển xem video
+    // khác trong chuỗi) — khoảng đã chọn trên video cũ không còn nghĩa với
+    // video mới, bắt đầu lại từ "chưa chọn gì".
+    if (videoEl.duration !== videoDuration) {
+      rangeStart = 0;
+      rangeTouched = false;
+    }
     videoDuration = videoEl.duration;
     rangeEnd = videoEl.duration;
   }
@@ -162,6 +189,11 @@
       const ts = Number(tsBtn.dataset.ts);
       if (Number.isFinite(ts)) {
         pendingSeekTime = ts;
+        // Chuỗi có thể đan xen ảnh/video và kết thúc bằng ẢNH — ghim xem
+        // đúng VIDEO gần nhất (mốc giờ chỉ có nghĩa với video), không phải
+        // mặc định "phần tử mới nhất".
+        const lastVideo = mediaChain.findLastIndex((m) => m.kind === "video");
+        previewIndex = lastVideo >= 0 && lastVideo !== mediaChain.length - 1 ? lastVideo : null;
         openMediaPreview();
       }
       return;
@@ -188,10 +220,13 @@
   // human-in-the-loop (người quyết định), chỉ là không đặt cược vào việc
   // model tuân thủ giao thức.
   let appendCaptureBusy = $state(false);
-  async function triggerAppendCapture() {
+  /** Nối thêm 1 ẢNH hoặc 1 VIDEO vào chuỗi — người dùng TỰ CHỌN loại, không
+   * còn bị khoá theo loại của phiên như trước (phiên bắt đầu bằng ảnh vẫn
+   * quay thêm video được và ngược lại, xem AppState::media_sessions). */
+  async function triggerAppend(kind: MediaKind) {
     appendCaptureBusy = true;
     try {
-      await invoke(isVideoSession ? "trigger_recording_for_session" : "trigger_capture_for_session", {
+      await invoke(kind === "video" ? "trigger_recording_for_session" : "trigger_capture_for_session", {
         windowLabel: getCurrentWindow().label,
       });
     } catch (e) {
@@ -246,9 +281,31 @@
    * media MỚI NHẤT (mặc định). Bấm vào 1 thumbnail cụ thể trong dải mới ghim
    * cố định vào đúng cái đó. */
   let previewIndex = $state<number | null>(null);
-  const previewMediaB64 = $derived(mediaChain[previewIndex ?? mediaChain.length - 1] ?? "");
+  const previewMediaB64 = $derived(mediaChain[previewIndex ?? mediaChain.length - 1]?.data ?? "");
+  /** Phần tử ĐANG XEM trong ảnh phóng to là video? — chuỗi đan xen nên mỗi
+   * phần tử tự quyết định dùng <video> hay <img>, không theo cả phiên. */
+  const previewIsVideo = $derived(mediaChain[previewIndex ?? mediaChain.length - 1]?.kind === "video");
+  // Chọn xem 1 bước cũ ở màn hình đầu (dải thumbnail, xem chainThumbnails)
+  // rồi mới hỏi -> sang khung chat thì quay về mặc định "bám bước mới nhất",
+  // không để lần mở ảnh phóng to đầu tiên bị dính đúng bước cũ đó.
+  $effect(() => {
+    if (phase === "chat") previewIndex = null;
+  });
 
   function onModalVideoReady() {
+    // Đang xem video MỚI NHẤT (cái mà thanh chọn thời điểm áp dụng) — cập
+    // nhật độ dài theo đúng video này. Cần vì lúc đang chat có thể vừa "+ Quay
+    // thêm video" (hoặc phiên bắt đầu bằng ảnh, giờ mới có video đầu tiên) —
+    // `videoDuration` cũ lấy từ khung xem lúc mới mở không còn đúng nữa.
+    const viewingLatest = previewIndex === null || previewIndex === mediaChain.length - 1;
+    if (modalVideoEl && viewingLatest && Number.isFinite(modalVideoEl.duration)) {
+      if (modalVideoEl.duration !== videoDuration) {
+        rangeStart = 0;
+        rangeTouched = false;
+      }
+      videoDuration = modalVideoEl.duration;
+      rangeEnd = modalVideoEl.duration;
+    }
     if (modalVideoEl && pendingSeekTime != null) {
       modalVideoEl.currentTime = pendingSeekTime;
       pendingSeekTime = null;
@@ -314,7 +371,7 @@
    * nhất 1, nút xoá tự ẩn khi chỉ còn đúng 1 (xem chainThumbnails). */
   async function removeChainItem(index: number) {
     try {
-      await invoke(isVideoSession ? "remove_recording_from_session" : "remove_capture_from_session", {
+      await invoke("remove_media_from_session", {
         windowLabel: getCurrentWindow().label,
         index,
       });
@@ -363,12 +420,11 @@
   /** `silent`: KHÔNG hiện lỗi nếu ảnh/video chưa có — dùng cho lần thử đầu
    * tiên lúc mới mount, vì cửa sổ này được mở NGAY (trước khi ảnh/video xử
    * lý xong) để phản hồi tức thì, nên có thể CHƯA kịp nạp vào
-   * `crop_sessions`/`video_sessions` phía Rust — đó là chuyện bình thường,
-   * không phải lỗi. Sẽ tự nạp lại khi nhận event "ai:crop-ready"/
-   * "recording:ready" (xem onMount bên dưới). */
+   * `media_sessions` phía Rust — đó là chuyện bình thường, không phải lỗi.
+   * Sẽ tự nạp lại khi nhận event "ai:crop-ready" (xem onMount bên dưới). */
   async function loadMediaChain(silent: boolean) {
     try {
-      mediaChain = await invoke<string[]>(isVideoSession ? "get_recording_chain_base64" : "get_crop_chain_base64", {
+      mediaChain = await invoke<MediaEntry[]>("get_media_chain", {
         windowLabel: getCurrentWindow().label,
       });
     } catch (e) {
@@ -431,7 +487,7 @@
     reasoningEffort = s.reasoningEffort;
     loadResumeIfAny();
 
-    if (isVideoSession) {
+    if (startedAsVideo) {
       // Phiên video: cửa sổ chỉ mở SAU KHI quay xong, video đã sẵn sàng ngay
       // từ đầu — nạp thẳng, không cần silent/event gì cả.
       loadMediaChain(false);
@@ -636,7 +692,7 @@
       // video), rồi mới tới box_2d (chỉ ảnh, nằm ngay TRƯỚC final_answer nếu
       // cả hai cùng có) — đúng thứ tự đã dặn ở rule 11/bbox trong ai.rs.
       const { text: afterFinal, finalAnswer } = extractFinalAnswerFromAnswer(answer);
-      const { text: cleanAnswer, box } = isVideoSession ? { text: afterFinal, box: null } : extractBoxFromAnswer(afterFinal);
+      const { text: cleanAnswer, box } = latestIsVideo ? { text: afterFinal, box: null } : extractBoxFromAnswer(afterFinal);
       const newTurnIndex = history.length; // đúng vị trí lượt assistant sắp thêm vào bên dưới
       if (box) turnBoxes = { ...turnBoxes, [newTurnIndex]: box };
       if (finalAnswer) turnFinalAnswers = { ...turnFinalAnswers, [newTurnIndex]: finalAnswer };
@@ -658,7 +714,7 @@
   /** Hậu tố "(00:05)" / "(00:05–00:12)" gắn vào displayLabel khi có chỉ định
    * thời điểm — để bong bóng chat TỰ ghi lại đã hỏi trong phạm vi nào, không
    * cần người dùng nhớ lại. Chỉ áp dụng phiên video. */
-  const timeBadgeSuffix = $derived(isVideoSession && rangeTouched ? ` (${timeRangeLabel})` : "");
+  const timeBadgeSuffix = $derived(latestIsVideo && rangeTouched ? ` (${timeRangeLabel})` : "");
 
   /** Bật "Tra cứu web thật" (Google Search grounding) — CHỈ Gemini hỗ trợ,
    * tính phí theo lượt Google tự quyết định search, nên KHÔNG mặc định bật
@@ -734,7 +790,7 @@
 
   async function handleAsk() {
     const typed = question.trim();
-    const q = typed || (isVideoSession ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
+    const q = typed || (latestIsVideo ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
     const search = searchEnabled;
     searchEnabled = false;
     const diagram = diagramMode;
@@ -878,17 +934,25 @@
         <div class="relative shrink-0 group">
           <button
             type="button"
-            onclick={() => (previewIndex = i)}
+            onclick={() => (previewIndex = i === mediaChain.length - 1 ? null : i)}
             class="w-12 h-12 rounded-lg overflow-hidden border-2 transition-colors {(previewIndex ?? mediaChain.length - 1) ===
             i
               ? 'border-accent'
               : 'border-border hover:border-accent/50'}"
             title={`Bước ${i + 1}`}
           >
-            {#if isVideoSession}
-              <video src={`data:video/mp4;base64,${item}`} muted class="w-full h-full object-cover"></video>
+            {#if item.kind === "video"}
+              <!-- Chuỗi đan xen ảnh/video — thumbnail video có thêm icon nhỏ
+              ở góc để phân biệt ngay với ảnh (khung đầu video trông y hệt
+              1 ảnh chụp tĩnh). -->
+              <span class="relative block w-full h-full">
+                <video src={`data:video/mp4;base64,${item.data}`} muted class="w-full h-full object-cover"></video>
+                <span class="absolute bottom-0.5 right-0.5 rounded bg-black/60 text-white p-0.5 leading-none">
+                  <Icon name="video" size={9} />
+                </span>
+              </span>
             {:else}
-              <img src={`data:image/png;base64,${item}`} alt={`Bước ${i + 1}`} class="w-full h-full object-cover" />
+              <img src={`data:image/png;base64,${item.data}`} alt={`Bước ${i + 1}`} class="w-full h-full object-cover" />
             {/if}
           </button>
           {#if mediaChain.length > 1}
@@ -1014,26 +1078,30 @@
     <!-- Dùng CHUNG cho CẢ 2 menu "+" (lúc mới mở CHƯA hỏi gì LẪN lúc đang
     chat) — trước đây chỉ có ở menu lúc đang chat, nghĩa là muốn chụp/quay
     NHIỀU bước phải hỏi 1 câu trước rồi mới bắt đầu nối chuỗi được. Giờ cho
-    phép xây chuỗi nhiều ảnh/video NGAY TỪ ĐẦU, trước khi hỏi câu nào cả. -->
-    <button
-      type="button"
-      onclick={() => {
-        moreMenuOpen = false;
-        triggerAppendCapture();
-      }}
-      disabled={appendCaptureBusy}
-      class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5 disabled:opacity-50"
-    >
-      {#if appendCaptureBusy}
-        <Icon name="loader" size={15} class="animate-spin mt-0.5 shrink-0" />
-      {:else}
-        <Icon name="plus" size={15} class="mt-0.5 shrink-0" />
-      {/if}
-      <span>
-        <div class="text-[12.5px] font-semibold">{isVideoSession ? "Quay" : "Chụp"} thêm bước</div>
-        <div class="text-[10.5px] text-text-muted">Nối thêm vào cùng cuộc hội thoại này</div>
-      </span>
-    </button>
+    phép xây chuỗi nhiều ảnh/video NGAY TỪ ĐẦU, trước khi hỏi câu nào cả.
+    2 nút riêng (ảnh/video) — người dùng TỰ CHỌN loại cho từng bước, ảnh và
+    video đan xen chung 1 chuỗi, không còn bị khoá theo loại của bước đầu. -->
+    {#each [{ kind: "image", icon: "camera", title: "Chụp thêm ảnh" }, { kind: "video", icon: "video", title: "Quay thêm video" }] as opt (opt.kind)}
+      <button
+        type="button"
+        onclick={() => {
+          moreMenuOpen = false;
+          triggerAppend(opt.kind as MediaKind);
+        }}
+        disabled={appendCaptureBusy}
+        class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5 disabled:opacity-50"
+      >
+        {#if appendCaptureBusy}
+          <Icon name="loader" size={15} class="animate-spin mt-0.5 shrink-0" />
+        {:else}
+          <Icon name={opt.icon} size={15} class="mt-0.5 shrink-0" />
+        {/if}
+        <span>
+          <div class="text-[12.5px] font-semibold">{opt.title}</div>
+          <div class="text-[10.5px] text-text-muted">Nối thêm 1 bước vào cùng cuộc hội thoại này</div>
+        </span>
+      </button>
+    {/each}
   {/snippet}
 
   {#snippet attachFileItem()}
@@ -1142,12 +1210,15 @@
   {#if phase === "ask"}
     <!-- ── Giai đoạn 1: xem ảnh/video + đặt câu hỏi ── -->
     <div class="flex-1 min-h-0 p-3 pb-0 flex items-center justify-center">
-      {#if mediaB64}
-        {#if isVideoSession}
+      <!-- Khung xem theo phần tử ĐANG CHỌN ở dải thumbnail bên dưới (mặc
+      định: mới nhất) — chuỗi có thể đan xen ảnh/video nên mỗi phần tử tự
+      quyết định dùng <video> hay <img>. -->
+      {#if previewMediaB64}
+        {#if previewIsVideo}
           <video
             bind:this={videoEl}
             onloadedmetadata={onVideoLoadedMetadata}
-            src={`data:video/mp4;base64,${mediaB64}`}
+            src={`data:video/mp4;base64,${previewMediaB64}`}
             controls
             autoplay
             muted
@@ -1157,7 +1228,7 @@
           ></video>
         {:else}
           <img
-            src={`data:image/png;base64,${mediaB64}`}
+            src={`data:image/png;base64,${previewMediaB64}`}
             alt="Vùng đã chụp"
             class="max-w-full max-h-full object-contain rounded-xl border border-border shadow-lg"
             transition:fade={{ duration: 180 }}
@@ -1168,12 +1239,23 @@
         đang xử lý ở backend — hiện loading thay vì để khoảng trống im lặng. -->
         <div class="flex flex-col items-center gap-2 text-text-muted" transition:fade={{ duration: 140 }}>
           <span class="thinking-dots inline-flex items-center h-4"><span></span><span></span><span></span></span>
-          <span class="text-[11px]">{isVideoSession ? "Đang xử lý video…" : "Đang xử lý ảnh…"}</span>
+          <span class="text-[11px]">{startedAsVideo ? "Đang xử lý video…" : "Đang xử lý ảnh…"}</span>
         </div>
       {/if}
     </div>
 
-    {#if isVideoSession && videoDuration > 0}
+    {#if mediaChain.length > 1}
+      <!-- Đã chụp/quay nhiều bước ngay từ đầu (trước câu hỏi đầu tiên) — hiện
+      cả chuỗi để thấy đã có những bước nào, bấm để xem lại/bỏ bớt. -->
+      <div class="shrink-0 px-3 pt-2">
+        {@render chainThumbnails()}
+      </div>
+    {/if}
+
+    <!-- Thanh chọn thời điểm CHỈ khi đang xem đúng video MỚI NHẤT — câu chỉ
+    dẫn "chỉ tập trung vào đoạn X–Y" gửi cho AI không nói rõ video nào, nên
+    chỉ hợp lệ khi phần tử mới nhất là video (xem timeContextSuffix). -->
+    {#if latestIsVideo && previewIndex === null && videoDuration > 0}
       {@render timeRangeSlider()}
     {/if}
 
@@ -1184,7 +1266,7 @@
           {chip.label}
         </button>
       {/each}
-      {#if !isVideoSession}
+      {#if !latestIsVideo}
         <!-- Riêng biệt với chip "Dịch" — dịch phẳng nguyên đoạn văn vẫn giữ
         nguyên, đây là 1 hướng khác hẳn: sơ đồ liên kết từ vựng, dành cho ảnh
         chụp 1 từ/cụm từ muốn học sâu hơn (xem VocabDiagram.svelte). -->
@@ -1203,8 +1285,10 @@
         bind:value={question}
         disabled={!mediaB64}
         placeholder={mediaB64
-          ? `Hỏi bất kỳ điều gì về ${isVideoSession ? "video" : "vùng"} đã ${isVideoSession ? "quay" : "chụp"}…`
-          : isVideoSession
+          ? mediaChain.length > 1
+            ? "Hỏi bất kỳ điều gì về các bước đã chụp/quay…"
+            : `Hỏi bất kỳ điều gì về ${latestIsVideo ? "video" : "vùng"} đã ${latestIsVideo ? "quay" : "chụp"}…`
+          : startedAsVideo
             ? "Đang xử lý video…"
             : "Đang xử lý ảnh…"}
         class="field selectable flex-1 resize-none scroll-visible disabled:opacity-50"
@@ -1280,9 +1364,9 @@
           type="button"
           onclick={openMediaPreview}
           class="shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-border hover:border-accent/60 transition-colors relative group"
-          title={isVideoSession ? "Xem lại video đã quay" : "Xem lại ảnh đã chụp"}
+          title={mediaChain.length > 1 ? "Xem lại các bước đã chụp/quay" : latestIsVideo ? "Xem lại video đã quay" : "Xem lại ảnh đã chụp"}
         >
-          {#if isVideoSession}
+          {#if latestIsVideo}
             <video src={`data:video/mp4;base64,${mediaB64}`} muted class="w-full h-full object-cover"></video>
           {:else}
             <img src={`data:image/png;base64,${mediaB64}`} alt="Vùng đã chụp" class="w-full h-full object-cover" />
@@ -1417,7 +1501,7 @@
                     use:csvBlocks={turn.content}
                     use:scene3dBlocks={turn.content}
                   >
-                    {@html renderMarkdown(isVideoSession ? linkifyTimestamps(turn.content) : turn.content)}
+                    {@html renderMarkdown(chainHasVideo ? linkifyTimestamps(turn.content) : turn.content)}
                   </div>
                 {/if}
               <button
@@ -1540,7 +1624,7 @@
     </ScrollArea>
 
     <div class="shrink-0 px-3 pb-3 pt-1 flex flex-col gap-1.5">
-      {#if isVideoSession}
+      {#if latestIsVideo}
         <!-- Bấm vào đây MỞ LUÔN ảnh phóng to kèm thanh kéo bên trong (xem
         modal ở cuối file) — vừa xem lại video vừa chọn khoảng dễ hơn hẳn so
         với kéo "mù" (không thấy hình) ngay trong khung hội thoại chật hẹp. -->
@@ -1668,7 +1752,7 @@
             >
               {@render attachFileItem()}
               {@render appendCaptureItem()}
-              {#if !isVideoSession}
+              {#if !latestIsVideo}
                 <button
                   type="button"
                   onclick={() => {
@@ -1708,7 +1792,9 @@
       onclick={closeImagePreview}
       transition:fade={{ duration: 140 }}
     >
-      {#if isVideoSession}
+      <!-- Theo loại của ĐÚNG phần tử đang xem (chuỗi đan xen ảnh/video),
+      không theo loại của cả phiên như trước. -->
+      {#if previewIsVideo}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_media_has_caption -->
@@ -1729,7 +1815,9 @@
           {#if mediaChain.length > 1}
             {@render chainThumbnails()}
           {/if}
-          {#if showRangeSliderInChat}
+          {#if showRangeSliderInChat && previewIndex === null}
+            <!-- Chỉ khi đang xem video MỚI NHẤT — khoảng thời gian gửi cho AI
+            luôn hiểu là của video mới nhất (xem timeContextSuffix). -->
             <div class="card p-2.5 w-full">
               {@render timeRangeSlider(() => {
                 showRangeSliderInChat = false;

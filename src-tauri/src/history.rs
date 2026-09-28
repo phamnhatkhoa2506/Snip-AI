@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindowBuilder};
 
-use crate::state::AppState;
+use crate::state::{AppState, MediaItem, MediaKind};
 
 /// Quá tuổi này (tính từ lúc lưu) là bị dọn tự động, bất kể dung lượng.
 const MAX_AGE_DAYS: u64 = 14;
@@ -237,19 +237,13 @@ pub fn history_save_turn(
     // không lưu cả chuỗi. Xem lại đầy đủ chuỗi thì mở lại đúng cửa sổ "Kết
     // quả AI" đó trong lúc còn mở — Lịch sử chỉ là ảnh chụp nhanh lúc lưu.
     let (bytes, kind, ext) = {
-        let crop = state.crop_sessions.lock().unwrap();
-        if let Some(list) = crop.get(&window_label) {
-            match list.last() {
-                Some(b) => (b.clone(), "image", "png"),
-                None => return Err("Phiên này chưa có ảnh nào để lưu lịch sử".into()),
-            }
-        } else {
-            drop(crop);
-            let video = state.video_sessions.lock().unwrap();
-            match video.get(&window_label).and_then(|list| list.last()) {
-                Some(b) => (b.clone(), "video", "mp4"),
-                None => return Err("Không tìm thấy ảnh/video của phiên này để lưu lịch sử".into()),
-            }
+        let sessions = state.media_sessions.lock().unwrap();
+        match sessions.get(&window_label).and_then(|list| list.last()) {
+            Some(m) => match m.kind {
+                MediaKind::Image => (m.bytes.clone(), "image", "png"),
+                MediaKind::Video => (m.bytes.clone(), "video", "mp4"),
+            },
+            None => return Err("Không tìm thấy ảnh/video của phiên này để lưu lịch sử".into()),
         }
     };
 
@@ -384,11 +378,12 @@ pub async fn history_resume(app: AppHandle, state: State<'_, AppState>, id: Stri
     let prefix = if kind == "video" { crate::commands::RECORD_LABEL_PREFIX } else { crate::commands::RESULT_LABEL_PREFIX };
     let window_label = format!("{prefix}{session_id}");
 
-    if kind == "video" {
-        state.video_sessions.lock().unwrap().insert(window_label.clone(), vec![bytes]);
-    } else {
-        state.crop_sessions.lock().unwrap().insert(window_label.clone(), vec![bytes]);
-    }
+    let media_kind = if kind == "video" { MediaKind::Video } else { MediaKind::Image };
+    state
+        .media_sessions
+        .lock()
+        .unwrap()
+        .insert(window_label.clone(), vec![MediaItem { bytes, kind: media_kind }]);
     // Ghim NGAY từ đầu -> lượt hỏi tiếp đầu tiên trong cửa sổ này (qua
     // history_save_turn) sẽ thấy "existing_id" và chỉ update turns, không tạo
     // bản ghi lịch sử mới trùng lặp.

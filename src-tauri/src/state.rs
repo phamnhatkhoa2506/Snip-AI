@@ -57,14 +57,22 @@ pub struct AppState {
     /// trên màn hình DPI != 100%.
     pub scale_factor: Mutex<f64>,
 
-    /// Ảnh PNG đã crop, theo từng phiên (key = label cửa sổ "Kết quả AI" của
-    /// phiên đó, VD "result-3"). MỘT phiên có thể có NHIỀU ảnh theo đúng thứ
-    /// tự đã chụp — tính năng "Chụp thêm bước" (chuỗi snip có dẫn dắt): người
-    /// dùng bấm "+ Chụp thêm bước" ngay trong lúc chat, ảnh mới PUSH thêm vào
-    /// đúng phiên đang mở thay vì tạo phiên/cửa sổ mới, AI nhìn thấy toàn bộ
-    /// chuỗi cùng lúc. Dọn dẹp cả entry khi cửa sổ đó đóng (xem `on_window_event`
-    /// trong lib.rs) — tránh rò rỉ bộ nhớ khi dùng app lâu, snip nhiều lần.
-    pub crop_sessions: Mutex<HashMap<String, Vec<Vec<u8>>>>,
+    /// Chuỗi ảnh/video của từng phiên (key = label cửa sổ "Kết quả AI" của
+    /// phiên đó, VD "result-3"/"record-5"), ĐÚNG THỨ TỰ đã chụp/quay — ảnh và
+    /// video ĐAN XEN tự do trong cùng 1 chuỗi (VD chụp 1 ảnh, quay thêm 1
+    /// video, chụp tiếp 1 ảnh), mỗi phần tử tự mang loại của nó (`MediaKind`).
+    ///
+    /// Trước đây tách 2 map riêng (`crop_sessions` cho ảnh, `video_sessions`
+    /// cho video) với giả định "1 phiên chỉ toàn 1 loại" — không trộn được, và
+    /// nếu lỡ nối video vào phiên ảnh thì AI chỉ thấy phần ảnh (map ảnh được
+    /// đọc trước, map video bị bỏ qua hoàn toàn). Gộp lại 1 chuỗi có đánh dấu
+    /// loại để giữ đúng thứ tự thật giữa ảnh và video.
+    ///
+    /// Tiền tố label cửa sổ ("result-"/"record-") giờ CHỈ cho biết phần tử
+    /// ĐẦU TIÊN của chuỗi là ảnh hay video — không còn quyết định loại của cả
+    /// phiên. Dọn dẹp cả entry khi cửa sổ đó đóng (xem `on_window_event` trong
+    /// lib.rs) — tránh rò rỉ bộ nhớ khi dùng app lâu, snip nhiều lần.
+    pub media_sessions: Mutex<HashMap<String, Vec<MediaItem>>>,
     /// Bộ đếm tăng dần để sinh label cửa sổ "Kết quả AI" không trùng nhau.
     pub next_session_id: AtomicU32,
 
@@ -75,10 +83,6 @@ pub struct AppState {
     /// hiện lại).
     pub main_hidden_for_snip: Mutex<bool>,
 
-    /// Video MP4 đã quay xong, theo từng phiên (key = label cửa sổ "Kết quả
-    /// AI" của phiên đó) — cùng cơ chế với `crop_sessions` (kể cả việc 1 phiên
-    /// có thể có NHIỀU video theo thứ tự, xem giải thích ở đó).
-    pub video_sessions: Mutex<HashMap<String, Vec<Vec<u8>>>>,
     /// Cờ báo dừng của phiên quay đang chạy (nếu có) — `stop_recording` set
     /// cờ này thành `true` để dừng sớm trước mốc 30s tự động. `None` nghĩa là
     /// không có phiên quay nào đang chạy.
@@ -127,6 +131,44 @@ pub struct AppState {
 /// tránh chuỗi dài vô hạn làm payload gọi AI phình to, chậm và tốn quota vô
 /// tội vạ. Xem "Chụp thêm bước" (append_capture_to_session/start_region_recording).
 pub const MAX_CHAIN_ITEMS: usize = 8;
+
+/// Loại 1 phần tử trong chuỗi media của phiên — xem `AppState::media_sessions`.
+/// Serialize thành "image"/"video" cho frontend tự chọn thẻ <img>/<video>.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaKind {
+    Image,
+    Video,
+}
+
+impl MediaKind {
+    pub fn mime(self) -> &'static str {
+        match self {
+            MediaKind::Image => "image/png",
+            MediaKind::Video => "video/mp4",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MediaItem {
+    pub bytes: Vec<u8>,
+    pub kind: MediaKind,
+}
+
+/// Nối 1 ảnh/video vào CUỐI chuỗi của phiên `window_label` — dùng chung cho
+/// cả "Chụp thêm ảnh" (commands.rs) lẫn "Quay thêm video" (record.rs), bất
+/// kể phiên bắt đầu bằng ảnh hay video. Vượt `MAX_CHAIN_ITEMS` thì bỏ bớt
+/// phần tử CŨ NHẤT ("trượt cửa sổ") thay vì chặn hẳn — dễ hiểu với người
+/// dùng hơn là 1 lỗi "đã đầy".
+pub fn push_media(state: &AppState, window_label: &str, item: MediaItem) {
+    let mut sessions = state.media_sessions.lock().unwrap();
+    let list = sessions.entry(window_label.to_string()).or_default();
+    list.push(item);
+    while list.len() > MAX_CHAIN_ITEMS {
+        list.remove(0);
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct PendingRecordResult {

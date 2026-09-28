@@ -58,15 +58,12 @@ pub fn run() {
             } else if window.label().starts_with(commands::RESULT_LABEL_PREFIX)
                 || window.label().starts_with(commands::RECORD_LABEL_PREFIX)
             {
-                // Cửa sổ "Kết quả AI" đóng thật (không ẩn) — dọn ảnh/video của
-                // phiên đó khỏi bộ nhớ (crop_sessions/video_sessions), tránh rò
-                // rỉ khi snip/quay nhiều lần trong 1 phiên làm việc dài. Thử xoá
-                // ở CẢ HAI map luôn cho đơn giản — label chỉ khớp đúng 1 trong 2,
-                // xoá key không tồn tại ở map còn lại là no-op, không lỗi gì.
+                // Cửa sổ "Kết quả AI" đóng thật (không ẩn) — dọn chuỗi ảnh/video
+                // của phiên đó khỏi bộ nhớ (media_sessions), tránh rò rỉ khi
+                // snip/quay nhiều lần trong 1 phiên làm việc dài.
                 if let WindowEvent::Destroyed = event {
                     let state = window.state::<AppState>();
-                    state.crop_sessions.lock().unwrap().remove(window.label());
-                    state.video_sessions.lock().unwrap().remove(window.label());
+                    state.media_sessions.lock().unwrap().remove(window.label());
                     state.attachment_sessions.lock().unwrap().remove(window.label());
                     state.history_ids.lock().unwrap().remove(window.label());
                     // Phòng trường hợp resume rồi đóng cửa sổ NGAY trước khi
@@ -81,11 +78,10 @@ pub fn run() {
             commands::get_screenshot_base64,
             commands::cancel_overlay,
             commands::crop_and_open_result,
-            commands::get_crop_image_base64,
-            commands::get_crop_chain_base64,
+            commands::get_media_chain,
             commands::trigger_capture_for_session,
             commands::append_capture_to_session,
-            commands::remove_capture_from_session,
+            commands::remove_media_from_session,
             commands::trigger_recording_for_session,
             attachments::attach_files_to_session,
             attachments::get_attachment_list,
@@ -107,9 +103,6 @@ pub fn run() {
             oauth::get_login_status,
             oauth::logout,
             record::stop_recording,
-            record::get_recording_base64,
-            record::get_recording_chain_base64,
-            record::remove_recording_from_session,
             commands::open_history_window,
             history::history_save_turn,
             history::history_list,
