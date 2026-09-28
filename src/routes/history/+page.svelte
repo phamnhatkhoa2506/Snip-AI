@@ -12,6 +12,7 @@
   import { chartBlocks } from "$lib/chart";
   import { csvBlocks } from "$lib/csvBlock";
   import { scene3dBlocks } from "$lib/scene3d";
+  import { codeCopyButtons } from "$lib/codeCopyButtons";
 
   /** Link trong câu trả lời đã lưu (VD nguồn trích dẫn) — mở bằng trình
    * duyệt hệ thống thay vì để WebView2 điều hướng nguyên cửa sổ app sang
@@ -367,6 +368,7 @@
                     use:chartBlocks={turn.content}
                     use:csvBlocks={turn.content}
                     use:scene3dBlocks={turn.content}
+                    use:codeCopyButtons={turn.content}
                   >
                     {@html renderMarkdown(turn.content)}
                   </div>

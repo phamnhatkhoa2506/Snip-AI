@@ -28,6 +28,7 @@
   import { chartBlocks } from "$lib/chart";
   import { csvBlocks } from "$lib/csvBlock";
   import { scene3dBlocks } from "$lib/scene3d";
+  import { codeCopyButtons } from "$lib/codeCopyButtons";
   import { extractFirstTable, exportTableAsCsv, exportTableAsExcel, exportMarkdownAsDocx, printHtmlAsPdf } from "$lib/exportFile";
   import VocabDiagram from "$lib/VocabDiagram.svelte";
 
@@ -1541,6 +1542,7 @@
                     use:chartBlocks={turn.content}
                     use:csvBlocks={turn.content}
                     use:scene3dBlocks={turn.content}
+                    use:codeCopyButtons={turn.content}
                   >
                     {@html renderMarkdown(chainHasVideo ? linkifyTimestamps(turn.content) : turn.content)}
                   </div>
