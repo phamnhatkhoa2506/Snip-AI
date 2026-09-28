@@ -209,6 +209,9 @@ pub async fn crop_and_open_result(
     y: u32,
     width: u32,
     height: u32,
+    // Đọc từ settings.ts::autoCopyOnCapture ngay lúc gọi (overlay/+page.svelte)
+    // — xem clipboard_copy.rs.
+    auto_copy: bool,
 ) -> Result<(), String> {
     let t0 = std::time::Instant::now();
     eprintln!("[snip-ai] crop_and_open_result: nhận x={x} y={y} w={width} h={height}");
@@ -258,6 +261,10 @@ pub async fn crop_and_open_result(
         .await
         .map_err(|e| format!("Lỗi nội bộ khi xử lý ảnh: {e}"))??;
     eprintln!("[snip-ai] crop xong, {} bytes PNG", cropped.len());
+
+    if auto_copy {
+        crate::clipboard_copy::copy_image_to_clipboard(&app, &cropped);
+    }
 
     state
         .media_sessions
@@ -383,6 +390,7 @@ pub async fn start_region_recording(
     // trong record.rs). `Option` nên luồng quay bình thường (không truyền) vẫn
     // y hệt trước đây.
     append_to: Option<String>,
+    auto_copy: bool,
 ) -> Result<(), String> {
     let monitor = {
         let guard = state.monitor_bounds.lock().unwrap();
@@ -399,7 +407,7 @@ pub async fn start_region_recording(
 
     open_recording_toolbar(&app, monitor, anchor_x, anchor_y)?;
     *state.recording_pending.lock().unwrap() =
-        Some(PendingRecordResult { monitor, anchor_x, anchor_y, session_id, append_to });
+        Some(PendingRecordResult { monitor, anchor_x, anchor_y, session_id, append_to, auto_copy });
     *state.recording_discard.lock().unwrap() = false;
 
     restore_main_after_snip(&app);
@@ -514,6 +522,7 @@ pub async fn append_capture_to_session(
     y: u32,
     width: u32,
     height: u32,
+    auto_copy: bool,
 ) -> Result<(), String> {
     let screenshot = {
         let guard = state.screenshot_png.lock().unwrap();
@@ -528,6 +537,10 @@ pub async fn append_capture_to_session(
     let cropped = tokio::task::spawn_blocking(move || capture::crop_png(&screenshot, x, y, width, height))
         .await
         .map_err(|e| format!("Lỗi nội bộ khi xử lý ảnh: {e}"))??;
+
+    if auto_copy {
+        crate::clipboard_copy::copy_image_to_clipboard(&app, &cropped);
+    }
 
     // Nối vào CÙNG chuỗi bất kể phiên bắt đầu bằng ảnh hay video — xem
     // `push_media` (có trần MAX_CHAIN_ITEMS, trượt bỏ phần tử cũ nhất).

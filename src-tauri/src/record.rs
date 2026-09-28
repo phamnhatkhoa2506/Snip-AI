@@ -378,7 +378,16 @@ pub async fn start_recording(app: AppHandle, region: CropRegion) -> Result<(), S
                     return;
                 }
             };
-            let _ = std::fs::remove_file(&out_path_clone); // đã đọc vào RAM, xoá file tạm
+
+            if pending.auto_copy {
+                // PHẢI chép TRƯỚC khi xoá file — clipboard kiểu file-copy chỉ
+                // giữ ĐƯỜNG DẪN, xoá file xong thì dán ra chỗ khác sẽ lỗi (xem
+                // clipboard_copy.rs). Bật tính năng này thì CHỦ Ý không xoá
+                // file tạm nữa (đánh đổi chấp nhận được, xem giải thích ở đó).
+                crate::clipboard_copy::copy_video_file_to_clipboard(&out_path_clone);
+            } else {
+                let _ = std::fs::remove_file(&out_path_clone); // đã đọc vào RAM, xoá file tạm
+            }
 
             let state = app_clone.state::<AppState>();
 

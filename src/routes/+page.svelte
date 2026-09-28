@@ -14,6 +14,7 @@
   } from "$lib/hotkey";
   import { loadTheme, setTheme, type ThemeMode } from "$lib/theme";
   import { loadTextSize, setTextSize, type TextSizeMode } from "$lib/textSize";
+  import { loadSettings, saveSettings } from "$lib/settings";
 
   let toast = $state<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -106,6 +107,16 @@
 
   /** Menu "Cài đặt" gộp Lịch sử/Giao diện/Cỡ chữ — xem markup ở header. */
   let showMoreMenu = $state(false);
+
+  // ── "Tự động chép ảnh/video vào clipboard sau khi chụp/quay" — đọc/ghi qua
+  // settings.ts (localStorage dùng chung mọi cửa sổ), overlay/+page.svelte tự
+  // đọc lại đúng lúc chụp/quay thật (xem loadSettings() ở đó), KHÔNG cần bắn
+  // sự kiện đồng bộ real-time gì thêm. ─────────────────────────────────────
+  let autoCopyOnCapture = $state(false);
+  function toggleAutoCopy() {
+    autoCopyOnCapture = !autoCopyOnCapture;
+    saveSettings({ ...loadSettings(), autoCopyOnCapture });
+  }
 
   // ── Nút "+ New" — bấm trực tiếp để snip/quay (thay vì phải nhớ bấm phím
   // tắt). Chạy đúng hành động theo `captureMode` đang chọn ở toggle header. ──
@@ -335,6 +346,7 @@
     refreshLoginStatus();
     themeMode = loadTheme();
     textSizeMode = loadTextSize();
+    autoCopyOnCapture = loadSettings().autoCopyOnCapture;
     // Trễ 1 chút lúc mới mở app — không tranh giành sự chú ý với các bước
     // đầu (đăng nhập...) diễn ra ngay khi cửa sổ vừa hiện.
     setTimeout(checkSurveyEligibility, 1500);
@@ -429,6 +441,18 @@
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Cỡ chữ hội thoại</div>
               <div class="text-[10.5px] text-text-muted">Đang chọn: {currentTextSizeOption.title} — bấm để đổi</div>
+            </span>
+          </button>
+          <button
+            onclick={toggleAutoCopy}
+            class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+          >
+            <Icon name="clipboard" size={15} class="mt-0.5 shrink-0" />
+            <span class="flex-1">
+              <div class="text-[12.5px] font-semibold">Tự động chép vào clipboard</div>
+              <div class="text-[10.5px] text-text-muted">
+                {autoCopyOnCapture ? "Đang bật" : "Đang tắt"} — chép ảnh/video sau khi chụp/quay xong, bấm để đổi
+              </div>
             </span>
           </button>
         </div>

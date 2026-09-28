@@ -181,6 +181,11 @@ pub struct PendingRecordResult {
     /// `video_sessions[label]` rồi báo cho cửa sổ đó tự nạp lại. `None` = hành
     /// vi cũ (quay xong mở cửa sổ kết quả mới).
     pub append_to: Option<String>,
+    /// Cờ "Tự động chép vào clipboard" đọc từ settings.ts lúc BẮT ĐẦU quay
+    /// (không đọc lại lúc quay XONG — nhất quán với hành vi lúc người dùng
+    /// bấm nút, dù có đổi cài đặt giữa chừng lúc đang quay). Xem
+    /// clipboard_copy.rs::copy_video_file_to_clipboard.
+    pub auto_copy: bool,
 }
 
 #[derive(Clone, Copy, Debug)]

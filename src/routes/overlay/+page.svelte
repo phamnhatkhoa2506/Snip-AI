@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { loadSettings } from "$lib/settings";
 
   let imgSrc = $state("");
   let selecting = $state(false);
@@ -89,6 +90,10 @@
     const physW = Math.round(rect.w * dpr);
     const physH = Math.round(rect.h * dpr);
 
+    // Đọc lại lúc chụp/quay THẬT (không đọc 1 lần lúc mount) — overlay này có
+    // thể đứng chờ người dùng kéo chọn vùng khá lâu, đổi cài đặt ở cửa sổ
+    // Settings ngay lúc đó (nếu có) vẫn được áp dụng đúng cho lượt này.
+    const autoCopy = loadSettings().autoCopyOnCapture;
     try {
       if (isRecordMode) {
         await invoke("start_region_recording", {
@@ -97,11 +102,12 @@
           width: physW,
           height: physH,
           appendTo: appendTo ?? null,
+          autoCopy,
         });
       } else if (appendTo) {
-        await invoke("append_capture_to_session", { windowLabel: appendTo, x: physX, y: physY, width: physW, height: physH });
+        await invoke("append_capture_to_session", { windowLabel: appendTo, x: physX, y: physY, width: physW, height: physH, autoCopy });
       } else {
-        await invoke("crop_and_open_result", { x: physX, y: physY, width: physW, height: physH });
+        await invoke("crop_and_open_result", { x: physX, y: physY, width: physW, height: physH, autoCopy });
       }
     } catch (e) {
       error = String(e);

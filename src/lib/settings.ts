@@ -20,6 +20,12 @@ export type ReasoningEffort = "auto" | "minimal" | "low" | "medium" | "high";
 export interface Settings {
   geminiModel: string;
   reasoningEffort: ReasoningEffort;
+  /** Tự động chép ảnh/video vào clipboard hệ thống ngay sau khi chụp/quay
+   * xong — TẮT mặc định (nhiều người chỉ cần ảnh/video nằm trong app để hỏi
+   * AI, không phải lúc nào cũng muốn nó "chiếm" luôn clipboard, có thể đè mất
+   * nội dung khác vừa copy trước đó). Đọc ở overlay/+page.svelte ngay lúc
+   * chụp/quay (xem clipboard_copy.rs phía Rust — nơi thực sự ghi clipboard). */
+  autoCopyOnCapture: boolean;
 }
 
 const STORAGE_KEY = "snip-ai:settings";
@@ -27,6 +33,7 @@ const STORAGE_KEY = "snip-ai:settings";
 export const DEFAULT_SETTINGS: Settings = {
   geminiModel: "gemini-3.6-flash",
   reasoningEffort: "auto",
+  autoCopyOnCapture: false,
 };
 
 export function loadSettings(): Settings {

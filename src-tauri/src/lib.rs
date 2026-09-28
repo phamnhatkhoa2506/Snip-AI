@@ -1,6 +1,7 @@
 mod ai;
 mod attachments;
 mod capture;
+mod clipboard_copy;
 mod commands;
 mod export;
 mod history;

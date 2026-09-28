@@ -75,6 +75,11 @@
       { t: "path", d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" },
     ],
     check: [{ t: "path", d: "M20 6 9 17l-5-5" }],
+    // Bảng kẹp giấy — menu "Tự động chép vào clipboard"
+    clipboard: [
+      { t: "rect", x: 8, y: 2, w: 8, h: 4, rx: 1 },
+      { t: "path", d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" },
+    ],
     // Dấu cộng vẽ bằng SVG (không dùng ký tự "+" của font): ký tự văn bản có
     // đường baseline riêng nên luôn lệch nhẹ so với chữ bên cạnh, và độ dày
     // nét đổi theo font hệ thống. Vẽ bằng path thì luôn cân giữa và cùng
