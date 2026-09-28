@@ -65,6 +65,72 @@ async function callGeminiWithFailover(keys: string[], model: string, body: strin
   return lastResp!;
 }
 
+/** Upload 1 file qua Gemini File API — giao thức "resumable upload" 2 bước
+ * của Google: (1) "start" báo trước kích thước/mime, Google trả về 1 URL
+ * upload riêng cho phiên đó (header `X-Goog-Upload-URL`); (2) "upload,
+ * finalize" gửi thẳng bytes tới URL đó, nhận lại `file.uri` — dùng lại được
+ * trong request `generateContent` (field `file_data`) trong ~48h, KHÔNG cần
+ * gửi lại bytes mỗi lần hỏi tiếp trong cùng phiên (xem attachments.rs phía
+ * Rust — nơi cache lại `file_uri` này).
+ *
+ * Cùng kiểu failover với `callGeminiWithFailover` ở trên — thử LẦN LƯỢT các
+ * key, chỉ chuyển key khác khi lỗi có khả năng do quota/rate-limit (429) hay
+ * lỗi tạm thời phía Google (5xx). Coi cả 2 bước (start + upload) như 1 đơn vị
+ * thử lại — lỡ bước 1 thành công nhưng bước 2 lỗi retryable với key đó thì
+ * vẫn chuyển hẳn sang key khác, làm lại từ đầu (không có API nào để "tiếp
+ * tục" phiên upload dở dang bằng key KHÁC — URL upload gắn chặt với key đã
+ * bắt đầu phiên đó).
+ */
+async function uploadFileWithFailover(keys: string[], mimeType: string, displayName: string, bytes: Uint8Array<ArrayBuffer>): Promise<Response> {
+  const order = shuffle(keys);
+  let lastResp: Response | null = null;
+
+  for (const key of order) {
+    const startResp = await fetch("https://generativelanguage.googleapis.com/upload/v1beta/files", {
+      method: "POST",
+      headers: {
+        "x-goog-api-key": key,
+        "X-Goog-Upload-Protocol": "resumable",
+        "X-Goog-Upload-Command": "start",
+        "X-Goog-Upload-Header-Content-Length": String(bytes.byteLength),
+        "X-Goog-Upload-Header-Content-Type": mimeType,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ file: { display_name: displayName } }),
+    });
+
+    if (!startResp.ok) {
+      lastResp = startResp;
+      const retryable = startResp.status === 429 || startResp.status >= 500;
+      if (!retryable) return startResp;
+      continue;
+    }
+
+    const uploadUrl = startResp.headers.get("x-goog-upload-url");
+    if (!uploadUrl) {
+      lastResp = startResp;
+      continue; // phản hồi bất thường (thiếu header cần thiết) -> thử key khác
+    }
+
+    const finishResp = await fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        "X-Goog-Upload-Offset": "0",
+        "X-Goog-Upload-Command": "upload, finalize",
+        "content-length": String(bytes.byteLength),
+      },
+      body: bytes,
+    });
+
+    if (finishResp.ok) return finishResp;
+    lastResp = finishResp;
+    const retryable = finishResp.status === 429 || finishResp.status >= 500;
+    if (!retryable) return finishResp;
+  }
+
+  return lastResp!;
+}
+
 export class GeminiProxy implements DurableObject {
   // Không cần constructor lưu `state`/`env` — object này KHÔNG đọc/ghi
   // storage gì cả, chỉ tồn tại để ghim vị trí chạy (xem giải thích ở đầu
@@ -73,9 +139,13 @@ export class GeminiProxy implements DurableObject {
 
   /** Nhận `model` qua header (tránh phải parse lại JSON body — body forward
    * NGUYÊN VĂN từ client, không đụng vào), `keys` qua header (JSON đã stringify
-   * sẵn từ phía gọi), body chính là request body gốc gửi thẳng cho Gemini. */
+   * sẵn từ phía gọi), body chính là request body gốc gửi thẳng cho Gemini.
+   *
+   * `/upload` (URL nội bộ do index.ts tự đặt, xem đó) — nhánh RIÊNG cho
+   * upload file lớn qua File API (xem `uploadFileWithFailover` ở trên), mọi
+   * URL khác giữ nguyên hành vi cũ (streamGenerateContent). */
   async fetch(request: Request): Promise<Response> {
-    const model = request.headers.get("x-gemini-model") ?? "";
+    const url = new URL(request.url);
     const keysHeader = request.headers.get("x-gemini-keys") ?? "[]";
     let keys: string[];
     try {
@@ -83,6 +153,43 @@ export class GeminiProxy implements DurableObject {
     } catch {
       keys = [];
     }
+
+    if (url.pathname === "/upload") {
+      const mimeType = request.headers.get("x-gemini-mime") ?? "";
+      const filenameHeader = request.headers.get("x-gemini-filename") ?? "";
+      let displayName = filenameHeader;
+      try {
+        displayName = decodeURIComponent(filenameHeader);
+      } catch {
+        // header không đúng percent-encoding -> dùng nguyên xi, không chặn cả upload chỉ vì tên hiển thị
+      }
+      if (!mimeType || keys.length === 0) {
+        return new Response(JSON.stringify({ error: "GeminiProxy upload: thiếu mime hoặc keys" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      const googleResp = await uploadFileWithFailover(keys, mimeType, displayName, bytes);
+      if (!googleResp.ok) {
+        const text = await googleResp.text();
+        return new Response(text, { status: googleResp.status, headers: { "content-type": "application/json" } });
+      }
+      const data = await googleResp.json<{ file?: { uri?: string; mimeType?: string } }>();
+      const fileUri = data.file?.uri;
+      if (!fileUri) {
+        return new Response(JSON.stringify({ error: "Google không trả về file.uri" }), {
+          status: 502,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ fileUri, mimeType: data.file?.mimeType ?? mimeType }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const model = request.headers.get("x-gemini-model") ?? "";
     if (!model || keys.length === 0) {
       return new Response(JSON.stringify({ error: "GeminiProxy: thiếu model hoặc keys" }), {
         status: 500,

@@ -1,7 +1,8 @@
 //! Đính kèm tài liệu gốc (ảnh/PDF) NGOÀI ảnh/video chính đã chụp — GIAI ĐOẠN
 //! 1 của tính năng này. Chỉ hỗ trợ ẢNH (PNG/JPG/WEBP) và PDF — cả 2 đều được
-//! Gemini đọc THẲNG qua `inline_data` giống ảnh chụp màn hình, không cần bóc
-//! tách/convert gì cả (Gemini tự đọc chữ + hình trong PDF nhiều trang).
+//! Gemini đọc THẲNG qua `inline_data`/`file_data` giống ảnh chụp màn hình,
+//! không cần bóc tách/convert gì cả (Gemini tự đọc chữ + hình trong PDF
+//! nhiều trang).
 //!
 //! DOCX/XLSX/PPTX CỐ TÌNH CHƯA hỗ trợ — Gemini KHÔNG đọc thẳng được các định
 //! dạng Office này qua inline_data (khác PDF). Muốn hỗ trợ phải trích xuất
@@ -13,18 +14,26 @@
 //! KHÔNG lưu vào lịch sử (history.rs) — cùng cách đơn giản hoá đã áp dụng
 //! cho chuỗi ảnh/video (chỉ lưu media MỚI NHẤT, không lưu cả chuỗi): lịch sử
 //! chỉ là "ảnh chụp nhanh" lúc lưu, không phải bản sao đầy đủ của phiên.
+//!
+//! NGƯỠNG TỰ ĐỘNG inline vs File API (xem file_api.rs): file NHỎ vẫn gửi
+//! thẳng base64 (`inline_data`) như trước — đơn giản, đủ nhanh, không cần
+//! round-trip upload riêng. File LỚN đi qua Gemini File API (upload 1 lần,
+//! cache lại `file_uri` để tái dùng ~48h thay vì nhồi base64 khổng lồ vào
+//! MỌI lượt hỏi trong cùng phiên).
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Serialize;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::state::AppState;
+use crate::state::{AppState, AttachmentEntry};
 
-/// Trần kích thước 1 file — Gemini giới hạn payload inline tổng cộng khoảng
-/// 20MB (base64 hoá còn phình thêm ~33% nữa so với dung lượng gốc), kẹp thấp
-/// hơn hẳn cho an toàn thay vì cố bám sát mức trần thật của Google.
-const MAX_FILE_BYTES: u64 = 15 * 1024 * 1024;
+/// Trần kích thước 1 file — nâng lên đáng kể so với trước (15MB) vì file lớn
+/// giờ đi qua Gemini File API thay vì nhồi thẳng base64 vào request (không
+/// còn bị chặn bởi trần payload inline ~20MB của Google nữa). Vẫn kẹp 1 mức
+/// hợp lý cho 1 app desktop chụp màn hình/đính PDF — không cần cho phép tới
+/// sát trần thật của File API (Google cho tới 2GB/file).
+const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
 
 /// Trần số lượng file đính kèm — PDF nặng hơn hẳn 1 ảnh chụp màn hình
 /// thường, không nên để phình vô hạn như `MAX_CHAIN_ITEMS` (8) của ảnh/video.
@@ -79,7 +88,7 @@ pub fn attach_files_to_session(app: AppHandle, state: State<'_, AppState>, windo
                 MAX_FILE_BYTES / 1024 / 1024,
             ));
         }
-        list.push((bytes, mime.to_string(), name));
+        list.push(AttachmentEntry { bytes, mime: mime.to_string(), name, file_uri: None });
     }
 
     drop(sessions);
@@ -99,7 +108,7 @@ pub fn get_attachment_list(state: State<'_, AppState>, window_label: String) -> 
         .get(&window_label)
         .map(|list| {
             list.iter()
-                .map(|(bytes, mime, name)| AttachmentMeta { name: name.clone(), mime: mime.clone(), size_bytes: bytes.len() as u64 })
+                .map(|e| AttachmentMeta { name: e.name.clone(), mime: e.mime.clone(), size_bytes: e.bytes.len() as u64 })
                 .collect()
         })
         .unwrap_or_default()
@@ -118,14 +127,75 @@ pub fn remove_attachment_from_session(app: AppHandle, state: State<'_, AppState>
     Ok(())
 }
 
-/// Dùng nội bộ trong ai.rs — trả về (base64, mime_type, tên file) của TOÀN
-/// BỘ file đính kèm của phiên, đúng thứ tự đã thêm.
-pub fn get_attachment_chain_base64(state: &State<'_, AppState>, window_label: &str) -> Vec<(String, String, String)> {
-    state
-        .attachment_sessions
-        .lock()
-        .unwrap()
-        .get(window_label)
-        .map(|list| list.iter().map(|(bytes, mime, name)| (STANDARD.encode(bytes), mime.clone(), name.clone())).collect())
-        .unwrap_or_default()
+/// Ảnh chụp nhanh (snapshot, `Clone`) TOÀN BỘ file đính kèm của phiên tại
+/// thời điểm gọi — KHÔNG giữ khoá `attachment_sessions` xuyên suốt lúc chờ
+/// mạng (`resolve_attachments_for_request` bên dưới có thể phải `.await` 1
+/// lượt upload File API), tránh chặn các thao tác đính/xoá file khác trong
+/// lúc đang hỏi AI.
+fn snapshot_attachments(state: &State<'_, AppState>, window_label: &str) -> Vec<AttachmentEntry> {
+    state.attachment_sessions.lock().unwrap().get(window_label).cloned().unwrap_or_default()
+}
+
+/// Ghi lại `file_uri` vừa upload được cho ĐÚNG file đó — so khớp theo
+/// tên + kích thước (đơn giản hơn thêm hẳn 1 id riêng cho từng file, đủ phân
+/// biệt trong giới hạn tối đa MAX_ATTACHMENTS file/phiên). Lần hỏi SAU trong
+/// cùng phiên đọc lại cache này, KHÔNG upload lại (Google giữ file sống ~48h,
+/// xem file_api.rs).
+fn cache_uploaded_file_uri(state: &State<'_, AppState>, window_label: &str, name: &str, size: usize, file_uri: &str) {
+    if let Some(list) = state.attachment_sessions.lock().unwrap().get_mut(window_label) {
+        if let Some(entry) = list.iter_mut().find(|e| e.name == name && e.bytes.len() == size) {
+            entry.file_uri = Some(file_uri.to_string());
+        }
+    }
+}
+
+/// 1 phần đính kèm ĐÃ QUYẾT ĐỊNH xong cách gửi cho Gemini — `Inline` (file
+/// nhỏ, base64 thẳng trong request, như hành vi cũ) hoặc `FileRef` (file
+/// lớn, tham chiếu qua `file_uri` đã upload qua File API). ai.rs chỉ cần
+/// match 2 nhánh này để build đúng field JSON (`inline_data` hay `file_data`),
+/// không cần biết logic ngưỡng/cache nằm ở đâu.
+pub enum AttachmentPart {
+    Inline { b64: String, mime: String, name: String },
+    FileRef { uri: String, mime: String, name: String },
+}
+
+/// Quyết định cách gửi TỪNG file đính kèm của phiên cho lượt hỏi hiện tại —
+/// file nhỏ hơn `file_api::INLINE_THRESHOLD_BYTES` gửi inline như cũ, file
+/// lớn hơn thì upload qua File API (dùng lại `file_uri` đã cache nếu có).
+/// Upload lỗi (mạng/Google từ chối...) KHÔNG làm hỏng cả lượt hỏi — fallback
+/// về gửi inline như file nhỏ (chấp nhận payload lớn hơn 1 lần còn hơn hỏng
+/// hẳn câu hỏi vì lỗi phụ ở bước tối ưu).
+pub async fn resolve_attachments_for_request(
+    client: &reqwest::Client,
+    auth: &crate::ai::GeminiAuth,
+    state: &State<'_, AppState>,
+    window_label: &str,
+) -> Vec<AttachmentPart> {
+    let snapshot = snapshot_attachments(state, window_label);
+    let mut out = Vec::with_capacity(snapshot.len());
+
+    for entry in snapshot {
+        if entry.bytes.len() <= crate::file_api::INLINE_THRESHOLD_BYTES {
+            out.push(AttachmentPart::Inline { b64: STANDARD.encode(&entry.bytes), mime: entry.mime, name: entry.name });
+            continue;
+        }
+
+        if let Some(uri) = entry.file_uri.clone() {
+            out.push(AttachmentPart::FileRef { uri, mime: entry.mime, name: entry.name });
+            continue;
+        }
+
+        match crate::file_api::upload_file(client, auth, &entry.mime, &entry.name, &entry.bytes).await {
+            Ok(uri) => {
+                cache_uploaded_file_uri(state, window_label, &entry.name, entry.bytes.len(), &uri);
+                out.push(AttachmentPart::FileRef { uri, mime: entry.mime, name: entry.name });
+            }
+            Err(e) => {
+                eprintln!("[snip-ai][attachments] Upload File API lỗi cho \"{}\": {e} — gửi inline thay thế", entry.name);
+                out.push(AttachmentPart::Inline { b64: STANDARD.encode(&entry.bytes), mime: entry.mime, name: entry.name });
+            }
+        }
+    }
+
+    out
 }

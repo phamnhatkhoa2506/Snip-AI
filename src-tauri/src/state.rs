@@ -112,12 +112,9 @@ pub struct AppState {
     /// Tài liệu đính kèm (ảnh/PDF) NGOÀI ảnh/video chính đã chụp — GIAI ĐOẠN 1
     /// của tính năng "đính kèm file" (xem attachments.rs), phục vụ trường hợp
     /// người dùng chụp 1 vùng nhỏ nhưng muốn đưa thêm tài liệu gốc (PDF nhiều
-    /// trang, ảnh chụp khác...) làm ngữ cảnh. Mỗi phần tử: (bytes, mime_type,
-    /// tên file gốc) — khác `crop_sessions`/`video_sessions` (chỉ 1 mime cố
-    /// định suy ra từ ngữ cảnh), ở đây mime khác nhau tuỳ file nên phải lưu
-    /// tường minh từng phần tử. Dọn dẹp khi cửa sổ đóng, cùng chỗ với
-    /// crop_sessions/video_sessions (xem on_window_event trong lib.rs).
-    pub attachment_sessions: Mutex<HashMap<String, Vec<(Vec<u8>, String, String)>>>,
+    /// trang, ảnh chụp khác...) làm ngữ cảnh. Dọn dẹp khi cửa sổ đóng, cùng
+    /// chỗ với crop_sessions/video_sessions (xem on_window_event trong lib.rs).
+    pub attachment_sessions: Mutex<HashMap<String, Vec<AttachmentEntry>>>,
 
     /// Dữ liệu tạm để cửa sổ "Kết quả AI" MỚI MỞ nạp thẳng vào chế độ "đang
     /// chat" khi người dùng bấm "Tiếp tục hội thoại" từ Lịch sử — key = label
@@ -154,6 +151,19 @@ impl MediaKind {
 pub struct MediaItem {
     pub bytes: Vec<u8>,
     pub kind: MediaKind,
+}
+
+/// 1 file đính kèm (ảnh/PDF, xem attachments.rs) — GIỮ NGUYÊN `bytes` gốc dù
+/// đã upload qua Gemini File API (không phải mọi lượt hỏi đều đi qua File
+/// API nếu người dùng đổi ý/xoá rồi thêm lại), `file_uri` chỉ là CACHE của
+/// lần upload gần nhất còn dùng được (~48h, xem file_api.rs) — tránh upload
+/// lại y hệt file đó mỗi lần hỏi thêm trong cùng phiên.
+#[derive(Clone, Debug)]
+pub struct AttachmentEntry {
+    pub bytes: Vec<u8>,
+    pub mime: String,
+    pub name: String,
+    pub file_uri: Option<String>,
 }
 
 /// Nối 1 ảnh/video vào CUỐI chuỗi của phiên `window_label` — dùng chung cho

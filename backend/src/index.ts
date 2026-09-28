@@ -203,6 +203,54 @@ export default {
       });
     }
 
+    // Upload 1 file đính kèm LỚN (ảnh/PDF, xem attachments.rs + file_api.rs
+    // phía Rust) qua Gemini File API — chỉ nhận RAW BYTES làm body (không
+    // phải JSON) để khỏi phải base64-hoá thêm 1 lớp nữa cho vô ích (client đã
+    // gửi thẳng bytes gốc). `x-gemini-mime`/`x-gemini-filename` mang theo
+    // metadata cần thiết vì body không còn chỗ chứa gì khác ngoài bytes.
+    if (url.pathname === "/v1/gemini/upload" && request.method === "POST") {
+      const user = await authenticate(request, env);
+      if (!user) return unauthorized();
+
+      const mimeType = request.headers.get("x-gemini-mime") ?? "";
+      const filenameHeader = request.headers.get("x-gemini-filename") ?? "file";
+      if (!mimeType) {
+        return json({ error: "Thiếu header x-gemini-mime" }, 400);
+      }
+
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      if (bytes.byteLength === 0) {
+        return json({ error: "File rỗng" }, 400);
+      }
+
+      let keys: string[];
+      try {
+        keys = JSON.parse(env.GEMINI_API_KEYS);
+        if (!Array.isArray(keys) || keys.length === 0) throw new Error("empty");
+      } catch {
+        return json({ error: "Backend chưa cấu hình đúng GEMINI_API_KEYS (phải là JSON array khác rỗng)" }, 500);
+      }
+
+      // Cùng Durable Object GHIM CỨNG vị trí ("wnam") với lệnh hỏi AI chính
+      // (xem geminiProxy.ts) — upload cũng gọi thẳng Google, dính CÙNG lỗi
+      // chặn vùng nếu không ghim vị trí y hệt.
+      const proxy = env.GEMINI_PROXY.getByName("gemini", { locationHint: "wnam" });
+      const resp = await proxy.fetch("https://gemini-proxy.internal/upload", {
+        method: "POST",
+        headers: {
+          "x-gemini-keys": JSON.stringify(keys),
+          "x-gemini-mime": mimeType,
+          "x-gemini-filename": filenameHeader,
+        },
+        body: bytes,
+      });
+
+      return new Response(resp.body, {
+        status: resp.status,
+        headers: { "content-type": resp.headers.get("content-type") ?? "application/json" },
+      });
+    }
+
     // Khảo sát mức độ hài lòng — KHÔNG bắt buộc đăng nhập (người dùng chưa
     // đăng nhập Google, đang tự dùng API key riêng, vẫn nên khảo sát được
     // bình thường). Có đăng nhập thì gắn kèm email để biết ai gửi, không thì

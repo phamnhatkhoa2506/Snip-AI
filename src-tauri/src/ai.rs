@@ -354,7 +354,7 @@ fn finalize(full: String) -> String {
 ///   API key đã gỡ hẳn cùng đợt bỏ NVIDIA/OpenAI/Anthropic — app bắt buộc
 ///   đăng nhập Google mới cho snip) — giữ lại trong code phòng trường hợp
 ///   sau này cần mở lại đường nâng cao này, không phải code chết vô nghĩa.
-enum GeminiAuth {
+pub(crate) enum GeminiAuth {
     Backend { token: String },
     Direct { api_key: String },
 }
@@ -402,8 +402,13 @@ pub async fn ask_ai_gemini(
     // khi chuỗi rỗng — mọi chỗ dùng bên dưới đều tự bỏ qua trong trường hợp đó.
     let mime_type = media_chain.last().map(|m| m.1);
     // Tài liệu đính kèm THÊM (ảnh/PDF, xem attachments.rs) — hoàn toàn TÙY
-    // CHỌN, phiên nào không đính gì thì đây luôn là mảng rỗng.
-    let attachments = crate::attachments::get_attachment_chain_base64(&state, &window_label);
+    // CHỌN, phiên nào không đính gì thì đây luôn là mảng rỗng. File nhỏ gửi
+    // inline như cũ, file lớn tự động upload qua Gemini File API (xem
+    // file_api.rs + resolve_attachments_for_request) — cần `client` sớm hơn
+    // chỗ dùng cũ (trước đây chỉ lấy ngay trước lúc gọi streamGenerateContent)
+    // vì bước upload này cũng dùng chung 1 client, chạy TRƯỚC khi build `contents`.
+    let client = &app.state::<HttpClientState>().client;
+    let resolved_attachments = crate::attachments::resolve_attachments_for_request(client, &auth, &state, &window_label).await;
 
     // Có `region` VÀ phần tử mới nhất là ảnh (không áp dụng cho video) -> cắt
     // tạm đúng vùng đó để gửi CHO LƯỢT NÀY, không đụng gì tới ảnh gốc lưu
@@ -451,12 +456,25 @@ pub async fn ask_ai_gemini(
                 // Mỗi file đính kèm kèm 1 dòng text ghi rõ TÊN FILE ngay trước
                 // — giúp model phân biệt/nhắc lại đúng tên khi có NHIỀU file
                 // đính kèm cùng lúc, thay vì chỉ thấy 1 khối inline_data trần
-                // không rõ là tài liệu nào.
-                for (b64, mime, name) in &attachments {
-                    parts.push(serde_json::json!({"text": format!("Tệp đính kèm: {name}")}));
-                    parts.push(serde_json::json!({
-                        "inline_data": {"mime_type": mime, "data": b64}
-                    }));
+                // không rõ là tài liệu nào. File nhỏ gửi `inline_data` (base64)
+                // như trước, file lớn (đã upload qua File API, xem
+                // resolve_attachments_for_request) gửi `file_data` (chỉ
+                // tham chiếu URI, không nhồi base64 khổng lồ vào request).
+                for part in &resolved_attachments {
+                    match part {
+                        crate::attachments::AttachmentPart::Inline { b64, mime, name } => {
+                            parts.push(serde_json::json!({"text": format!("Tệp đính kèm: {name}")}));
+                            parts.push(serde_json::json!({
+                                "inline_data": {"mime_type": mime, "data": b64}
+                            }));
+                        }
+                        crate::attachments::AttachmentPart::FileRef { uri, mime, name } => {
+                            parts.push(serde_json::json!({"text": format!("Tệp đính kèm: {name}")}));
+                            parts.push(serde_json::json!({
+                                "file_data": {"mime_type": mime, "file_uri": uri}
+                            }));
+                        }
+                    }
                 }
             }
             serde_json::json!({"role": role, "parts": parts})
@@ -477,7 +495,7 @@ pub async fn ask_ai_gemini(
     if use_search {
         system_text.push_str(GEMINI_SEARCH_INSTRUCTION);
     }
-    if !attachments.is_empty() {
+    if !resolved_attachments.is_empty() {
         system_text.push_str(GEMINI_ATTACHMENT_INSTRUCTION);
     }
     let mut base_body = serde_json::json!({
@@ -532,7 +550,6 @@ pub async fn ask_ai_gemini(
         }
     };
 
-    let client = &app.state::<HttpClientState>().client;
     let send = |body: &serde_json::Value| {
         let req = client.post(&endpoint).header("Accept", "text/event-stream").json(body);
         match &auth {

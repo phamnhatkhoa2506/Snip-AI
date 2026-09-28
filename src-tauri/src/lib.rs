@@ -4,6 +4,7 @@ mod capture;
 mod clipboard_copy;
 mod commands;
 mod export;
+mod file_api;
 mod history;
 mod hotkey;
 mod oauth;
