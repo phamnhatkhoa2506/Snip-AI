@@ -6,6 +6,15 @@
 // hẳn cho `function-plot` (dựng trên d3) — xem rule mới trong SYSTEM_PROMPT
 // (ai.rs) dặn AI dùng khối này cho đồ thị hàm số/khảo sát hàm.
 //
+// ANIMATION (chuyển động theo công thức): khai báo thêm `time` thì công thức
+// được dùng biến thời gian `t` — đường cong biến đổi theo `t` (sóng lan
+// truyền, đồ thị đổi tham số...) và/hoặc các điểm chuyển động có toạ độ
+// x(t), y(t) (ném xiên, con lắc, dao động...), kèm nút Play/Pause + thanh kéo
+// `t`. Vẫn giữ đúng nguyên tắc: AI CHỈ khai báo công thức, mọi vị trí ở mọi
+// khung hình đều TÍNH TỪ CÔNG THỨC (bộ tính biểu thức của chính function-plot)
+// — không có chuyện AI tự "hoạ" từng khung, và không chạy bất kỳ code JS nào
+// do AI viết.
+//
 // Cùng pattern với mermaid.ts: markdown.ts để khối ```plot hiện thành code
 // block bình thường trước (marked tự escape nội dung JSON an toàn), action
 // `plotBlocks` bên dưới quét DOM SAU KHI đã chèn vào trang, thay bằng chart
@@ -20,7 +29,12 @@ let functionPlotPromise: ReturnType<typeof loadFunctionPlot> | null = null;
 /** Kiểu hàm thật sự (`options => Chart`) — tách riêng type này vì bên dưới
  * phải tự dò đúng chỗ hàm nằm (xem giải thích), không thể chỉ viết
  * `typeof import("function-plot").default` như bình thường. */
-type FunctionPlotFn = (options: FunctionPlotOptions) => unknown;
+type FunctionPlotFn = ((options: FunctionPlotOptions) => { draw(): void }) & {
+  /** Bộ tính biểu thức dựng sẵn của function-plot (cùng cú pháp với `fn`) —
+   * dùng để tính toạ độ điểm chuyển động theo `t` (xem `movingPoints`), không
+   * tự viết/nhúng thêm 1 bộ parser toán riêng. */
+  $eval?: { builtIn: (meta: object, property: string, variables: object) => number };
+};
 
 /** LỖI THỰC TẾ đã gặp: gọi thẳng `(await import("function-plot")).default(...)`
  * ra "TypeError: functionPlot is not a function". Nguyên nhân: `function-plot`
@@ -54,7 +68,7 @@ function ensureFunctionPlot() {
   return functionPlotPromise;
 }
 
-/** Cú pháp JSON đơn giản AI phải theo (xem PROMPT_PLOT trong ai.rs) — CHỈ
+/** Cú pháp JSON đơn giản AI phải theo (xem rule ```plot trong ai.rs) — CHỈ
  * khai báo công thức/miền giá trị/điểm đáng chú ý bằng SỐ THẬT, KHÔNG tự tính
  * toạ độ pixel hay tự vẽ path gì cả — function-plot lo hết phần vẽ chính xác
  * từ công thức, loại bỏ hẳn rủi ro AI "hoạ" sai tỉ lệ/điểm cực trị/giao điểm. */
@@ -64,6 +78,12 @@ interface PlotSpec {
   yDomain?: [number, number];
   functions?: { fn: string; color?: string; label?: string }[];
   points?: { x: number; y: number; label?: string }[];
+  /** Có field này = bật animation: biến `t` chạy từ `from` tới `to`
+   * (`duration` giây thật cho 1 lượt phát, `loop` phát lặp lại). */
+  time?: { from?: number; to: number; duration?: number; loop?: boolean };
+  /** Điểm chuyển động — toạ độ là BIỂU THỨC theo `t` (VD ném xiên:
+   * x = "10*t", y = "10*t - 4.9*t^2"). `trail`: vẽ vệt quỹ đạo đã đi qua. */
+  movingPoints?: { x: string; y: string; label?: string; color?: string; trail?: boolean }[];
 }
 
 function parsePlotSpec(source: string): PlotSpec | null {
@@ -81,10 +101,51 @@ function parsePlotSpec(source: string): PlotSpec | null {
  * là màu mặc định khi AI không chỉ định. */
 const DEFAULT_COLORS = ["#7c5cff", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4"];
 
-function buildOptions(spec: PlotSpec, target: HTMLElement, width: number, height: number): FunctionPlotOptions {
+interface TimeRange {
+  from: number;
+  to: number;
+  /** Số giây thật cho 1 lượt phát từ `from` tới `to`. */
+  duration: number;
+  loop: boolean;
+}
+
+/** Chuẩn hoá `time` AI khai báo — thiếu/sai thì coi như KHÔNG có animation
+ * (đồ thị tĩnh như cũ), không lỗi. `duration` mặc định = đúng khoảng `t` (nếu
+ * `t` là giây vật lý thì phát ĐÚNG tốc độ thật), kẹp trong 2–12 giây để không
+ * quá chớp nhoáng hay quá lê thê. */
+function normalizeTime(spec: PlotSpec): TimeRange | null {
+  const time = spec.time;
+  if (!time || !Number.isFinite(time.to)) return null;
+  const from = Number.isFinite(time.from) ? (time.from as number) : 0;
+  if (!(time.to > from)) return null;
+  const rawDuration = Number.isFinite(time.duration) ? (time.duration as number) : time.to - from;
+  return { from, to: time.to, duration: Math.min(12, Math.max(2, rawDuration)), loop: time.loop !== false };
+}
+
+/** Dựng options cho function-plot từ `spec`, kèm hàm `update(t)` — gán lại
+ * `t` vào đúng các datum cần đổi (scope của đường cong, vị trí điểm chuyển
+ * động, vệt quỹ đạo, nhãn) rồi để caller gọi `chart.draw()`. Datum là object
+ * GIỮ NGUYÊN qua các khung hình (chỉ sửa field), đúng cách function-plot
+ * khuyến nghị để vẽ lại nhanh mà không dựng lại cả chart. */
+function buildOptions(
+  functionPlot: FunctionPlotFn,
+  spec: PlotSpec,
+  target: HTMLElement,
+  width: number,
+  height: number,
+): { options: FunctionPlotOptions; update: (t: number) => void; time: TimeRange | null } {
+  const time = normalizeTime(spec);
+  // 1 object `scope` DÙNG CHUNG cho mọi đường cong — đổi `scope.t` 1 lần là
+  // mọi công thức có `t` tự tính lại ở lần `draw()` kế tiếp.
+  const scope = { t: time?.from ?? 0 };
+
   const data: FunctionPlotDatum[] = (spec.functions ?? [])
     .filter((f) => typeof f.fn === "string" && f.fn.trim())
-    .map((f, i) => ({ fn: f.fn, color: f.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length] }));
+    .map((f, i) => ({
+      fn: f.fn,
+      color: f.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+      ...(time ? { scope } : {}),
+    }));
 
   const points = (spec.points ?? []).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
   if (points.length > 0) {
@@ -94,6 +155,9 @@ function buildOptions(spec: PlotSpec, target: HTMLElement, width: number, height
       graphType: "scatter",
       color: "#ef4444",
       skipTip: true,
+      // Chấm mặc định của function-plot chỉ bán kính 1px, ruột gần như trắng
+      // — gần như không thấy trên nền trắng.
+      attr: { r: 4, fill: "#ef4444", opacity: 1 },
     });
     // Nhãn từng điểm (nếu có) là 1 datum "text" RIÊNG mỗi điểm — function-plot
     // không hỗ trợ gắn nhãn kèm theo scatter, phải khai báo tách rời.
@@ -109,16 +173,203 @@ function buildOptions(spec: PlotSpec, target: HTMLElement, width: number, height
     }
   }
 
+  // ── Điểm chuyển động (chỉ khi có `time`) ────────────────────────────────
+  const evalBuiltIn = functionPlot.$eval?.builtIn;
+  const movers = time && evalBuiltIn
+    ? (spec.movingPoints ?? [])
+        .filter((m) => typeof m.x === "string" && typeof m.y === "string")
+        .map((m, i) => {
+          const color = m.color || DEFAULT_COLORS[(i + 3) % DEFAULT_COLORS.length];
+          // Object `meta` GIỮ NGUYÊN qua mọi khung hình — builtIn biên dịch
+          // biểu thức 1 lần rồi cache ngay trên object này, không biên dịch
+          // lại 30 lần/giây.
+          const xMeta = { fn: m.x };
+          const yMeta = { fn: m.y };
+          const pointDatum = {
+            points: [[0, 0]],
+            fnType: "points",
+            graphType: "scatter",
+            color,
+            skipTip: true,
+            attr: { r: 6, fill: color, opacity: 1 },
+          } as FunctionPlotDatum;
+          const trailDatum =
+            m.trail !== false
+              ? ({ points: [[0, 0], [0, 0]], fnType: "points", graphType: "polyline", color, skipTip: true } as FunctionPlotDatum)
+              : null;
+          const labelDatum = m.label
+            ? ({ graphType: "text", fnType: "points", location: [0, 0], text: m.label, skipTip: true } as FunctionPlotDatum)
+            : null;
+          return { xMeta, yMeta, pointDatum, trailDatum, labelDatum };
+        })
+    : [];
+  for (const mv of movers) {
+    if (mv.trailDatum) data.push(mv.trailDatum);
+    data.push(mv.pointDatum);
+    if (mv.labelDatum) data.push(mv.labelDatum);
+  }
+
+  const posAt = (mv: (typeof movers)[number], t: number): [number, number] => [
+    evalBuiltIn!(mv.xMeta, "fn", { t }),
+    evalBuiltIn!(mv.yMeta, "fn", { t }),
+  ];
+
+  function update(t: number) {
+    scope.t = t;
+    if (!time) return;
+    for (const mv of movers) {
+      const [x, y] = posAt(mv, t);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      mv.pointDatum.points = [[x, y]];
+      if (mv.labelDatum) mv.labelDatum.location = [x, y];
+      if (mv.trailDatum) {
+        // Lấy mẫu quỹ đạo từ `from` tới `t` hiện tại — mật độ theo tỉ lệ
+        // quãng đã đi (tối đa ~120 điểm cả lượt), polyline cần ≥ 2 điểm.
+        const n = Math.max(2, Math.ceil(((t - time.from) / (time.to - time.from)) * 120) + 1);
+        const trail: number[][] = [];
+        for (let k = 0; k < n; k++) {
+          const tk = time.from + ((t - time.from) * k) / (n - 1);
+          const p = posAt(mv, tk);
+          if (Number.isFinite(p[0]) && Number.isFinite(p[1])) trail.push(p);
+        }
+        mv.trailDatum.points = trail.length >= 2 ? trail : [[x, y], [x, y]];
+      }
+    }
+  }
+
+  // Tính SẴN khung đầu tiên trước khi dựng chart — không để chấm/vệt nằm ở
+  // (0,0) giả 1 nhịp. Biểu thức sai cú pháp sẽ ném lỗi NGAY ở đây, rơi về
+  // nhánh "giữ nguyên khối code gốc" của caller.
+  update(scope.t);
+
   return {
-    target,
-    width,
-    height,
-    title: spec.title,
-    grid: true,
-    xAxis: spec.xDomain ? { domain: spec.xDomain } : undefined,
-    yAxis: spec.yDomain ? { domain: spec.yDomain } : undefined,
-    data,
+    options: {
+      target,
+      width,
+      height,
+      title: spec.title,
+      grid: true,
+      xAxis: spec.xDomain ? { domain: spec.xDomain } : undefined,
+      yAxis: spec.yDomain ? { domain: spec.yDomain } : undefined,
+      data,
+    },
+    update,
+    time,
   };
+}
+
+/** Dựng chart vào `chartEl` — nếu có `time` thì thêm thanh điều khiển
+ * (Play/Pause + thanh kéo `t` + nhãn giá trị `t`) ngay dưới và TỰ PHÁT 1 lần.
+ * Dùng chung cho bản nhúng trong bong bóng chat lẫn modal phóng to. */
+function mountPlot(functionPlot: FunctionPlotFn, spec: PlotSpec, chartEl: HTMLElement, width: number, height: number): void {
+  const { options, update, time } = buildOptions(functionPlot, spec, chartEl, width, height);
+  const chart = functionPlot(options);
+  if (!time) return;
+
+  const bar = document.createElement("div");
+  bar.style.cssText =
+    "display:flex;align-items:center;gap:8px;padding:6px 10px 8px;border-top:1px solid #eee;" +
+    "font:12px system-ui,sans-serif;color:#333;";
+  const playBtn = document.createElement("button");
+  playBtn.type = "button";
+  playBtn.style.cssText =
+    "width:28px;height:24px;border-radius:6px;border:1px solid #d4d4d4;background:#fafafa;color:#222;" +
+    "cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;font-size:12px;";
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = String(time.from);
+  slider.max = String(time.to);
+  slider.step = String((time.to - time.from) / 500);
+  slider.style.cssText = "flex:1;min-width:0;accent-color:#7c5cff;";
+  const tLabel = document.createElement("span");
+  tLabel.style.cssText = "min-width:62px;text-align:right;font-variant-numeric:tabular-nums;";
+  bar.append(playBtn, slider, tLabel);
+  chartEl.appendChild(bar);
+
+  let t = time.from;
+  let playing = false;
+  let rafId = 0;
+  let lastFrame = 0;
+  let lastDraw = 0;
+
+  function render() {
+    try {
+      update(t);
+      chart.draw();
+    } catch (e) {
+      // Biểu thức lỗi ở 1 giá trị `t` nào đó (VD chia cho 0) — dừng phát,
+      // giữ khung hình cuối cùng vẽ được, không làm vỡ giao diện.
+      console.warn("[snip-ai] Lỗi tính khung hình animation, dừng phát:", e);
+      pause();
+    }
+    slider.value = String(t);
+    tLabel.textContent = `t = ${t.toFixed(2)}`;
+  }
+
+  function setPlaying(next: boolean) {
+    playing = next;
+    playBtn.textContent = playing ? "❚❚" : "▶";
+    playBtn.title = playing ? "Tạm dừng" : "Phát";
+    playBtn.setAttribute("aria-label", playBtn.title);
+  }
+
+  function pause() {
+    setPlaying(false);
+    cancelAnimationFrame(rafId);
+  }
+
+  function frame(now: number) {
+    // Khối đồ thị đã bị gỡ khỏi trang (đóng modal, cửa sổ chat vẽ lại...) —
+    // dừng hẳn vòng lặp, không chạy ngầm mãi.
+    if (!chartEl.isConnected) {
+      pause();
+      return;
+    }
+    const dt = lastFrame ? (now - lastFrame) / 1000 : 0;
+    lastFrame = now;
+    t += (dt / time!.duration) * (time!.to - time!.from);
+    if (t >= time!.to) {
+      if (time!.loop) {
+        t = time!.from;
+      } else {
+        t = time!.to;
+        render();
+        pause();
+        return;
+      }
+    }
+    // Vẽ lại tối đa ~30 khung/giây — đủ mượt cho minh hoạ, đỡ tốn CPU hơn
+    // hẳn vẽ lại toàn bộ SVG ở 60 khung/giây.
+    if (now - lastDraw >= 33) {
+      lastDraw = now;
+      render();
+    }
+    rafId = requestAnimationFrame(frame);
+  }
+
+  function play() {
+    if (t >= time!.to) t = time!.from; // đã chạy hết (không lặp) -> phát lại từ đầu
+    setPlaying(true);
+    lastFrame = 0;
+    rafId = requestAnimationFrame(frame);
+  }
+
+  playBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (playing) pause();
+    else play();
+  });
+  // Kéo thanh `t` = tự xem từng khung — dừng phát tự động để khỏi bị giật
+  // ngược lại vị trí cũ ngay khi thả tay.
+  slider.addEventListener("input", () => {
+    pause();
+    t = Number(slider.value);
+    render();
+  });
+
+  setPlaying(false);
+  render();
+  play();
 }
 
 async function renderPlotBlocks(container: HTMLElement): Promise<void> {
@@ -141,8 +392,9 @@ async function renderPlotBlocks(container: HTMLElement): Promise<void> {
     // dùng vẫn đọc được ý định bằng JSON thô, không vỡ cả câu trả lời.
     if (!spec) continue;
 
+    let wrapper: HTMLDivElement | null = null;
     try {
-      const wrapper = document.createElement("div");
+      wrapper = document.createElement("div");
       wrapper.className = "function-plot-chart";
       // Nền TRẮNG CỐ ĐỊNH (không theo `var(--color-bg-elevated)` đổi theo
       // theme app nữa) — trục/lưới/nhãn của function-plot vẽ màu tối theo
@@ -161,7 +413,11 @@ async function renderPlotBlocks(container: HTMLElement): Promise<void> {
       const width = Math.max(240, Math.min(420, container.clientWidth || 420));
       chartEl.style.cssText = `width:${width}px;max-width:100%;`;
       wrapper.appendChild(chartEl);
-      functionPlot(buildOptions(spec, chartEl, width, 260));
+      // Gắn vào trang TRƯỚC khi dựng — vòng lặp animation tự dừng khi
+      // `chartEl` không còn trong trang (`isConnected`), dựng lúc chưa gắn
+      // thì khung hình đầu tiên đã tưởng bị gỡ và dừng ngay.
+      pre.replaceWith(wrapper);
+      mountPlot(functionPlot, spec, chartEl, width, 260);
 
       const zoomBtn = document.createElement("button");
       zoomBtn.type = "button";
@@ -180,7 +436,8 @@ async function renderPlotBlocks(container: HTMLElement): Promise<void> {
       wrapper.appendChild(zoomBtn);
 
       // Tải PNG — function-plot vẽ bằng SVG nên tận dụng thẳng
-      // `exportSvgAsPng` (dùng chung với mermaid.ts/svgFigure.ts).
+      // `exportSvgAsPng` (dùng chung với mermaid.ts/svgFigure.ts). Có
+      // animation thì ra đúng khung hình ĐANG HIỆN lúc bấm.
       const svgEl = chartEl.querySelector("svg");
       if (svgEl) {
         const downloadBtn = document.createElement("button");
@@ -201,13 +458,13 @@ async function renderPlotBlocks(container: HTMLElement): Promise<void> {
         });
         wrapper.appendChild(downloadBtn);
       }
-
-      pre.replaceWith(wrapper);
     } catch (e) {
       // Công thức AI sinh ra có thể sai cú pháp math-eval (hallucinate) —
       // KHÔNG để lỗi này làm vỡ cả câu trả lời, giữ nguyên khối code gốc.
       console.warn("[snip-ai] Không vẽ được đồ thị, giữ nguyên code gốc:", e);
-      pre.dataset.plotTried = "1";
+      // Wrapper đã được gắn vào trang TRƯỚC khi dựng (xem ghi chú ở trên) —
+      // lỗi thì trả lại đúng khối code gốc vào chỗ cũ.
+      if (wrapper?.isConnected) wrapper.replaceWith(pre);
     }
   }
 }
@@ -231,7 +488,8 @@ export const plotBlocks: Action<HTMLElement, unknown> = (node) => {
 // function-plot MỚI, to hơn, từ ĐÚNG `spec` đã parse — không tái dùng SVG cũ
 // (tái dùng sẽ mất mọi hành vi zoom/pan gắn kèm, xem cảnh báo trong JSDoc của
 // hàm `functionPlot` upstream: options nên được tạo mới mỗi lần build chart
-// mới, không phải "nhân bản" DOM đã vẽ sẵn).
+// mới, không phải "nhân bản" DOM đã vẽ sẵn). Có animation thì modal cũng có
+// thanh Play/Pause riêng (mountPlot dùng chung).
 
 const ZOOM_ICON_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" ' +
@@ -243,7 +501,7 @@ const DOWNLOAD_ICON_SVG =
   'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
   '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19h16"/></svg>';
 
-function openPlotZoomModal(functionPlot: Awaited<ReturnType<typeof loadFunctionPlot>>, spec: PlotSpec): void {
+function openPlotZoomModal(functionPlot: FunctionPlotFn, spec: PlotSpec): void {
   const overlay = document.createElement("div");
   overlay.style.cssText =
     "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.82);" +
@@ -273,6 +531,8 @@ function openPlotZoomModal(functionPlot: Awaited<ReturnType<typeof loadFunctionP
 
   function close() {
     document.removeEventListener("keydown", onKeydown);
+    // Gỡ khỏi trang -> vòng lặp animation (nếu có) tự dừng ở khung kế tiếp
+    // (xem kiểm tra `isConnected` trong mountPlot).
     overlay.remove();
   }
   function onKeydown(e: KeyboardEvent) {
@@ -289,6 +549,10 @@ function openPlotZoomModal(functionPlot: Awaited<ReturnType<typeof loadFunctionP
   // Kích thước lớn hơn hẳn bản nhúng trong bong bóng chat, nhưng vẫn chừa lề
   // để không tràn màn hình trên máy nhỏ.
   const width = Math.min(720, window.innerWidth - 120);
-  const height = Math.min(520, window.innerHeight - 160);
-  functionPlot(buildOptions(spec, chartEl, width, height));
+  const height = Math.min(520, window.innerHeight - 200);
+  try {
+    mountPlot(functionPlot, spec, chartEl, width, height);
+  } catch (e) {
+    console.warn("[snip-ai] Không dựng được đồ thị phóng to:", e);
+  }
 }

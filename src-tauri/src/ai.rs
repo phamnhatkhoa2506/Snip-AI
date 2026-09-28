@@ -102,6 +102,17 @@ cấu trúc sau — CHỈ khai báo công thức/miền giá trị, KHÔNG tự 
 {\"xDomain\": [-5, 5], \"yDomain\": [-10, 10], \"functions\": [{\"fn\": \"x^2 - 3*x + 2\", \"color\": \"#7c5cff\"}], \"points\": [{\"x\": 1, \"y\": 0, \"label\": \"A(1,0)\"}]}\n\
 `fn` viết theo cú pháp toán bình thường (^, *, /, sin, cos, sqrt, abs...). `xDomain`/`yDomain`/\
 `points` không bắt buộc — chỉ thêm khi thực sự cần.
+- Chuyển động/biến đổi THEO THỜI GIAN (ném xiên, rơi tự do, con lắc, dao động điều hoà, sóng lan \
+truyền, chuyển động tròn, đồ thị thay đổi theo tham số...) — vẫn dùng khối ```plot, thêm `time` để \
+bật ANIMATION (hệ thống tự có nút Phát/Tạm dừng + thanh kéo): biến `t` chạy từ `time.from` tới \
+`time.to`. Có 2 cách dùng `t`, dùng 1 hoặc cả 2: (a) `functions[].fn` chứa `t` — đường cong biến đổi \
+theo thời gian (VD sóng \"sin(x - 2*t)\"); (b) `movingPoints` — điểm chuyển động với toạ độ `x`, `y` là \
+BIỂU THỨC THEO `t` (tự vẽ vệt quỹ đạo đã đi qua, tắt bằng \"trail\": false). VD ném xiên v0 = 10 m/s, \
+góc 60°, g = 9.8:\n\
+{\"xDomain\": [0, 10], \"yDomain\": [0, 5], \"time\": {\"from\": 0, \"to\": 1.77}, \"movingPoints\": [{\"x\": \"5*t\", \"y\": \"8.66*t - 4.9*t^2\", \"label\": \"Vật\"}]}\n\
+Tự TÍNH SẴN các hằng số ra số cụ thể trong biểu thức (không dùng tên biến khác ngoài `t`), chọn \
+`time.to` đúng thời điểm kết thúc chuyển động thật (VD lúc vật chạm đất), và `xDomain`/`yDomain` đủ \
+rộng chứa trọn quỹ đạo. KHÔNG dùng khối ```svg hay tự vẽ từng khung hình cho chuyển động.
 - Hình học phẳng thuần tuý (tam giác, đường tròn, góc, chứng minh...) — KHÔNG có công thức để tính- \
 vẽ tự động như trên, KHÔNG dùng Mermaid: dùng ĐÚNG 1 khối mã ```svg chứa mã SVG hợp lệ (thẻ <svg> \
 cùng <line>/<circle>/<polygon>/<path>/<text>...) tự vẽ hình minh hoạ, ghi rõ nhãn điểm/góc/độ dài \
