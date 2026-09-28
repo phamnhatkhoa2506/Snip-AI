@@ -1949,9 +1949,9 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_media_has_caption -->
-        <!-- Video tự quay bằng app này KHÔNG có track âm thanh (đã tắt hẳn ở
-        record.rs) nên không có gì để phụ đề — cảnh báo a11y này không áp
-        dụng được. Bọc chung video + thanh kéo trong 1 khối chặn nổi bọt
+        <!-- Video tự quay không có sẵn phụ đề nào để gắn (tiếng, nếu bật, là
+        tiếng thu trực tiếp) — cảnh báo a11y này không áp dụng được. Bọc
+        chung video + thanh kéo trong 1 khối chặn nổi bọt
         click — thanh kéo nằm NGOÀI thẻ <video> nên cần chặn riêng, không
         thì bấm vào nó sẽ đóng mất modal (tính là bấm "ra ngoài"). -->
         <div onclick={(e) => e.stopPropagation()} class="flex flex-col items-center gap-3 max-w-[85vw]">

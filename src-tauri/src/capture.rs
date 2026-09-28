@@ -35,6 +35,41 @@ pub fn capture_primary_monitor() -> Result<(Vec<u8>, i32, i32, u32, u32), String
     Ok((png_bytes, x, y, width, height))
 }
 
+/// Chụp đúng 1 vùng (toạ độ TƯƠNG ĐỐI trong màn hình chính) thành buffer
+/// BGRA, các dòng xếp từ DƯỚI LÊN, kích thước đúng `w x h` — đúng định dạng
+/// `VideoEncoder::send_frame_buffer` cần (xem record.rs). Dùng làm "khung dự
+/// phòng" khi quay video mà Windows chưa kịp gửi khung hình nào (vùng quay
+/// đứng yên, hoặc bấm Dừng ngay lúc encoder vừa khởi động xong). Vùng nằm
+/// ngoài ảnh chụp thì phần thiếu tô đen, không panic.
+pub fn capture_region_bgra_bottom_up(x: u32, y: u32, w: u32, h: u32) -> Result<Vec<u8>, String> {
+    let monitors = Monitor::all().map_err(|e| format!("Không liệt kê được màn hình: {e}"))?;
+    let monitor = monitors
+        .iter()
+        .find(|m| m.is_primary())
+        .or_else(|| monitors.first())
+        .ok_or_else(|| "Không tìm thấy màn hình nào".to_string())?;
+    let image = monitor.capture_image().map_err(|e| format!("Chụp màn hình thất bại: {e}"))?;
+    let (img_w, img_h) = (image.width(), image.height());
+
+    let mut out = vec![0u8; w as usize * h as usize * 4];
+    for row in 0..h {
+        let src_y = y + (h - 1 - row);
+        if src_y >= img_h {
+            continue;
+        }
+        for col in 0..w {
+            let src_x = x + col;
+            if src_x >= img_w {
+                break;
+            }
+            let p = image.get_pixel(src_x, src_y).0;
+            let i = (row as usize * w as usize + col as usize) * 4;
+            out[i..i + 4].copy_from_slice(&[p[2], p[1], p[0], 255]);
+        }
+    }
+    Ok(out)
+}
+
 /// Crop ảnh PNG gốc (bytes) theo bbox (toạ độ TƯƠNG ĐỐI trong ảnh, không phải
 /// toạ độ màn hình), trả về PNG bytes của phần đã crop.
 ///

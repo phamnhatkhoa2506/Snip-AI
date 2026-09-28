@@ -136,6 +136,11 @@ pub struct AppState {
 
     /// Phiên Snap Audio đang thu, nếu có — xem audio_snap.rs.
     pub audio_snap: Mutex<Option<AudioSnapSession>>,
+
+    /// Phiên quay video đã THẬT SỰ bắt đầu ghi (encoder khởi động xong, có
+    /// thể mất vài giây) — thanh công cụ hỏi lại lúc mount phòng trường hợp
+    /// sự kiện "recording:started" bắn ra trước khi nó kịp lắng nghe.
+    pub recording_live: AtomicBool,
 }
 
 /// Trần số lượng media (ảnh HOẶC video) cho phép gom vào CÙNG 1 chuỗi/phiên —

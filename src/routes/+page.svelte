@@ -16,7 +16,13 @@
   } from "$lib/hotkey";
   import { loadTheme, setTheme, type ThemeMode } from "$lib/theme";
   import { loadTextSize, setTextSize, type TextSizeMode } from "$lib/textSize";
-  import { loadSettings, saveSettings, MIC_PERMISSION_ERROR_PREFIX, type AudioSnapSource } from "$lib/settings";
+  import {
+    loadSettings,
+    saveSettings,
+    MIC_PERMISSION_ERROR_PREFIX,
+    type AudioSnapSource,
+    type VideoAudioChoice,
+  } from "$lib/settings";
 
   let toast = $state<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -138,6 +144,19 @@
   function chooseAudioSource(value: AudioSnapSource) {
     audioSnapSource = value;
     persistAudioSettings();
+  }
+
+  // Tiếng trong VIDEO — dùng chung quyền micro/âm thanh máy với Snap Audio.
+  let videoAudio = $state<VideoAudioChoice>("none");
+  const VIDEO_AUDIO_OPTIONS: { value: VideoAudioChoice; label: string }[] = [
+    { value: "none", label: "Tắt" },
+    { value: "mic", label: "Micro" },
+    { value: "system", label: "Máy" },
+    { value: "both", label: "Cả hai" },
+  ];
+  function chooseVideoAudio(value: VideoAudioChoice) {
+    videoAudio = value;
+    saveSettings({ ...loadSettings(), videoAudio });
   }
 
   function openMicPrivacySettings() {
@@ -476,6 +495,7 @@
     systemAudioAllowed = initialSettings.systemAudioAllowed;
     audioSnapSource = initialSettings.audioSnapSource;
     autoSpeakAudioAnswers = initialSettings.autoSpeakAudioAnswers;
+    videoAudio = initialSettings.videoAudio;
     loadAudioHotkey();
     // Trễ 1 chút lúc mới mở app — không tranh giành sự chú ý với các bước
     // đầu (đăng nhập...) diễn ra ngay khi cửa sổ vừa hiện.
@@ -506,10 +526,12 @@
     </span>
   {/snippet}
 
-  {#snippet audioPermissions()}
-    <!-- Quyền + nguồn của Snap Audio. Windows không tự hỏi quyền micro cho
-    app desktop nên app tự xin ở đây — mặc định TẮT cả 2. -->
+  {#snippet audioPermissions(showSource: boolean)}
+    <!-- Quyền (+ nguồn của Snap Audio). Windows không tự hỏi quyền micro cho
+    app desktop nên app tự xin ở đây — mặc định TẮT cả 2. Dùng chung cho tab
+    Audio lẫn "Tiếng trong video" ở tab Video. -->
     <div class="card w-full max-w-[330px] p-3 flex flex-col gap-2.5 text-left mt-1">
+      {#if showSource}
       <div class="flex items-center justify-between gap-2">
         <span class="text-[11.5px] font-semibold">Nguồn ghi âm</span>
         <div class="flex rounded-lg p-0.5 gap-0.5" style="background: var(--color-bg-elevated); border: 1px solid var(--color-border);">
@@ -526,6 +548,7 @@
         </div>
       </div>
       <div class="h-px bg-border"></div>
+      {/if}
       <button onclick={toggleMicAllowed} disabled={micProbeBusy} class="flex items-center gap-2.5 text-left">
         <Icon name="mic" size={14} class="shrink-0 {micAllowed ? 'text-accent' : 'text-text-muted'}" />
         <span class="flex-1 min-w-0">
@@ -948,7 +971,7 @@
             {audioHotkeyError}
           </p>
         {/if}
-        {@render audioPermissions()}
+        {@render audioPermissions(true)}
       {:else}
         <p class="text-[13.5px] text-text-muted leading-relaxed">
           {#if capturingVideoHotkey}
@@ -979,6 +1002,24 @@
           <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed" transition:fade={{ duration: 140 }}>
             {videoHotkeyError}
           </p>
+        {/if}
+        <div class="flex items-center gap-2 mt-1">
+          <span class="text-[11.5px] font-medium text-text-muted">Tiếng trong video</span>
+          <div class="flex rounded-lg p-0.5 gap-0.5" style="background: var(--color-bg-elevated); border: 1px solid var(--color-border);">
+            {#each VIDEO_AUDIO_OPTIONS as opt (opt.value)}
+              <button
+                onclick={() => chooseVideoAudio(opt.value)}
+                class="px-2 py-1 rounded-md text-[11px] font-medium transition-colors {videoAudio === opt.value
+                  ? 'btn-accent'
+                  : 'text-text-muted hover:text-text'}"
+              >
+                {opt.label}
+              </button>
+            {/each}
+          </div>
+        </div>
+        {#if videoAudio !== "none"}
+          {@render audioPermissions(false)}
         {/if}
       {/if}
 

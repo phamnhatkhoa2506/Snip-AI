@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import Icon from "$lib/Icon.svelte";
 
   // Thanh công cụ nổi lúc đang quay video — kiểu Windows Snipping Tool (chấm
@@ -12,16 +13,40 @@
   let elapsedSec = $state(0);
   let busy = $state(false);
   let error = $state("");
+  /** Khởi động encoder video có thể mất VÀI GIÂY (đo thực tế 5–14s trên 1
+   * số máy) — chỉ đếm giờ khi Rust báo đã thật sự đang quay
+   * ("recording:started", xem record.rs), không thì người dùng tưởng đã quay
+   * được mấy giây trong khi chưa có gì. */
+  let started = $state(false);
 
   const mm = $derived(String(Math.floor(elapsedSec / 60)).padStart(2, "0"));
   const ss = $derived(String(elapsedSec % 60).padStart(2, "0"));
 
   onMount(() => {
-    const startedAt = Date.now();
-    const timer = setInterval(() => {
-      elapsedSec = Math.min(MAX_SECONDS, Math.floor((Date.now() - startedAt) / 1000));
-    }, 250);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    let unlisten: (() => void) | undefined;
+    const markStarted = () => {
+      if (started) return;
+      started = true;
+      const startedAt = Date.now();
+      timer = setInterval(() => {
+        elapsedSec = Math.min(MAX_SECONDS, Math.floor((Date.now() - startedAt) / 1000));
+      }, 250);
+    };
+    listen("recording:started", markStarted).then((fn) => {
+      unlisten = fn;
+      // Sự kiện có thể đã bắn TRƯỚC khi kịp lắng nghe (máy nhanh) — hỏi lại.
+      invoke<boolean>("is_recording_live").then((live) => live && markStarted()).catch(() => {});
+    });
+    let unlistenError: (() => void) | undefined;
+    listen<string>("recording:error", (e) => {
+      error = e.payload;
+    }).then((fn) => (unlistenError = fn));
+    return () => {
+      clearInterval(timer);
+      unlisten?.();
+      unlistenError?.();
+    };
   });
 
   async function handleStop() {
@@ -49,9 +74,14 @@
 
 <div class="w-screen h-screen flex items-center justify-center p-1.5">
   <div class="glass border border-border rounded-full h-full w-full flex items-center gap-2.5 px-3 shadow-lg">
-    <span class="w-2 h-2 rounded-full pulse-ring shrink-0" style="background: var(--color-danger);"></span>
-    <span class="text-[12.5px] font-mono font-semibold tabular-nums shrink-0">{mm}:{ss}</span>
-    <span class="text-[10px] text-text-muted shrink-0">/ 00:{MAX_SECONDS}</span>
+    {#if started}
+      <span class="w-2 h-2 rounded-full pulse-ring shrink-0" style="background: var(--color-danger);"></span>
+      <span class="text-[12.5px] font-mono font-semibold tabular-nums shrink-0">{mm}:{ss}</span>
+      <span class="text-[10px] text-text-muted shrink-0">/ 00:{MAX_SECONDS}</span>
+    {:else}
+      <Icon name="loader" size={13} class="animate-spin shrink-0 text-text-muted" />
+      <span class="text-[12px] text-text-muted shrink-0">Đang chuẩn bị…</span>
+    {/if}
 
     <div class="flex-1"></div>
 

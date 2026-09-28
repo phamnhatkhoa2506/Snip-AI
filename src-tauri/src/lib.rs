@@ -123,6 +123,7 @@ pub fn run() {
             oauth::get_login_status,
             oauth::logout,
             record::stop_recording,
+            record::is_recording_live,
             commands::open_history_window,
             commands::open_text_chat_window,
             history::history_save_turn,

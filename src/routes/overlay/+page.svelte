@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { loadSettings } from "$lib/settings";
+  import { allowedAudioSources, loadSettings } from "$lib/settings";
 
   let imgSrc = $state("");
   let selecting = $state(false);
@@ -93,9 +93,12 @@
     // Đọc lại lúc chụp/quay THẬT (không đọc 1 lần lúc mount) — overlay này có
     // thể đứng chờ người dùng kéo chọn vùng khá lâu, đổi cài đặt ở cửa sổ
     // Settings ngay lúc đó (nếu có) vẫn được áp dụng đúng cho lượt này.
-    const autoCopy = loadSettings().autoCopyOnCapture;
+    const settings = loadSettings();
+    const autoCopy = settings.autoCopyOnCapture;
     try {
       if (isRecordMode) {
+        // Chỉ những nguồn tiếng người dùng đã CHO PHÉP (xem allowedAudioSources).
+        const audioSources = settings.videoAudio === "none" ? [] : allowedAudioSources(settings, settings.videoAudio);
         await invoke("start_region_recording", {
           x: physX,
           y: physY,
@@ -103,6 +106,7 @@
           height: physH,
           appendTo: appendTo ?? null,
           autoCopy,
+          audioSources,
         });
       } else if (appendTo) {
         await invoke("append_capture_to_session", { windowLabel: appendTo, x: physX, y: physY, width: physW, height: physH, autoCopy });

@@ -394,7 +394,11 @@ pub async fn start_region_recording(
     // y hệt trước đây.
     append_to: Option<String>,
     auto_copy: bool,
+    // Nguồn tiếng cho video ("mic"/"system") — overlay đã lọc sẵn theo quyền
+    // người dùng cho phép trong Cài đặt. Rỗng/thiếu = video không tiếng.
+    audio_sources: Option<Vec<String>>,
 ) -> Result<(), String> {
+    let audio_sources = crate::audio::AudioSource::parse_list(&audio_sources.unwrap_or_default());
     let monitor = {
         let guard = state.monitor_bounds.lock().unwrap();
         guard.ok_or("Chưa có thông tin màn hình")?
@@ -418,7 +422,7 @@ pub async fn start_region_recording(
     eprintln!("[snip-ai] bắt đầu quay video vùng x={x} y={y} w={width} h={height} (session={session_id})");
     let app_clone = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = crate::record::start_recording(app_clone.clone(), Some((x, y, width, height))).await {
+        if let Err(e) = crate::record::start_recording(app_clone.clone(), Some((x, y, width, height)), audio_sources).await {
             eprintln!("[snip-ai] Lỗi bắt đầu quay: {e}");
             let _ = app_clone.emit_to(TOOLBAR_LABEL, "recording:error", e);
         }

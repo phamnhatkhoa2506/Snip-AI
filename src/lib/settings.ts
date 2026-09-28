@@ -40,9 +40,13 @@ export interface Settings {
    * nói — "hỏi bằng giọng, nghe trả lời bằng giọng". Mọi câu trả lời khác
    * vẫn có nút loa để bấm đọc thủ công. */
   autoSpeakAudioAnswers: boolean;
+  /** Ghi kèm tiếng khi QUAY VIDEO — TẮT mặc định (video cũ vốn không có
+   * tiếng, bật lên file nặng hơn chút và cần quyền micro/âm thanh máy). */
+  videoAudio: VideoAudioChoice;
 }
 
 export type AudioSnapSource = "mic" | "system" | "both";
+export type VideoAudioChoice = "none" | AudioSnapSource;
 
 const STORAGE_KEY = "snip-ai:settings";
 
@@ -54,6 +58,7 @@ export const DEFAULT_SETTINGS: Settings = {
   systemAudioAllowed: false,
   audioSnapSource: "mic",
   autoSpeakAudioAnswers: true,
+  videoAudio: "none",
 };
 
 /** Danh sách nguồn thật sẽ thu cho 1 lựa chọn — CHỈ gồm những nguồn đã được
