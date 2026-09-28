@@ -25,6 +25,15 @@ export async function setRecordHotkey(accelerator: string): Promise<string> {
   return invoke<string>("set_record_hotkey", { accelerator });
 }
 
+// Phím tắt SNAP AUDIO — độc lập với 2 phím trên.
+export async function getAudioHotkey(): Promise<string> {
+  return invoke<string>("get_audio_hotkey");
+}
+
+export async function setAudioHotkey(accelerator: string): Promise<string> {
+  return invoke<string>("set_audio_hotkey", { accelerator });
+}
+
 const MODIFIER_CODES = new Set([
   "ControlLeft",
   "ControlRight",

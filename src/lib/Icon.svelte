@@ -168,6 +168,45 @@
       { t: "path", d: "m22 8-6 4 6 4V8Z" },
       { t: "rect", x: 2, y: 6, w: 14, h: 12, rx: 2 },
     ],
+    // Micro — Snap Audio / trò chuyện trực tiếp
+    mic: [
+      { t: "rect", x: 9, y: 2, w: 6, h: 12, rx: 3 },
+      { t: "path", d: "M19 10v1a7 7 0 0 1-14 0v-1" },
+      { t: "path", d: "M12 18v4" },
+      { t: "path", d: "M8 22h8" },
+    ],
+    micOff: [
+      { t: "path", d: "M15 9.3V5a3 3 0 0 0-5.7-1.3" },
+      { t: "path", d: "M9 9v2a3 3 0 0 0 4.9 2.3" },
+      { t: "path", d: "M19 10v1a7 7 0 0 1-.9 3.4" },
+      { t: "path", d: "M5 10v1a7 7 0 0 0 11.3 5.5" },
+      { t: "path", d: "M12 18v4" },
+      { t: "path", d: "M8 22h8" },
+      { t: "path", d: "m2 2 20 20" },
+    ],
+    // Loa — đọc câu trả lời bằng giọng nói
+    volume: [
+      { t: "path", d: "M11 5 6 9H2v6h4l5 4V5z" },
+      { t: "path", d: "M15.5 8.5a5 5 0 0 1 0 7" },
+      { t: "path", d: "M19 5a10 10 0 0 1 0 14" },
+    ],
+    // Sóng âm — chế độ Snap Audio (thumbnail/tab chế độ)
+    audioWave: [
+      { t: "path", d: "M2 10v4" },
+      { t: "path", d: "M6 6v12" },
+      { t: "path", d: "M10 3v18" },
+      { t: "path", d: "M14 8v8" },
+      { t: "path", d: "M18 5v14" },
+      { t: "path", d: "M22 10v4" },
+    ],
+    // Điện thoại — "Trò chuyện trực tiếp" (Live)
+    phone: [
+      {
+        t: "path",
+        d: "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.1-8.7A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z",
+      },
+    ],
+    stopSquare: [{ t: "rect", x: 6, y: 6, w: 12, h: 12, rx: 2 }],
     globe: [
       { t: "circle", cx: 12, cy: 12, r: 10 },
       { t: "path", d: "M2 12h20" },

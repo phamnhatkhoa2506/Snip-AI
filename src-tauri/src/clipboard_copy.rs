@@ -54,7 +54,7 @@ pub fn copy_image_to_clipboard(app: &AppHandle, png_bytes: &[u8]) {
 /// không còn tồn tại, dán ra chỗ khác sẽ lỗi). Do vậy: bật tính năng này thì
 /// file MP4 tạm KHÔNG bị xoá sau khi quay (xem record.rs) — đánh đổi chấp
 /// nhận được vì người dùng đã CHỦ ĐỘNG bật tính năng này.
-pub fn copy_video_file_to_clipboard(path: &Path) {
+pub fn copy_file_to_clipboard(path: &Path) {
     let Some(path_str) = path.to_str() else {
         eprintln!("[snip-ai] Tự động chép video: đường dẫn chứa ký tự không hợp lệ");
         return;

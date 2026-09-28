@@ -384,7 +384,7 @@ pub async fn start_recording(app: AppHandle, region: CropRegion) -> Result<(), S
                 // giữ ĐƯỜNG DẪN, xoá file xong thì dán ra chỗ khác sẽ lỗi (xem
                 // clipboard_copy.rs). Bật tính năng này thì CHỦ Ý không xoá
                 // file tạm nữa (đánh đổi chấp nhận được, xem giải thích ở đó).
-                crate::clipboard_copy::copy_video_file_to_clipboard(&out_path_clone);
+                crate::clipboard_copy::copy_file_to_clipboard(&out_path_clone);
             } else {
                 let _ = std::fs::remove_file(&out_path_clone); // đã đọc vào RAM, xoá file tạm
             }

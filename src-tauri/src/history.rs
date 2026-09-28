@@ -242,6 +242,7 @@ pub fn history_save_turn(
             Some(m) => match m.kind {
                 MediaKind::Image => (m.bytes.clone(), "image", "png"),
                 MediaKind::Video => (m.bytes.clone(), "video", "mp4"),
+                MediaKind::Audio => (m.bytes.clone(), "audio", "wav"),
             },
             None => return Err("Không tìm thấy ảnh/video của phiên này để lưu lịch sử".into()),
         }
@@ -292,7 +293,11 @@ pub fn history_get(app: AppHandle, state: State<'_, AppState>, id: String) -> Re
     let index = state.history_index.lock().unwrap();
     let item = index.iter().find(|it| it.id == id).ok_or("Không tìm thấy mục lịch sử này (có thể đã bị xoá)")?;
     let dir = media_dir(&app)?;
-    let mime = if item.kind == "video" { "video/mp4" } else { "image/png" };
+    let mime = match item.kind.as_str() {
+        "video" => "video/mp4",
+        "audio" => "audio/wav",
+        _ => "image/png",
+    };
     let (media_b64, media_missing) = match fs::read(dir.join(&item.media_file)) {
         Ok(bytes) => (Some(STANDARD.encode(bytes)), false),
         Err(_) => (None, true),
@@ -375,10 +380,12 @@ pub async fn history_resume(app: AppHandle, state: State<'_, AppState>, id: Stri
         .map_err(|_| "Ảnh/video gốc của mục này đã bị xoá, không thể tiếp tục hội thoại".to_string())?;
 
     let session_id = state.next_session_id.fetch_add(1, Ordering::Relaxed);
-    let prefix = if kind == "video" { crate::commands::RECORD_LABEL_PREFIX } else { crate::commands::RESULT_LABEL_PREFIX };
+    let (prefix, media_kind) = match kind.as_str() {
+        "video" => (crate::commands::RECORD_LABEL_PREFIX, MediaKind::Video),
+        "audio" => (crate::commands::AUDIO_LABEL_PREFIX, MediaKind::Audio),
+        _ => (crate::commands::RESULT_LABEL_PREFIX, MediaKind::Image),
+    };
     let window_label = format!("{prefix}{session_id}");
-
-    let media_kind = if kind == "video" { MediaKind::Video } else { MediaKind::Image };
     state
         .media_sessions
         .lock()

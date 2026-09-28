@@ -241,7 +241,7 @@
                 class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-accent-text mt-0.5"
                 style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
               >
-                <Icon name={it.kind === "video" ? "video" : "image"} size={13} />
+                <Icon name={it.kind === "video" ? "video" : it.kind === "audio" ? "audioWave" : "image"} size={13} />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-[12px] font-medium truncate leading-tight">{it.preview}</div>
@@ -313,10 +313,13 @@
               </p>
             </div>
           {:else if detail.mediaB64}
-            {#if detail.kind === "video"}
+            {#if detail.kind === "audio"}
+              <div class="card p-4 flex items-center gap-3">
+                <Icon name="audioWave" size={20} class="text-accent shrink-0" />
+                <audio src={`data:${detail.mediaMime};base64,${detail.mediaB64}`} controls class="w-full"></audio>
+              </div>
+            {:else if detail.kind === "video"}
               <!-- svelte-ignore a11y_media_has_caption -->
-              <!-- Video tự quay bằng app này KHÔNG có track âm thanh (tắt hẳn
-              ở record.rs) nên không có gì để phụ đề. -->
               <video
                 src={`data:${detail.mediaMime};base64,${detail.mediaB64}`}
                 controls

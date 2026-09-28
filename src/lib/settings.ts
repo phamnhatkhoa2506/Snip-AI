@@ -26,7 +26,19 @@ export interface Settings {
    * nội dung khác vừa copy trước đó). Đọc ở overlay/+page.svelte ngay lúc
    * chụp/quay (xem clipboard_copy.rs phía Rust — nơi thực sự ghi clipboard). */
   autoCopyOnCapture: boolean;
+  /** Người dùng đã CHO PHÉP app dùng micro (Snap Audio, trò chuyện trực
+   * tiếp...). Windows không tự hỏi quyền cho app desktop, nên app tự xin —
+   * TẮT mặc định, bật lên thì kiểm tra thật bằng `probe_microphone`. */
+  micAllowed: boolean;
+  /** Cho phép thu ÂM THANH HỆ THỐNG (mọi thứ đang phát ra loa). Windows
+   * không chặn loại này, nhưng vẫn cần người dùng tự bật vì nó nghe được
+   * mọi âm thanh trên máy. */
+  systemAudioAllowed: boolean;
+  /** Nguồn mặc định của Snap Audio. */
+  audioSnapSource: AudioSnapSource;
 }
+
+export type AudioSnapSource = "mic" | "system" | "both";
 
 const STORAGE_KEY = "snip-ai:settings";
 
@@ -34,7 +46,20 @@ export const DEFAULT_SETTINGS: Settings = {
   geminiModel: "gemini-3.6-flash",
   reasoningEffort: "auto",
   autoCopyOnCapture: false,
+  micAllowed: false,
+  systemAudioAllowed: false,
+  audioSnapSource: "mic",
 };
+
+/** Danh sách nguồn thật sẽ thu cho 1 lựa chọn — CHỈ gồm những nguồn đã được
+ * cho phép. Trả về mảng rỗng nếu lựa chọn cần quyền chưa được bật. */
+export function allowedAudioSources(s: Settings, choice: AudioSnapSource): ("mic" | "system")[] {
+  const wanted: ("mic" | "system")[] = choice === "both" ? ["mic", "system"] : [choice];
+  return wanted.filter((src) => (src === "mic" ? s.micAllowed : s.systemAudioAllowed));
+}
+
+/** Rust báo lỗi thiếu quyền micro bằng tiền tố này (xem audio.rs). */
+export const MIC_PERMISSION_ERROR_PREFIX = "MIC_PERMISSION_DENIED:";
 
 export function loadSettings(): Settings {
   try {

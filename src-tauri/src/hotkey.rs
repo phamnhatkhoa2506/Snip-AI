@@ -20,7 +20,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
-use crate::state::{HotkeyState, RecordHotkeyState};
+use crate::state::{AudioHotkeyState, HotkeyState, RecordHotkeyState};
 
 pub const DEFAULT_ACCELERATOR: &str = "Ctrl+PrintScreen";
 pub const CONFIG_FILE_NAME: &str = "hotkey.txt";
@@ -29,6 +29,12 @@ pub const CONFIG_FILE_NAME: &str = "hotkey.txt";
 /// cho dễ nhớ, nhưng không trùng để bấm nhầm giữa 2 tính năng.
 pub const DEFAULT_RECORD_ACCELERATOR: &str = "Ctrl+Shift+PrintScreen";
 pub const RECORD_CONFIG_FILE_NAME: &str = "record-hotkey.txt";
+
+/// Snap Audio — vẫn cùng "họ" PrintScreen, thêm Alt để không trùng 2 phím
+/// trên. Máy nào bị chiếm tổ hợp này thì `register_initial` tự lo phần dự
+/// phòng như 2 phím tắt còn lại.
+pub const DEFAULT_AUDIO_ACCELERATOR: &str = "Ctrl+Alt+PrintScreen";
+pub const AUDIO_CONFIG_FILE_NAME: &str = "audio-hotkey.txt";
 
 fn config_file_path(app: &AppHandle, file_name: &str) -> Option<PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join(file_name))
@@ -170,4 +176,14 @@ pub fn get_record_hotkey(state: State<'_, RecordHotkeyState>) -> String {
 #[tauri::command]
 pub fn set_record_hotkey(app: AppHandle, state: State<'_, RecordHotkeyState>, accelerator: String) -> Result<String, String> {
     set_shortcut(&app, &state.current, RECORD_CONFIG_FILE_NAME, &accelerator)
+}
+
+#[tauri::command]
+pub fn get_audio_hotkey(state: State<'_, AudioHotkeyState>) -> String {
+    state.current.lock().unwrap().to_string()
+}
+
+#[tauri::command]
+pub fn set_audio_hotkey(app: AppHandle, state: State<'_, AudioHotkeyState>, accelerator: String) -> Result<String, String> {
+    set_shortcut(&app, &state.current, AUDIO_CONFIG_FILE_NAME, &accelerator)
 }

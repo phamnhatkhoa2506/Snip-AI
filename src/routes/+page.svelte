@@ -7,14 +7,16 @@
   import {
     captureCombo,
     formatKeyLabel,
+    getAudioHotkey,
     getHotkey,
     getRecordHotkey,
+    setAudioHotkey,
     setHotkey,
     setRecordHotkey,
   } from "$lib/hotkey";
   import { loadTheme, setTheme, type ThemeMode } from "$lib/theme";
   import { loadTextSize, setTextSize, type TextSizeMode } from "$lib/textSize";
-  import { loadSettings, saveSettings } from "$lib/settings";
+  import { loadSettings, saveSettings, MIC_PERMISSION_ERROR_PREFIX, type AudioSnapSource } from "$lib/settings";
 
   let toast = $state<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -82,8 +84,65 @@
   // ── Chế độ Ảnh/Video — 2 nút kiểu Snipping Tool, bấm chuyển qua lại xem
   // phím tắt nào (chỉ đổi PHẦN HIỂN THỊ trong Cài đặt, không tắt phím tắt còn
   // lại — cả 2 phím tắt vẫn hoạt động song song lúc dùng thật). ─────────────
-  type CaptureMode = "snip" | "record";
+  type CaptureMode = "snip" | "record" | "audio";
   let captureMode = $state<CaptureMode>("snip");
+
+  // ── Snap Audio: quyền + nguồn ghi âm ────────────────────────────────────
+  // Windows KHÔNG hỏi quyền micro cho app desktop — app tự xin (công tắc
+  // dưới đây, mặc định TẮT). Bật micro thì thử mở micro thật ngay
+  // (`probe_microphone`) để báo lỗi sớm nếu Windows đang chặn.
+  let micAllowed = $state(false);
+  let systemAudioAllowed = $state(false);
+  let audioSnapSource = $state<AudioSnapSource>("mic");
+  let micProbeBusy = $state(false);
+  let micBlockedByWindows = $state(false);
+  let audioError = $state("");
+
+  const AUDIO_SOURCE_OPTIONS: { value: AudioSnapSource; label: string }[] = [
+    { value: "mic", label: "Micro" },
+    { value: "system", label: "Âm thanh máy" },
+    { value: "both", label: "Cả hai" },
+  ];
+
+  function persistAudioSettings() {
+    saveSettings({ ...loadSettings(), micAllowed, systemAudioAllowed, audioSnapSource });
+  }
+
+  async function toggleMicAllowed() {
+    audioError = "";
+    micBlockedByWindows = false;
+    if (micAllowed) {
+      micAllowed = false;
+      persistAudioSettings();
+      return;
+    }
+    micProbeBusy = true;
+    try {
+      await invoke("probe_microphone");
+      micAllowed = true;
+      persistAudioSettings();
+    } catch (e) {
+      const msg = String(e);
+      micBlockedByWindows = msg.includes(MIC_PERMISSION_ERROR_PREFIX);
+      audioError = msg.replace(MIC_PERMISSION_ERROR_PREFIX, "");
+    } finally {
+      micProbeBusy = false;
+    }
+  }
+
+  function toggleSystemAudioAllowed() {
+    systemAudioAllowed = !systemAudioAllowed;
+    persistAudioSettings();
+  }
+
+  function chooseAudioSource(value: AudioSnapSource) {
+    audioSnapSource = value;
+    persistAudioSettings();
+  }
+
+  function openMicPrivacySettings() {
+    invoke("open_mic_privacy_settings").catch((e) => flash("err", String(e)));
+  }
 
   // ── Chế độ sáng/tối/hệ thống ─────────────────────────────────────────
   let themeMode = $state<ThemeMode>("system");
@@ -126,7 +185,11 @@
     newActionBusy = true;
     newActionError = "";
     try {
-      await invoke(captureMode === "snip" ? "trigger_capture" : "trigger_recording_from_ui");
+      if (captureMode === "audio") {
+        await invoke("open_audio_snap", { appendTo: null });
+      } else {
+        await invoke(captureMode === "snip" ? "trigger_capture" : "trigger_recording_from_ui");
+      }
     } catch (e) {
       newActionError = String(e);
     } finally {
@@ -327,6 +390,61 @@
     window.addEventListener("keydown", onVideoHotkeyKeydown, { capture: true });
   }
 
+  // ── Phím tắt SNAP AUDIO — độc lập với 2 phím tắt trên ─────────────────
+  let audioHotkeyParts = $state<string[]>(["Ctrl", "Alt", "PrintScreen"]);
+  let capturingAudioHotkey = $state(false);
+  let audioHotkeyBusy = $state(false);
+  let audioHotkeyError = $state("");
+
+  async function loadAudioHotkey() {
+    try {
+      const accel = await getAudioHotkey();
+      audioHotkeyParts = accel.split("+").map(formatKeyLabel);
+    } catch (e) {
+      audioHotkeyError = String(e);
+    }
+  }
+
+  function onAudioHotkeyKeydown(e: KeyboardEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      stopAudioHotkeyCapture();
+      return;
+    }
+    if (e.repeat) return;
+    const combo = captureCombo(e);
+    if (!combo) return;
+    stopAudioHotkeyCapture();
+    applyAudioHotkey(combo.accelerator, combo.parts);
+  }
+
+  async function applyAudioHotkey(accelerator: string, parts: string[]) {
+    audioHotkeyBusy = true;
+    audioHotkeyError = "";
+    try {
+      const confirmed = await setAudioHotkey(accelerator);
+      audioHotkeyParts = confirmed.split("+").map(formatKeyLabel);
+      flash("ok", `Đã đổi phím tắt Snap Audio: ${audioHotkeyParts.join(" + ")}`);
+    } catch (e) {
+      audioHotkeyError = String(e);
+      audioHotkeyParts = parts;
+    } finally {
+      audioHotkeyBusy = false;
+    }
+  }
+
+  function startAudioHotkeyCapture() {
+    capturingAudioHotkey = true;
+    audioHotkeyError = "";
+    window.addEventListener("keydown", onAudioHotkeyKeydown, { capture: true });
+  }
+
+  function stopAudioHotkeyCapture() {
+    capturingAudioHotkey = false;
+    window.removeEventListener("keydown", onAudioHotkeyKeydown, { capture: true });
+  }
+
   function stopVideoHotkeyCapture() {
     capturingVideoHotkey = false;
     window.removeEventListener("keydown", onVideoHotkeyKeydown, { capture: true });
@@ -346,7 +464,12 @@
     refreshLoginStatus();
     themeMode = loadTheme();
     textSizeMode = loadTextSize();
-    autoCopyOnCapture = loadSettings().autoCopyOnCapture;
+    const initialSettings = loadSettings();
+    autoCopyOnCapture = initialSettings.autoCopyOnCapture;
+    micAllowed = initialSettings.micAllowed;
+    systemAudioAllowed = initialSettings.systemAudioAllowed;
+    audioSnapSource = initialSettings.audioSnapSource;
+    loadAudioHotkey();
     // Trễ 1 chút lúc mới mở app — không tranh giành sự chú ý với các bước
     // đầu (đăng nhập...) diễn ra ngay khi cửa sổ vừa hiện.
     setTimeout(checkSurveyEligibility, 1500);
@@ -357,12 +480,72 @@
     return () => {
       stopHotkeyCapture();
       stopVideoHotkeyCapture();
+      stopAudioHotkeyCapture();
       window.removeEventListener("focus", checkSurveyEligibility);
     }; // dọn listener nếu rời trang giữa lúc đang ghi phím
   });
 </script>
 
 <main class="app-bg min-h-screen text-text flex flex-col">
+  {#snippet switchUi(on: boolean, busy: boolean)}
+    <span
+      class="w-8 h-[18px] rounded-full relative transition-colors shrink-0 {busy ? 'opacity-50' : ''}"
+      style="background: {on ? 'var(--color-accent)' : 'var(--color-border)'};"
+    >
+      <span
+        class="absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow transition-all"
+        style="left: {on ? '16px' : '2px'};"
+      ></span>
+    </span>
+  {/snippet}
+
+  {#snippet audioPermissions()}
+    <!-- Quyền + nguồn của Snap Audio. Windows không tự hỏi quyền micro cho
+    app desktop nên app tự xin ở đây — mặc định TẮT cả 2. -->
+    <div class="card w-full max-w-[330px] p-3 flex flex-col gap-2.5 text-left mt-1">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-[11.5px] font-semibold">Nguồn ghi âm</span>
+        <div class="flex rounded-lg p-0.5 gap-0.5" style="background: var(--color-bg-elevated); border: 1px solid var(--color-border);">
+          {#each AUDIO_SOURCE_OPTIONS as opt (opt.value)}
+            <button
+              onclick={() => chooseAudioSource(opt.value)}
+              class="px-2 py-1 rounded-md text-[11px] font-medium transition-colors {audioSnapSource === opt.value
+                ? 'btn-accent'
+                : 'text-text-muted hover:text-text'}"
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+      </div>
+      <div class="h-px bg-border"></div>
+      <button onclick={toggleMicAllowed} disabled={micProbeBusy} class="flex items-center gap-2.5 text-left">
+        <Icon name="mic" size={14} class="shrink-0 {micAllowed ? 'text-accent' : 'text-text-muted'}" />
+        <span class="flex-1 min-w-0">
+          <div class="text-[12px] font-medium">{micProbeBusy ? "Đang kiểm tra micro…" : "Cho phép dùng micro"}</div>
+          <div class="text-[10.5px] text-text-muted">Snap Audio, trò chuyện trực tiếp với AI</div>
+        </span>
+        {@render switchUi(micAllowed, micProbeBusy)}
+      </button>
+      <button onclick={toggleSystemAudioAllowed} class="flex items-center gap-2.5 text-left">
+        <Icon name="volume" size={14} class="shrink-0 {systemAudioAllowed ? 'text-accent' : 'text-text-muted'}" />
+        <span class="flex-1 min-w-0">
+          <div class="text-[12px] font-medium">Cho phép thu âm thanh máy</div>
+          <div class="text-[10.5px] text-text-muted">Mọi thứ đang phát ra loa: họp online, video, bài giảng…</div>
+        </span>
+        {@render switchUi(systemAudioAllowed, false)}
+      </button>
+      {#if audioError}
+        <div class="text-[11px] text-[color:var(--color-danger)] leading-relaxed selectable">
+          {audioError}
+          {#if micBlockedByWindows}
+            <button onclick={openMicPrivacySettings} class="underline font-semibold ml-1">Mở cài đặt quyền micro</button>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/snippet}
+
   <!-- Top bar -->
   <!-- z-30: PHẢI cao hơn thanh toggle Ảnh/Video bên dưới (z-20) — header
   TỰ TẠO 1 stacking context riêng (position:sticky + z-index), nên menu tài
@@ -541,9 +724,10 @@
       class="flex items-center rounded-full p-0.5 shadow-md"
       style="background: var(--color-card); border: 1px solid var(--color-border);"
     >
-      {#each [{ mode: "snip", icon: "camera" }, { mode: "record", icon: "video" }] as m (m.mode)}
+      {#each [{ mode: "snip", icon: "camera", title: "Snap ảnh" }, { mode: "record", icon: "video", title: "Quay video" }, { mode: "audio", icon: "mic", title: "Snap Audio" }] as m (m.mode)}
         <button
           onclick={() => (captureMode = m.mode as CaptureMode)}
+          title={m.title}
           class="relative w-9 h-8 rounded-full flex items-center justify-center transition-colors {captureMode ===
           m.mode
             ? 'text-accent'
@@ -613,6 +797,25 @@
         {#if hotkeyError}
           <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center" transition:fade={{ duration: 140 }}>
             {hotkeyError}
+          </p>
+        {/if}
+      {:else if captureMode === "audio"}
+        <button
+          onclick={() => (capturingAudioHotkey ? stopAudioHotkeyCapture() : startAudioHotkeyCapture())}
+          disabled={audioHotkeyBusy}
+          class="btn-ghost self-center px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
+        >
+          {#if capturingAudioHotkey}
+            <span class="text-accent animate-pulse">Nhấn tổ hợp phím mới…</span>
+          {:else}
+            <Icon name="mic" size={12} />
+            {audioHotkeyParts.join(" + ")}
+            <Icon name="edit" size={11} class="text-text-muted" />
+          {/if}
+        </button>
+        {#if audioHotkeyError}
+          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center" transition:fade={{ duration: 140 }}>
+            {audioHotkeyError}
           </p>
         {/if}
       {:else}
@@ -695,6 +898,38 @@
             {hotkeyError}
           </p>
         {/if}
+      {:else if captureMode === "audio"}
+        <p class="text-[13.5px] text-text-muted leading-relaxed">
+          {#if capturingAudioHotkey}
+            <span class="text-accent font-medium animate-pulse">Nhấn tổ hợp phím mới…</span>
+          {:else}
+            Nhấn
+            {#each audioHotkeyParts as part, i (i)}
+              {#if i > 0}<span class="mx-1 text-text-muted">+</span>{/if}
+              <kbd class="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-[12px] text-text font-mono align-middle"
+                >{part}</kbd
+              >
+            {/each}
+            để ghi âm (tối đa 2 phút)
+          {/if}
+        </p>
+        <button
+          onclick={() => (capturingAudioHotkey ? stopAudioHotkeyCapture() : startAudioHotkeyCapture())}
+          disabled={audioHotkeyBusy}
+          class="btn-ghost px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
+        >
+          {#if capturingAudioHotkey}
+            <Icon name="x" size={12} /> Huỷ
+          {:else}
+            <Icon name="edit" size={12} /> Đổi phím tắt
+          {/if}
+        </button>
+        {#if audioHotkeyError}
+          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed" transition:fade={{ duration: 140 }}>
+            {audioHotkeyError}
+          </p>
+        {/if}
+        {@render audioPermissions()}
       {:else}
         <p class="text-[13.5px] text-text-muted leading-relaxed">
           {#if capturingVideoHotkey}

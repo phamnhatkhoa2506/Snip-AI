@@ -14,8 +14,10 @@
   import {
     QUICK_PROMPTS,
     VIDEO_PROMPTS,
+    AUDIO_PROMPTS,
     PROMPT_EXPLAIN,
     PROMPT_VIDEO_EXPLAIN,
+    PROMPT_AUDIO_EXPLAIN,
     DIAGRAM_MODE_SUFFIX,
     type QuickPrompt,
   } from "$lib/config";
@@ -41,6 +43,9 @@
   // Cửa sổ video chỉ được TẠO SAU KHI quay xong (xem record.rs::start_recording)
   // — video LUÔN đã có sẵn ngay từ lúc cửa sổ này mount.
   const startedAsVideo = getCurrentWindow().label.startsWith("record-");
+  // Snap Audio (audio_snap.rs) — như video, cửa sổ chỉ mở SAU KHI ghi âm
+  // xong, đoạn ghi âm đã có sẵn ngay lúc mount.
+  const startedAsAudio = getCurrentWindow().label.startsWith("audio-");
 
   // Cửa sổ mở qua "Hỏi AI" (open_text_chat_window, commands.rs) — KHÔNG có
   // ảnh/video nào cả lúc mở, hỏi thẳng bằng chữ giống chat bình thường. Cùng
@@ -51,7 +56,7 @@
   // trộn ảnh+video đã có (AppState::media_sessions), không phải luồng riêng.
   const textOnlyMode = new URLSearchParams(window.location.search).get("mode") === "chat";
 
-  type MediaKind = "image" | "video";
+  type MediaKind = "image" | "video" | "audio";
   interface MediaEntry {
     kind: MediaKind;
     /** base64 */
@@ -76,13 +81,21 @@
   );
   /** Có ít nhất 1 video trong chuỗi — mốc giờ "[mm:ss]" trong câu trả lời chỉ
    * có nghĩa khi có video (xem linkifyTimestamps). */
-  const chainHasVideo = $derived(mediaChain.some((m) => m.kind === "video"));
+  const latestIsAudio = $derived(
+    mediaChain.length > 0 ? mediaChain[mediaChain.length - 1].kind === "audio" : startedAsAudio,
+  );
+  /** Phần tử mới nhất là ẢNH — chỉ ảnh mới khoanh vùng (box_2d) / vẽ sơ đồ từ
+   * vựng được. */
+  const latestIsImage = $derived(mediaChain.length > 0 && mediaChain[mediaChain.length - 1].kind === "image");
+  /** Có ít nhất 1 video/audio (có trục thời gian) — mốc giờ "[mm:ss]" trong
+   * câu trả lời chỉ có nghĩa khi có 1 trong 2 (xem linkifyTimestamps). */
+  const chainHasTimeline = $derived(mediaChain.some((m) => m.kind === "video" || m.kind === "audio"));
 
-  // Bộ chip gợi ý khác nhau giữa ảnh và video. Không chỉ là đổi chữ "ảnh"
-  // thành "video": video có trục thời gian và bị Gemini lấy mẫu thưa (~1
-  // khung/giây) nên câu hỏi phải đặt khác hẳn — xem giải thích đầy đủ ở
+  // Bộ chip gợi ý khác nhau giữa ảnh, video và audio. Không chỉ là đổi chữ
+  // "ảnh" thành "video": video có trục thời gian và bị Gemini lấy mẫu thưa
+  // (~1 khung/giây) nên câu hỏi phải đặt khác hẳn — xem giải thích đầy đủ ở
   // config.ts, ngay trên PROMPT_VIDEO_OCR. Theo phần tử MỚI NHẤT.
-  const quickPrompts = $derived(latestIsVideo ? VIDEO_PROMPTS : QUICK_PROMPTS);
+  const quickPrompts = $derived(latestIsAudio ? AUDIO_PROMPTS : latestIsVideo ? VIDEO_PROMPTS : QUICK_PROMPTS);
   /** Màn hình "ask" sẵn sàng cho hỏi — bình thường phải CHỜ có ảnh/video
    * (`mediaB64`), nhưng phiên "Hỏi AI" (textOnlyMode) sẵn sàng NGAY từ đầu,
    * không có gì để chờ cả. Dùng thay `!!mediaB64` cho mọi chỗ enable/disable
@@ -204,11 +217,11 @@
       const ts = Number(tsBtn.dataset.ts);
       if (Number.isFinite(ts)) {
         pendingSeekTime = ts;
-        // Chuỗi có thể đan xen ảnh/video và kết thúc bằng ẢNH — ghim xem
-        // đúng VIDEO gần nhất (mốc giờ chỉ có nghĩa với video), không phải
-        // mặc định "phần tử mới nhất".
-        const lastVideo = mediaChain.findLastIndex((m) => m.kind === "video");
-        previewIndex = lastVideo >= 0 && lastVideo !== mediaChain.length - 1 ? lastVideo : null;
+        // Chuỗi có thể đan xen ảnh/video/audio và kết thúc bằng ẢNH — ghim
+        // xem đúng video/audio gần nhất (mốc giờ chỉ có nghĩa với 2 loại có
+        // trục thời gian), không phải mặc định "phần tử mới nhất".
+        const lastTimeline = mediaChain.findLastIndex((m) => m.kind === "video" || m.kind === "audio");
+        previewIndex = lastTimeline >= 0 && lastTimeline !== mediaChain.length - 1 ? lastTimeline : null;
         openMediaPreview();
       }
       return;
@@ -241,8 +254,13 @@
   async function triggerAppend(kind: MediaKind) {
     appendCaptureBusy = true;
     try {
+      const windowLabel = getCurrentWindow().label;
+      if (kind === "audio") {
+        await invoke("open_audio_snap", { appendTo: windowLabel });
+        return;
+      }
       await invoke(kind === "video" ? "trigger_recording_for_session" : "trigger_capture_for_session", {
-        windowLabel: getCurrentWindow().label,
+        windowLabel,
       });
     } catch (e) {
       error = String(e);
@@ -300,6 +318,15 @@
   /** Phần tử ĐANG XEM trong ảnh phóng to là video? — chuỗi đan xen nên mỗi
    * phần tử tự quyết định dùng <video> hay <img>, không theo cả phiên. */
   const previewIsVideo = $derived(mediaChain[previewIndex ?? mediaChain.length - 1]?.kind === "video");
+  const previewIsAudio = $derived(mediaChain[previewIndex ?? mediaChain.length - 1]?.kind === "audio");
+  let modalAudioEl = $state<HTMLAudioElement | null>(null);
+  function onModalAudioReady() {
+    if (modalAudioEl && pendingSeekTime != null) {
+      modalAudioEl.currentTime = pendingSeekTime;
+      pendingSeekTime = null;
+      modalAudioEl.play().catch(() => {});
+    }
+  }
   // Chọn xem 1 bước cũ ở màn hình đầu (dải thumbnail, xem chainThumbnails)
   // rồi mới hỏi -> sang khung chat thì quay về mặc định "bám bước mới nhất",
   // không để lần mở ảnh phóng to đầu tiên bị dính đúng bước cũ đó.
@@ -502,7 +529,7 @@
     reasoningEffort = s.reasoningEffort;
     loadResumeIfAny();
 
-    if (startedAsVideo || textOnlyMode) {
+    if (startedAsVideo || startedAsAudio || textOnlyMode) {
       // Phiên video: cửa sổ chỉ mở SAU KHI quay xong, video đã sẵn sàng ngay
       // từ đầu. Phiên "Hỏi AI" (textOnlyMode): KHÔNG có gì để chờ xử lý cả —
       // cả 2 trường hợp đều nạp thẳng, không cần silent/lắng nghe "ai:crop-
@@ -709,7 +736,7 @@
       // video), rồi mới tới box_2d (chỉ ảnh, nằm ngay TRƯỚC final_answer nếu
       // cả hai cùng có) — đúng thứ tự đã dặn ở rule 11/bbox trong ai.rs.
       const { text: afterFinal, finalAnswer } = extractFinalAnswerFromAnswer(answer);
-      const { text: cleanAnswer, box } = latestIsVideo ? { text: afterFinal, box: null } : extractBoxFromAnswer(afterFinal);
+      const { text: cleanAnswer, box } = latestIsImage ? extractBoxFromAnswer(afterFinal) : { text: afterFinal, box: null };
       const newTurnIndex = history.length; // đúng vị trí lượt assistant sắp thêm vào bên dưới
       if (box) turnBoxes = { ...turnBoxes, [newTurnIndex]: box };
       if (finalAnswer) turnFinalAnswers = { ...turnFinalAnswers, [newTurnIndex]: finalAnswer };
@@ -811,7 +838,7 @@
     // câu hỏi rỗng thì không có gì để hỏi cả, khác hẳn phiên có ảnh/video
     // (rỗng vẫn hợp lệ, ngầm hiểu là "giải thích ảnh/video này").
     if (textOnlyMode && !typed) return;
-    const q = typed || (latestIsVideo ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
+    const q = typed || (latestIsAudio ? PROMPT_AUDIO_EXPLAIN : latestIsVideo ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
     const search = searchEnabled;
     searchEnabled = false;
     const diagram = diagramMode;
@@ -962,7 +989,11 @@
               : 'border-border hover:border-accent/50'}"
             title={`Bước ${i + 1}`}
           >
-            {#if item.kind === "video"}
+            {#if item.kind === "audio"}
+              <span class="flex w-full h-full items-center justify-center bg-bg-elevated text-accent">
+                <Icon name="audioWave" size={18} />
+              </span>
+            {:else if item.kind === "video"}
               <!-- Chuỗi đan xen ảnh/video — thumbnail video có thêm icon nhỏ
               ở góc để phân biệt ngay với ảnh (khung đầu video trông y hệt
               1 ảnh chụp tĩnh). -->
@@ -1102,7 +1133,7 @@
     phép xây chuỗi nhiều ảnh/video NGAY TỪ ĐẦU, trước khi hỏi câu nào cả.
     2 nút riêng (ảnh/video) — người dùng TỰ CHỌN loại cho từng bước, ảnh và
     video đan xen chung 1 chuỗi, không còn bị khoá theo loại của bước đầu. -->
-    {#each [{ kind: "image", icon: "camera", title: "Chụp thêm ảnh" }, { kind: "video", icon: "video", title: "Quay thêm video" }] as opt (opt.kind)}
+    {#each [{ kind: "image", icon: "camera", title: "Chụp thêm ảnh" }, { kind: "video", icon: "video", title: "Quay thêm video" }, { kind: "audio", icon: "mic", title: "Ghi thêm audio" }] as opt (opt.kind)}
       <button
         type="button"
         onclick={() => {
@@ -1235,7 +1266,21 @@
       định: mới nhất) — chuỗi có thể đan xen ảnh/video nên mỗi phần tử tự
       quyết định dùng <video> hay <img>. -->
       {#if previewMediaB64}
-        {#if previewIsVideo}
+        {#if previewIsAudio}
+          <!-- Đoạn ghi âm (Snap Audio) — không có hình, hiện thẻ trình phát. -->
+          <div
+            class="card w-full max-w-[380px] p-4 flex flex-col items-center gap-3"
+            transition:fade={{ duration: 180 }}
+          >
+            <div
+              class="w-11 h-11 rounded-2xl flex items-center justify-center text-accent-text"
+              style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
+            >
+              <Icon name="audioWave" size={20} />
+            </div>
+            <audio src={`data:audio/wav;base64,${previewMediaB64}`} controls class="w-full"></audio>
+          </div>
+        {:else if previewIsVideo}
           <video
             bind:this={videoEl}
             onloadedmetadata={onVideoLoadedMetadata}
@@ -1305,7 +1350,7 @@
             {chip.label}
           </button>
         {/each}
-        {#if !latestIsVideo}
+        {#if !latestIsVideo && !latestIsAudio}
           <!-- Riêng biệt với chip "Dịch" — dịch phẳng nguyên đoạn văn vẫn giữ
           nguyên, đây là 1 hướng khác hẳn: sơ đồ liên kết từ vựng, dành cho ảnh
           chụp 1 từ/cụm từ muốn học sâu hơn (xem VocabDiagram.svelte). -->
@@ -1326,8 +1371,10 @@
         disabled={!askReady}
         placeholder={mediaB64
           ? mediaChain.length > 1
-            ? "Hỏi bất kỳ điều gì về các bước đã chụp/quay…"
-            : `Hỏi bất kỳ điều gì về ${latestIsVideo ? "video" : "vùng"} đã ${latestIsVideo ? "quay" : "chụp"}…`
+            ? "Hỏi bất kỳ điều gì về các bước đã chụp/quay/ghi âm…"
+            : latestIsAudio
+              ? "Hỏi bất kỳ điều gì về đoạn ghi âm…"
+              : `Hỏi bất kỳ điều gì về ${latestIsVideo ? "video" : "vùng"} đã ${latestIsVideo ? "quay" : "chụp"}…`
           : textOnlyMode
             ? "Hỏi AI bất kỳ điều gì…"
             : startedAsVideo
@@ -1406,9 +1453,19 @@
           type="button"
           onclick={openMediaPreview}
           class="shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-border hover:border-accent/60 transition-colors relative group"
-          title={mediaChain.length > 1 ? "Xem lại các bước đã chụp/quay" : latestIsVideo ? "Xem lại video đã quay" : "Xem lại ảnh đã chụp"}
+          title={mediaChain.length > 1
+            ? "Xem lại các bước đã chụp/quay/ghi âm"
+            : latestIsAudio
+              ? "Nghe lại đoạn ghi âm"
+              : latestIsVideo
+                ? "Xem lại video đã quay"
+                : "Xem lại ảnh đã chụp"}
         >
-          {#if latestIsVideo}
+          {#if latestIsAudio}
+            <span class="flex w-full h-full items-center justify-center bg-bg-elevated text-accent">
+              <Icon name="audioWave" size={15} />
+            </span>
+          {:else if latestIsVideo}
             <video src={`data:video/mp4;base64,${mediaB64}`} muted class="w-full h-full object-cover"></video>
           {:else}
             <img src={`data:image/png;base64,${mediaB64}`} alt="Vùng đã chụp" class="w-full h-full object-cover" />
@@ -1544,7 +1601,7 @@
                     use:scene3dBlocks={turn.content}
                     use:codeCopyButtons={turn.content}
                   >
-                    {@html renderMarkdown(chainHasVideo ? linkifyTimestamps(turn.content) : turn.content)}
+                    {@html renderMarkdown(chainHasTimeline ? linkifyTimestamps(turn.content) : turn.content)}
                   </div>
                 {/if}
               <button
@@ -1795,7 +1852,7 @@
             >
               {@render attachFileItem()}
               {@render appendCaptureItem()}
-              {#if !latestIsVideo && mediaB64}
+              {#if latestIsImage}
                 <!-- "Sơ đồ từ vựng" cần 1 ảnh THẬT (xem askDiagram) — phiên
                 "Hỏi AI" chưa "+ Chụp thêm ảnh" thì ẩn hẳn, không hiện mục bấm
                 vào không có tác dụng gì. -->
@@ -1840,7 +1897,28 @@
     >
       <!-- Theo loại của ĐÚNG phần tử đang xem (chuỗi đan xen ảnh/video),
       không theo loại của cả phiên như trước. -->
-      {#if previewIsVideo}
+      {#if previewIsAudio}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <div onclick={(e) => e.stopPropagation()} class="card p-5 flex flex-col items-center gap-3 w-[min(460px,85vw)]">
+          <div
+            class="w-12 h-12 rounded-2xl flex items-center justify-center text-accent-text"
+            style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
+          >
+            <Icon name="audioWave" size={22} />
+          </div>
+          <audio
+            bind:this={modalAudioEl}
+            onloadedmetadata={onModalAudioReady}
+            src={`data:audio/wav;base64,${previewMediaB64}`}
+            controls
+            class="w-full"
+          ></audio>
+          {#if mediaChain.length > 1}
+            {@render chainThumbnails()}
+          {/if}
+        </div>
+      {:else if previewIsVideo}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_media_has_caption -->

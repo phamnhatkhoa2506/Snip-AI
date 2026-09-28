@@ -116,6 +116,55 @@ export const PROMPT_VIDEO_STEPS =
   "- **Kết quả**: màn hình cuối cùng cho thấy điều gì.\n" +
   "- **Trục trặc**: (chỉ khi thực sự có) thông báo lỗi, thao tác bị treo, hoặc bước có vẻ làm sai.";
 
+/** Video giờ CÓ THỂ có tiếng (bật trong Cài đặt) — chép lời nói trong video. */
+export const PROMPT_VIDEO_SPEECH =
+  "Chép lại lời nói/lời thoại trong video theo thứ tự thời gian.\n" +
+  "- Mỗi đoạn mở đầu bằng [mm:ss] (viết trần, KHÔNG bọc trong dấu backtick/code), phân biệt người nói nếu nghe ra được (Người 1, Người 2...).\n" +
+  "- Giữ nguyên ngôn ngữ gốc, không dịch, không tóm tắt.\n" +
+  "- Nếu video không có tiếng hoặc không có lời nói, nói thẳng điều đó.";
+
+// ── Prompt cho SNAP AUDIO ─────────────────────────────────────────────────
+// Audio là bản ghi âm từ micro và/hoặc âm thanh đang phát trên máy (cuộc họp
+// online, video đang xem, bài giảng...). Có trục thời gian như video nên mốc
+// [mm:ss] vẫn bấm được để tua (xem linkifyTimestamps ở result/+page.svelte).
+
+export const PROMPT_AUDIO_TRANSCRIBE =
+  "Chép lại toàn bộ lời nói trong đoạn ghi âm.\n" +
+  "- Mỗi đoạn mở đầu bằng [mm:ss] (viết trần, KHÔNG bọc trong dấu backtick/code).\n" +
+  "- Phân biệt người nói nếu nghe ra được (Người 1, Người 2...).\n" +
+  "- Giữ nguyên ngôn ngữ gốc, không dịch, không tóm tắt, không sửa câu chữ.\n" +
+  "- Đoạn nào nghe không rõ thì ghi [không nghe rõ] thay vì đoán.";
+
+export const PROMPT_AUDIO_TRANSLATE =
+  "Dịch lời nói trong đoạn ghi âm sang tiếng Việt tự nhiên, theo thứ tự thời gian.\n" +
+  "- Mỗi đoạn mở đầu bằng [mm:ss] (viết trần, KHÔNG bọc trong dấu backtick/code).\n" +
+  "- CHỈ xuất bản dịch — KHÔNG kèm lời gốc, KHÔNG giải thích.\n" +
+  "- Nếu lời nói vốn đã là tiếng Việt thì chép lại nguyên văn.";
+
+export const PROMPT_AUDIO_SUMMARIZE =
+  "Tóm tắt nội dung đoạn ghi âm theo cấu trúc:\n" +
+  "- Dòng đầu: một câu tóm lược tổng thể (in đậm).\n" +
+  "- Sau đó: các ý chính theo trình tự, mỗi dòng mở đầu bằng [mm:ss] (viết trần, KHÔNG bọc trong dấu backtick/code).\n" +
+  "- Giữ chính xác số liệu, tên riêng, mốc thời gian được nhắc tới.";
+
+export const PROMPT_AUDIO_EXPLAIN =
+  "Nghe đoạn ghi âm và cho biết:\n" +
+  "- **Đây là gì**: loại nội dung (cuộc họp, bài giảng, video, cuộc gọi, nhạc...) và ai đang nói nếu đoán được.\n" +
+  "- **Nội dung chính**: các ý quan trọng, mỗi ý kèm mốc [mm:ss] (viết trần, KHÔNG bọc trong dấu backtick/code).\n" +
+  "- **Đáng chú ý**: (chỉ khi thực sự có) quyết định, yêu cầu, cảnh báo, hoặc đoạn khó nghe.";
+
+export const PROMPT_AUDIO_ANSWER =
+  "Trong đoạn ghi âm có câu hỏi hoặc yêu cầu (của tôi hoặc của người khác). Hãy trả lời/thực hiện " +
+  "đúng câu hỏi/yêu cầu đó — trích lại ngắn gọn câu hỏi nghe được trước khi trả lời. Nếu có nhiều " +
+  "câu hỏi thì trả lời lần lượt từng câu.";
+
+export const PROMPT_AUDIO_NOTES =
+  "Lập biên bản từ đoạn ghi âm:\n" +
+  "- **Chủ đề**\n" +
+  "- **Các ý đã thảo luận** (gạch đầu dòng, kèm mốc [mm:ss] viết trần)\n" +
+  "- **Quyết định đã chốt**\n" +
+  "- **Việc cần làm**: ai làm gì, hạn khi nào (nếu có nhắc tới) — dạng bảng nếu có từ 2 việc trở lên.";
+
 export interface QuickPrompt {
   /** Định danh ổn định — dùng để lưu "hành động mặc định" trong Settings
    * (localStorage), KHÔNG dùng `label` vì label có thể đổi câu chữ sau này
@@ -150,5 +199,15 @@ export const VIDEO_PROMPTS: QuickPrompt[] = [
   { id: "summarize", icon: "list", label: "Tóm tắt", chatLabel: "Tóm tắt video", prompt: PROMPT_VIDEO_SUMMARIZE },
   { id: "explain", icon: "lightbulb", label: "Giải thích", chatLabel: "Giải thích nội dung video", prompt: PROMPT_VIDEO_EXPLAIN },
   { id: "steps", icon: "mouse-pointer", label: "Thao tác", chatLabel: "Mô tả các bước đã làm", prompt: PROMPT_VIDEO_STEPS },
+  { id: "speech", icon: "mic", label: "Lời thoại", chatLabel: "Chép lời thoại trong video", prompt: PROMPT_VIDEO_SPEECH },
   { id: "diagram", icon: "flowchart", label: "Vẽ sơ đồ", chatLabel: "Vẽ sơ đồ minh hoạ", prompt: PROMPT_VIDEO_DIAGRAM },
+];
+
+/** Chip gợi ý cho SNAP AUDIO. */
+export const AUDIO_PROMPTS: QuickPrompt[] = [
+  { id: "transcribe", icon: "text", label: "Chép lời", chatLabel: "Chép lời đoạn ghi âm", prompt: PROMPT_AUDIO_TRANSCRIBE },
+  { id: "translate", icon: "languages", label: "Dịch", chatLabel: "Dịch sang tiếng Việt", prompt: PROMPT_AUDIO_TRANSLATE },
+  { id: "summarize", icon: "list", label: "Tóm tắt", chatLabel: "Tóm tắt đoạn ghi âm", prompt: PROMPT_AUDIO_SUMMARIZE },
+  { id: "answer", icon: "lightbulb", label: "Trả lời", chatLabel: "Trả lời câu hỏi trong đoạn ghi âm", prompt: PROMPT_AUDIO_ANSWER },
+  { id: "notes", icon: "edit", label: "Biên bản", chatLabel: "Lập biên bản", prompt: PROMPT_AUDIO_NOTES },
 ];

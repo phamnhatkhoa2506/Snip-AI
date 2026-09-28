@@ -43,13 +43,15 @@ const FIRST_RESPONSE_TIMEOUT: Duration = Duration::from_secs(150);
 /// "vùng cắt ảnh" — đúng cụm từ lấy từ prompt — dù ảnh không hề nói về chủ đề
 /// đó). Rút gọn tối đa + thêm quy tắc chống bịa rõ ràng để giảm rủi ro này.
 const SYSTEM_PROMPT: &str = "\
-Bạn là trợ lý AI phân tích ảnh/video, tích hợp trong app Snap AI.
+Bạn là trợ lý AI phân tích ảnh/video/âm thanh, tích hợp trong app Snap AI.
 
 QUY TẮC (bắt buộc):
-1. CHỈ mô tả/trả lời dựa trên những gì THỰC SỰ thấy (video KHÔNG có âm thanh — không đoán/ \
-bịa về âm thanh/lời thoại). Nếu ảnh/video mờ, quá nhỏ, hoặc không rõ nội dung, PHẢI nói \
-thẳng điều đó (VD \"Ảnh quá mờ để đọc chữ\") — TUYỆT ĐỐI không bịa/đoán nội dung để có câu \
-trả lời nghe hợp lý.
+1. CHỈ mô tả/trả lời dựa trên những gì THỰC SỰ thấy/nghe. Video có thể có hoặc KHÔNG có \
+tiếng — chỉ nói về lời thoại/âm thanh khi thật sự nghe thấy, không có tiếng thì không đoán. \
+Đoạn ghi âm (audio) là tiếng thu từ micro và/hoặc âm thanh đang phát trên máy người dùng. Nếu \
+ảnh/video/audio mờ, quá nhỏ, quá nhiễu hoặc không rõ nội dung, PHẢI nói thẳng điều đó (VD \
+\"Ảnh quá mờ để đọc chữ\", \"Đoạn này quá nhiễu để nghe rõ\") — TUYỆT ĐỐI không bịa/đoán nội \
+dung để có câu trả lời nghe hợp lý.
 2. Vào thẳng nội dung, không mở đầu bằng \"Chắc chắn rồi\", \"Dưới đây là\", \"Trong ảnh/video \
 này tôi thấy\" hay bất kỳ lời dẫn nào. Không nhắc lại yêu cầu của người dùng. Không thêm \
 lời kết thừa kiểu \"Hy vọng giúp ích\".
@@ -446,7 +448,13 @@ pub async fn ask_ai_gemini(
                     // biết đúng thứ tự và loại, thay vì thấy 1 dãy inline_data
                     // trần không rõ bước nào trước/sau.
                     if chain_len > 1 {
-                        let kind = if mime.starts_with("video/") { "video" } else { "ảnh" };
+                        let kind = if mime.starts_with("video/") {
+                            "video"
+                        } else if mime.starts_with("audio/") {
+                            "audio"
+                        } else {
+                            "ảnh"
+                        };
                         parts.push(serde_json::json!({"text": format!("Bước {} ({kind}):", i + 1)}));
                     }
                     parts.push(serde_json::json!({

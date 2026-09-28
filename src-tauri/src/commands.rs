@@ -22,6 +22,9 @@ pub const RESULT_LABEL_PREFIX: &str = "result-";
 /// hay ảnh qua tiền tố label, xem `getCurrentWindow().label` ở đó), chỉ khác
 /// tiền tố để lib.rs biết dọn đúng session map lúc đóng cửa sổ.
 pub const RECORD_LABEL_PREFIX: &str = "record-";
+/// Tiền tố label cho cửa sổ "Kết quả AI" của 1 phiên bắt đầu bằng SNAP AUDIO
+/// (xem audio_snap.rs) — cùng route "result", cùng cơ chế dọn dẹp lúc đóng.
+pub const AUDIO_LABEL_PREFIX: &str = "audio-";
 
 // Lưu ý đơn vị: TOÀN BỘ toạ độ/kích thước trong file này là PHYSICAL pixel
 // (khớp trực tiếp pixel ảnh chụp từ `xcap`), KHÔNG phải logical pixel của
@@ -620,35 +623,52 @@ pub async fn open_text_chat_window(app: AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let session_id = state.next_session_id.fetch_add(1, Ordering::Relaxed);
     let window_label = format!("{RESULT_LABEL_PREFIX}{session_id}");
+    open_centered_result_window(&app, &window_label, "result?mode=chat")
+}
 
-    let scale = app.primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(1.0);
-    let (mon_x, mon_y, mon_w, mon_h) = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .map(|m| {
+/// (x, y, rộng, cao, scale) của màn hình chính — physical px.
+pub(crate) fn primary_monitor_rect(app: &AppHandle) -> (i32, i32, u32, u32, f64) {
+    match app.primary_monitor().ok().flatten() {
+        Some(m) => {
             let pos = m.position();
             let size = m.size();
-            (pos.x, pos.y, size.width, size.height)
-        })
-        .unwrap_or((0, 0, 1920, 1080));
+            (pos.x, pos.y, size.width, size.height, m.scale_factor())
+        }
+        None => (0, 0, 1920, 1080, 1.0),
+    }
+}
 
+/// Mở 1 cửa sổ "Kết quả AI" ở GIỮA màn hình chính — cho các phiên không có
+/// toạ độ vùng chụp để đặt cửa sổ gần đó ("Hỏi AI" bằng chữ, Snap Audio).
+pub(crate) fn open_centered_result_window(app: &AppHandle, window_label: &str, url: &str) -> Result<(), String> {
+    let (mon_x, mon_y, mon_w, mon_h, scale) = primary_monitor_rect(app);
     let win_w = (480.0_f64 * scale).round();
     let win_h = (340.0_f64 * scale).round();
     let pos_x = (mon_x as f64 + (mon_w as f64 - win_w) / 2.0).max(mon_x as f64);
     let pos_y = (mon_y as f64 + (mon_h as f64 - win_h) / 2.0).max(mon_y as f64);
 
-    let win = WebviewWindowBuilder::new(&app, &window_label, WebviewUrl::App("result?mode=chat".into()))
+    let win = WebviewWindowBuilder::new(app, window_label, WebviewUrl::App(url.into()))
         .title("Kết quả AI")
         .decorations(true)
         .always_on_top(true)
         .visible(false)
         .build()
-        .map_err(|e| format!("Không mở được cửa sổ hỏi AI: {e}"))?;
+        .map_err(|e| format!("Không mở được cửa sổ kết quả: {e}"))?;
     let _ = win.set_size(PhysicalSize::new(win_w, win_h));
     let _ = win.set_min_size(Some(PhysicalSize::new(360.0 * scale, 280.0 * scale)));
     let _ = win.set_position(PhysicalPosition::new(pos_x, pos_y));
     let _ = win.show();
     let _ = win.set_focus();
     Ok(())
+}
+
+/// Hiện lại cửa sổ Cài đặt ("main") — VD từ thanh công cụ Snap Audio khi
+/// người dùng chưa bật quyền micro/âm thanh hệ thống.
+#[tauri::command]
+pub fn show_settings_window(app: AppHandle) {
+    if let Some(win) = app.get_webview_window(crate::MAIN_LABEL) {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
 }

@@ -17,6 +17,17 @@ pub struct RecordHotkeyState {
     pub current: Mutex<Shortcut>,
 }
 
+/// Phím tắt SNAP AUDIO — độc lập với 2 phím tắt trên. Xem audio_snap.rs.
+pub struct AudioHotkeyState {
+    pub current: Mutex<Shortcut>,
+}
+
+/// Phiên Snap Audio đang thu (chỉ 1 phiên tại 1 thời điểm) — xem audio_snap.rs.
+pub struct AudioSnapSession {
+    pub stop: Arc<AtomicBool>,
+    pub discard: Arc<AtomicBool>,
+}
+
 /// 1 `reqwest::Client` DÙNG CHUNG cho mọi lệnh gọi AI, thay vì tạo mới mỗi lần
 /// gọi API. `reqwest::Client` giữ pool kết nối HTTP/TLS bên trong — tạo `Client`
 /// mới nghĩa là bắt tay TLS (TLS handshake) lại từ đầu mỗi request, cộng thêm
@@ -122,6 +133,9 @@ pub struct AppState {
     /// 1 lần lúc mount rồi entry bị lấy ra luôn (dùng 1 lần, không cần dọn
     /// riêng ở on_window_event vì đã tự rỗng ngay khi đọc).
     pub resume_pending: Mutex<HashMap<String, (Vec<crate::history::HistoryTurn>, String)>>,
+
+    /// Phiên Snap Audio đang thu, nếu có — xem audio_snap.rs.
+    pub audio_snap: Mutex<Option<AudioSnapSession>>,
 }
 
 /// Trần số lượng media (ảnh HOẶC video) cho phép gom vào CÙNG 1 chuỗi/phiên —
@@ -136,6 +150,8 @@ pub const MAX_CHAIN_ITEMS: usize = 8;
 pub enum MediaKind {
     Image,
     Video,
+    /// Snap Audio (audio_snap.rs) — WAV 16kHz mono.
+    Audio,
 }
 
 impl MediaKind {
@@ -143,6 +159,7 @@ impl MediaKind {
         match self {
             MediaKind::Image => "image/png",
             MediaKind::Video => "video/mp4",
+            MediaKind::Audio => "audio/wav",
         }
     }
 }
@@ -194,7 +211,7 @@ pub struct PendingRecordResult {
     /// Cờ "Tự động chép vào clipboard" đọc từ settings.ts lúc BẮT ĐẦU quay
     /// (không đọc lại lúc quay XONG — nhất quán với hành vi lúc người dùng
     /// bấm nút, dù có đổi cài đặt giữa chừng lúc đang quay). Xem
-    /// clipboard_copy.rs::copy_video_file_to_clipboard.
+    /// clipboard_copy.rs::copy_file_to_clipboard.
     pub auto_copy: bool,
 }
 

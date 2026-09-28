@@ -1,5 +1,7 @@
 mod ai;
 mod attachments;
+mod audio;
+mod audio_snap;
 mod capture;
 mod clipboard_copy;
 mod commands;
@@ -14,7 +16,7 @@ mod state;
 mod survey;
 
 use std::sync::Mutex;
-use state::{AppState, HotkeyState, HttpClientState, RecordHotkeyState};
+use state::{AppState, AudioHotkeyState, HotkeyState, HttpClientState, RecordHotkeyState};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
@@ -57,8 +59,13 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 }
+            } else if window.label() == audio_snap::AUDIO_TOOLBAR_LABEL {
+                if let WindowEvent::Destroyed = event {
+                    audio_snap::on_toolbar_destroyed(window.app_handle());
+                }
             } else if window.label().starts_with(commands::RESULT_LABEL_PREFIX)
                 || window.label().starts_with(commands::RECORD_LABEL_PREFIX)
+                || window.label().starts_with(commands::AUDIO_LABEL_PREFIX)
             {
                 // Cửa sổ "Kết quả AI" đóng thật (không ẩn) — dọn chuỗi ảnh/video
                 // của phiên đó khỏi bộ nhớ (media_sessions), tránh rò rỉ khi
@@ -98,6 +105,15 @@ pub fn run() {
             hotkey::set_hotkey,
             hotkey::get_record_hotkey,
             hotkey::set_record_hotkey,
+            hotkey::get_audio_hotkey,
+            hotkey::set_audio_hotkey,
+            audio_snap::open_audio_snap,
+            audio_snap::start_audio_snap,
+            audio_snap::stop_audio_snap,
+            audio_snap::cancel_audio_snap,
+            audio_snap::probe_microphone,
+            audio_snap::open_mic_privacy_settings,
+            commands::show_settings_window,
             commands::trigger_recording_from_ui,
             commands::start_region_recording,
             commands::cancel_recording,
@@ -148,6 +164,15 @@ pub fn run() {
                 current: Mutex::new(initial_record_shortcut),
             });
 
+            let (initial_audio_shortcut, _initial_audio_accel) = hotkey::resolve_initial_shortcut(
+                &app.handle(),
+                hotkey::AUDIO_CONFIG_FILE_NAME,
+                hotkey::DEFAULT_AUDIO_ACCELERATOR,
+            );
+            app.manage(AudioHotkeyState {
+                current: Mutex::new(initial_audio_shortcut),
+            });
+
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(|app, shortcut, event| {
@@ -160,6 +185,7 @@ pub fn run() {
                         // video) để biết bấm cái nào.
                         let snip_hotkey = *app.state::<HotkeyState>().current.lock().unwrap();
                         let record_hotkey = *app.state::<RecordHotkeyState>().current.lock().unwrap();
+                        let audio_hotkey = *app.state::<AudioHotkeyState>().current.lock().unwrap();
 
                         // QUAN TRỌNG: handler này chạy trên thread riêng của
                         // global-shortcut, KHÔNG phải main thread. Tạo cửa sổ
@@ -179,6 +205,13 @@ pub fn run() {
                             let _ = app.run_on_main_thread(move || {
                                 if let Err(err) = commands::trigger_recording(&app_clone) {
                                     eprintln!("[snip-ai] Lỗi khi bắt đầu quay video: {err}");
+                                }
+                            });
+                        } else if *shortcut == audio_hotkey {
+                            let app_clone = app.clone();
+                            let _ = app.run_on_main_thread(move || {
+                                if let Err(err) = audio_snap::open_audio_snap_toolbar(&app_clone, None) {
+                                    eprintln!("[snip-ai] Lỗi khi mở Snap Audio: {err}");
                                 }
                             });
                         }
@@ -206,6 +239,16 @@ pub fn run() {
             *app.state::<RecordHotkeyState>().current.lock().unwrap() = registered_record_shortcut;
             if record_ok {
                 eprintln!("[snip-ai] Đã đăng ký phím tắt quay video: {registered_record_accel}");
+            }
+
+            let (registered_audio_shortcut, registered_audio_accel, audio_ok) = hotkey::register_initial(
+                &app.handle(),
+                hotkey::AUDIO_CONFIG_FILE_NAME,
+                hotkey::DEFAULT_AUDIO_ACCELERATOR,
+            );
+            *app.state::<AudioHotkeyState>().current.lock().unwrap() = registered_audio_shortcut;
+            if audio_ok {
+                eprintln!("[snip-ai] Đã đăng ký phím tắt Snap Audio: {registered_audio_accel}");
             }
 
             // ── System tray ──────────────────────────────────────────────
