@@ -8,6 +8,12 @@
 
 import { exchangeGoogleCode } from "./google";
 import { decodeJwtPayloadUnsafe, signSession, verifySession, type SessionPayload } from "./jwt";
+import { GeminiProxy } from "./geminiProxy";
+
+// Durable Object PHẢI được export từ module chính (Cloudflare tìm class theo
+// đúng tên khai báo ở `wrangler.toml` trong module này) — `geminiProxy.ts`
+// định nghĩa, ở đây chỉ export lại.
+export { GeminiProxy };
 
 export interface Env {
   // JSON array dạng chuỗi, VD '["key1","key2","key3"]' — nhiều key từ nhiều
@@ -43,6 +49,14 @@ export interface Env {
   // đọc lại/query có cấu trúc (đọc lại bằng `wrangler kv key list`/dashboard
   // lúc cần xem, không qua API này).
   SURVEY_KV: KVNamespace;
+
+  // Durable Object ghim CỨNG vị trí chạy (locationHint) khi gọi Gemini — xem
+  // giải thích đầy đủ ở đầu geminiProxy.ts. Thay cho việc gọi thẳng Gemini từ
+  // Worker chính (Smart Placement ở wrangler.toml không đảm bảo, đã gặp thực
+  // tế bị Google chặn vùng dù người dùng ở vùng được hỗ trợ).
+  // Không cần tham số generic `<GeminiProxy>` — chỉ gọi `.fetch()` thường
+  // (không dùng RPC method trực tiếp trên class), không cần "brand" class.
+  GEMINI_PROXY: DurableObjectNamespace;
 }
 
 function unauthorized(message = "Unauthorized"): Response {
@@ -75,57 +89,9 @@ async function authenticate(request: Request, env: Env): Promise<{ userId: strin
   return null;
 }
 
-/** Random hoá thứ tự mảng (Fisher-Yates) — dùng để chọn thứ tự thử các API
- * key, rải đều tải giữa các key thay vì luôn ưu tiên key đầu tiên. */
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-/** Gọi Gemini, thử LẦN LƯỢT các key theo thứ tự đã random hoá — chỉ chuyển
- * sang key tiếp theo khi lỗi có khả năng do QUOTA/RATE LIMIT của riêng key đó
- * (429) hoặc lỗi tạm thời phía Google (5xx). Lỗi 4xx khác (VD 400 do body sai
- * định dạng) là lỗi CHUNG cho mọi key — thử lại key khác vô ích, trả lỗi luôn.
- *
- * QUAN TRỌNG: chỉ đọc `resp.status` ở đây, CHƯA đụng vào `resp.body` — nhờ
- * vậy an toàn để "bỏ" response và thử key khác mà không làm hỏng stream (một
- * khi đã bắt đầu đọc/forward body thì không thể quay lại thử key khác nữa).
- */
-async function callGeminiWithFailover(
-  keys: string[],
-  model: string,
-  body: string,
-): Promise<Response> {
-  const upstream = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
-  const order = shuffle(keys);
-
-  let lastResp: Response | null = null;
-  for (const key of order) {
-    const resp = await fetch(upstream, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": key,
-        accept: "text/event-stream",
-      },
-      body,
-    });
-
-    if (resp.ok) return resp;
-
-    lastResp = resp;
-    const retryable = resp.status === 429 || resp.status >= 500;
-    if (!retryable) return resp; // lỗi không liên quan tới key -> trả luôn, không thử key khác
-    // key này hết quota/rate-limit -> bỏ qua response body, thử key tiếp theo
-  }
-
-  // Hết key mà key nào cũng lỗi retryable -> trả về lỗi của lần thử cuối.
-  return lastResp!;
-}
+// `shuffle`/`callGeminiWithFailover` đã CHUYỂN sang geminiProxy.ts — lệnh gọi
+// Gemini thật giờ chạy TRONG Durable Object (ghim cứng vị trí), không còn gọi
+// thẳng từ đây nữa. Xem `GEMINI_PROXY` trong Env + giải thích ở geminiProxy.ts.
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -215,7 +181,17 @@ export default {
         );
       }
 
-      const resp = await callGeminiWithFailover(keys, model, body);
+      // Forward toàn bộ việc gọi Gemini sang Durable Object đã GHIM CỨNG vị
+      // trí chạy ("wnam", gần cụm server Gemini nhất) — xem giải thích đầy đủ
+      // ở geminiProxy.ts. Dùng CHUNG 1 tên cố định ("gemini") cho mọi request
+      // -> luôn cùng 1 instance, cùng 1 vị trí đã ghim từ lần đầu tạo, không
+      // phụ thuộc traffic/thời điểm như Smart Placement của Worker chính.
+      const proxy = env.GEMINI_PROXY.getByName("gemini", { locationHint: "wnam" });
+      const resp = await proxy.fetch("https://gemini-proxy.internal/stream", {
+        method: "POST",
+        headers: { "x-gemini-model": model, "x-gemini-keys": JSON.stringify(keys) },
+        body,
+      });
 
       // Forward thẳng response stream (kể cả lỗi) về client — giữ nguyên
       // status code + body, để logic xử lý lỗi/SSE phía Rust (friendly_error,
