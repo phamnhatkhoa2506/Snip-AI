@@ -44,7 +44,10 @@
 
   async function scrollToBottom() {
     await tick();
-    transcriptEl?.scrollTo({ top: transcriptEl.scrollHeight, behavior: "smooth" });
+    transcriptEl?.scrollTo({
+      top: transcriptEl.scrollHeight,
+      behavior: "smooth",
+    });
   }
 
   /** Lời thoại đến từng mẩu nhỏ (vài từ 1 lần) — nối vào dòng đang mở của
@@ -77,7 +80,11 @@
     phase = "connecting";
     muted = false;
     try {
-      await invoke("live_start", { headphones, model: currentLiveModel(s), voice: currentVoice(s) });
+      await invoke("live_start", {
+        headphones,
+        model: currentLiveModel(s),
+        voice: currentVoice(s),
+      });
       // live_start chỉ trả về khi phiên ĐÃ sẵn sàng — không phụ thuộc hoàn
       // toàn vào sự kiện "live:state" để rời khỏi trạng thái đang kết nối.
       if (phase === "connecting") phase = "listening";
@@ -124,7 +131,9 @@
   onMount(() => {
     const unlistens: UnlistenFn[] = [];
     const on = <T,>(event: string, handler: (payload: T) => void) =>
-      listen<T>(event, (e) => handler(e.payload)).then((fn) => unlistens.push(fn));
+      listen<T>(event, (e) => handler(e.payload)).then((fn) =>
+        unlistens.push(fn),
+      );
 
     // Đăng ký HẾT listener rồi mới bắt đầu — live_start bắn "live:state"
     // ngay trước khi trả về.
@@ -133,7 +142,9 @@
         if (s === "listening" || s === "speaking") phase = s;
       }),
       on<number>("live:level", (l) => (level = l)),
-      on<{ role: "user" | "model"; text: string }>("live:transcript", (p) => appendTranscript(p.role, p.text)),
+      on<{ role: "user" | "model"; text: string }>("live:transcript", (p) =>
+        appendTranscript(p.role, p.text),
+      ),
       on<null>("live:turn-complete", () => closeOpenLines()),
       on<null>("live:interrupted", () => {
         const last = lines.findLast((l) => l.role === "model" && !l.done);
@@ -172,21 +183,26 @@
         : phase === "listening"
           ? muted
             ? "Micro đang tắt"
-            : "Đang nghe — cứ nói tự nhiên"
+            : "Đang nghe"
           : phase === "ended"
             ? "Đã kết thúc"
             : "Cần quyền dùng micro",
   );
 
   /** Quả cầu to ra theo âm lượng micro (lúc nghe) hoặc "thở" đều (lúc AI nói). */
-  const orbScale = $derived(phase === "listening" && !muted ? 1 + Math.min(level, 1) * 0.35 : 1);
+  const orbScale = $derived(
+    phase === "listening" && !muted ? 1 + Math.min(level, 1) * 0.35 : 1,
+  );
 </script>
 
 <div class="app-bg h-screen flex flex-col text-text overflow-hidden">
   <div class="shrink-0 flex flex-col items-center gap-2.5 pt-6 pb-4 px-4">
     <div class="relative w-24 h-24 flex items-center justify-center">
       <div
-        class="absolute inset-0 rounded-full transition-transform duration-100 {phase === 'speaking' ? 'pulse-ring' : ''}"
+        class="absolute inset-0 rounded-full transition-transform duration-100 {phase ===
+        'speaking'
+          ? 'pulse-ring'
+          : ''}"
         style="transform: scale({orbScale}); background: radial-gradient(circle at 35% 30%, var(--color-accent-2), var(--color-accent)); opacity: {active
           ? 1
           : 0.45};"
@@ -205,14 +221,22 @@
     </div>
     <div class="text-[13px] font-semibold">{statusText}</div>
     {#if notice}
-      <div class="text-[11px] text-text-muted text-center max-w-[300px]" transition:fade={{ duration: 140 }}>{notice}</div>
+      <div
+        class="text-[11px] text-text-muted text-center max-w-[300px]"
+        transition:fade={{ duration: 140 }}
+      >
+        {notice}
+      </div>
     {/if}
   </div>
 
   {#if phase === "permission"}
-    <div class="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center">
+    <div
+      class="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center"
+    >
       <p class="text-[12.5px] text-text-muted leading-relaxed max-w-[300px]">
-        Trò chuyện trực tiếp cần dùng micro. Windows không tự hỏi quyền cho app desktop, nên bạn cần cho phép tại đây.
+        Trò chuyện trực tiếp cần dùng micro. Windows không tự hỏi quyền cho app
+        desktop, nên bạn cần cho phép tại đây.
       </p>
       {#if windowsBlocked}
         <button
@@ -221,7 +245,11 @@
         >
           Mở cài đặt quyền micro của Windows
         </button>
-        <button onclick={allowMic} disabled={permissionBusy} class="btn-ghost px-3 py-1.5 rounded-lg text-[12px]">
+        <button
+          onclick={allowMic}
+          disabled={permissionBusy}
+          class="btn-ghost px-3 py-1.5 rounded-lg text-[12px]"
+        >
           Thử lại
         </button>
       {:else}
@@ -230,18 +258,32 @@
           disabled={permissionBusy}
           class="btn-accent px-4 py-2 rounded-lg text-[12.5px] font-semibold flex items-center gap-1.5 disabled:opacity-60"
         >
-          {#if permissionBusy}<Icon name="loader" size={13} class="animate-spin" />{:else}<Icon name="mic" size={13} />{/if}
+          {#if permissionBusy}<Icon
+              name="loader"
+              size={13}
+              class="animate-spin"
+            />{:else}<Icon name="mic" size={13} />{/if}
           Cho phép dùng micro
         </button>
       {/if}
       {#if error}
-        <p class="text-[11.5px] text-[color:var(--color-danger)] leading-relaxed selectable">{error}</p>
+        <p
+          class="text-[11.5px] text-[color:var(--color-danger)] leading-relaxed selectable"
+        >
+          {error}
+        </p>
       {/if}
     </div>
   {:else}
-    <ScrollArea bind:viewport={transcriptEl} class="selectable flex-1 min-h-0" contentClass="px-3 py-2 flex flex-col gap-2.5">
+    <ScrollArea
+      bind:viewport={transcriptEl}
+      class="selectable flex-1 min-h-0"
+      contentClass="px-3 py-2 flex flex-col gap-2.5"
+    >
       {#if lines.length === 0 && active}
-        <p class="text-[11.5px] text-text-muted text-center mt-4">Lời thoại sẽ hiện ở đây.</p>
+        <p class="text-[11.5px] text-text-muted text-center mt-4">
+          Lời thoại sẽ hiện ở đây.
+        </p>
       {/if}
       {#each lines as line, i (i)}
         {#if line.role === "user"}
@@ -255,14 +297,20 @@
           </div>
         {:else}
           <div class="flex msg-in">
-            <div class="card max-w-[85%] rounded-2xl rounded-tl-md px-3 py-1.5 text-[12.5px] leading-relaxed">
-              {line.text}{#if line.interrupted}<span class="text-text-muted"> — (bị ngắt)</span>{/if}
+            <div
+              class="card max-w-[85%] rounded-2xl rounded-tl-md px-3 py-1.5 text-[12.5px] leading-relaxed"
+            >
+              {line.text}{#if line.interrupted}<span class="text-text-muted">
+                  — (bị ngắt)</span
+                >{/if}
             </div>
           </div>
         {/if}
       {/each}
       {#if error}
-        <div class="card px-3 py-2 text-[12px] text-[color:var(--color-danger)] flex items-start gap-2">
+        <div
+          class="card px-3 py-2 text-[12px] text-[color:var(--color-danger)] flex items-start gap-2"
+        >
           <Icon name="alert" size={14} class="shrink-0 mt-0.5" />
           <span class="leading-relaxed">{error}</span>
         </div>

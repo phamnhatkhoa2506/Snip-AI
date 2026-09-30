@@ -805,7 +805,9 @@
             <span class="flex-1 min-w-0">
               <div class="text-[12.5px] font-semibold">Mô hình AI</div>
               <div class="text-[10.5px] text-text-muted truncate">
-                Đang dùng: <b class="text-accent font-bold">{currentModelOption.title}</b>
+                Đang dùng: <b class="text-accent font-bold"
+                  >{currentModelOption.title}</b
+                >
               </div>
             </span>
             <Icon
@@ -850,7 +852,9 @@
             <span class="flex-1 min-w-0">
               <div class="text-[12.5px] font-semibold">Giọng nói AI</div>
               <div class="text-[10.5px] text-text-muted truncate">
-                Giọng: <b class="text-accent font-bold">{currentVoiceOption.title}</b>
+                Giọng: <b class="text-accent font-bold"
+                  >{currentVoiceOption.title}</b
+                >
               </div>
             </span>
             <Icon
@@ -945,7 +949,9 @@
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Giao diện</div>
               <div class="text-[10.5px] text-text-muted">
-                Đang chọn: <b class="text-accent font-bold">{currentThemeOption.title}</b> — bấm để đổi
+                Đang chọn: <b class="text-accent font-bold"
+                  >{currentThemeOption.title}</b
+                >
               </div>
             </span>
           </button>
@@ -960,7 +966,9 @@
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Cỡ chữ hội thoại</div>
               <div class="text-[10.5px] text-text-muted">
-                Đang chọn: <b class="text-accent font-bold">{currentTextSizeOption.title}</b> — bấm để đổi
+                Đang chọn: <b class="text-accent font-bold"
+                  >{currentTextSizeOption.title}</b
+                >
               </div>
             </span>
           </button>
@@ -974,10 +982,12 @@
                 Tự động chép vào clipboard
               </div>
               <div class="text-[10.5px] text-text-muted">
-                <b class={autoCopyOnCapture ? "text-accent font-bold" : "font-bold"}
+                <b
+                  class={autoCopyOnCapture
+                    ? "text-accent font-bold"
+                    : "font-bold"}
                   >{autoCopyOnCapture ? "Đang bật" : "Đang tắt"}</b
-                > — chép ảnh/video/audio
-                sau khi chụp/quay/ghi xong, bấm để đổi
+                > — chép ảnh/video/audio sau khi chụp/quay/ghi xong
               </div>
             </span>
           </button>
@@ -989,10 +999,12 @@
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Đọc to câu trả lời</div>
               <div class="text-[10.5px] text-text-muted">
-                <b class={autoSpeakAudioAnswers ? "text-accent font-bold" : "font-bold"}
+                <b
+                  class={autoSpeakAudioAnswers
+                    ? "text-accent font-bold"
+                    : "font-bold"}
                   >{autoSpeakAudioAnswers ? "Đang bật" : "Đang tắt"}</b
-                > — tự đọc khi hỏi
-                về đoạn ghi âm, bấm để đổi
+                > — tự đọc khi hỏi về đoạn ghi âm, bấm để đổi
               </div>
             </span>
           </button>
@@ -1124,18 +1136,6 @@
             class={liveBusy ? "animate-spin" : ""}
           />
         </button>
-      </div>
-    {/if}
-    <div
-      class="flex items-center rounded-full p-0.5 shadow-md"
-      style="background: var(--color-card); border: 1px solid var(--color-border);"
-    >
-      {#each [{ mode: "snip", icon: "camera", title: "Snap ảnh" }, { mode: "record", icon: "video", title: "Quay video" }, { mode: "audio", icon: "mic", title: "Snap Audio" }] as m (m.mode)}
-        <button
-          onclick={() => (captureMode = m.mode as CaptureMode)}
-          title={m.title}
-          class="relative w-9 h-8 rounded-full flex items-center justify-center transition-colors {captureMode ===
-          m.mode
         <button
           onclick={handleOpenCaption}
           disabled={captionBusy}
@@ -1150,6 +1150,18 @@
             class={captionBusy ? "animate-spin" : ""}
           />
         </button>
+      </div>
+    {/if}
+    <div
+      class="flex items-center rounded-full p-0.5 shadow-md"
+      style="background: var(--color-card); border: 1px solid var(--color-border);"
+    >
+      {#each [{ mode: "snip", icon: "camera", title: "Snap ảnh" }, { mode: "record", icon: "video", title: "Quay video" }, { mode: "audio", icon: "mic", title: "Snap Audio" }] as m (m.mode)}
+        <button
+          onclick={() => (captureMode = m.mode as CaptureMode)}
+          title={m.title}
+          class="relative w-9 h-8 rounded-full flex items-center justify-center transition-colors {captureMode ===
+          m.mode
             ? 'text-accent'
             : 'text-text-muted hover:text-text'}"
         >
