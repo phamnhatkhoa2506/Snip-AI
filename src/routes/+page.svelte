@@ -17,8 +17,10 @@
   import { loadTheme, setTheme, type ThemeMode } from "$lib/theme";
   import { loadTextSize, setTextSize, type TextSizeMode } from "$lib/textSize";
   import {
+    currentModel,
     loadSettings,
     saveSettings,
+    GEMINI_MODEL_OPTIONS,
     MIC_PERMISSION_ERROR_PREFIX,
     type AudioSnapSource,
     type VideoAudioChoice,
@@ -194,6 +196,22 @@
   function toggleAutoCopy() {
     autoCopyOnCapture = !autoCopyOnCapture;
     saveSettings({ ...loadSettings(), autoCopyOnCapture });
+  }
+
+  // ── Mô hình AI (xem GEMINI_MODEL_OPTIONS) — áp dụng cho câu hỏi TIẾP
+  // THEO ở mọi cửa sổ chat, kể cả cửa sổ đang mở sẵn (mỗi lượt hỏi đều đọc
+  // lại cài đặt từ localStorage). Danh sách xổ ra thay vì bấm-chuyển-vòng
+  // như Giao diện/Cỡ chữ: 6 lựa chọn, bấm vòng quá lâu mới tới cái cần.
+  let geminiModel = $state("");
+  let showModelSubmenu = $state(false);
+  const currentModelOption = $derived(
+    GEMINI_MODEL_OPTIONS.find((o) => o.value === geminiModel) ?? GEMINI_MODEL_OPTIONS[0],
+  );
+  function chooseModel(value: string) {
+    geminiModel = value;
+    showModelSubmenu = false;
+    saveSettings({ ...loadSettings(), geminiModel: value });
+    flash("ok", `Đã đổi mô hình: ${currentModelOption.title}`);
   }
 
   let autoSpeakAudioAnswers = $state(true);
@@ -495,6 +513,7 @@
     systemAudioAllowed = initialSettings.systemAudioAllowed;
     audioSnapSource = initialSettings.audioSnapSource;
     autoSpeakAudioAnswers = initialSettings.autoSpeakAudioAnswers;
+    geminiModel = currentModel(initialSettings);
     videoAudio = initialSettings.videoAudio;
     loadAudioHotkey();
     // Trễ 1 chút lúc mới mở app — không tranh giành sự chú ý với các bước
@@ -634,6 +653,38 @@
               <div class="text-[10.5px] text-text-muted">Xem lại ảnh/video đã hỏi trước đó</div>
             </span>
           </button>
+          <button
+            onclick={() => (showModelSubmenu = !showModelSubmenu)}
+            aria-expanded={showModelSubmenu}
+            class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+          >
+            <Icon name="sparkles" size={15} class="mt-0.5 shrink-0" />
+            <span class="flex-1 min-w-0">
+              <div class="text-[12.5px] font-semibold">Mô hình AI</div>
+              <div class="text-[10.5px] text-text-muted truncate">Đang dùng: {currentModelOption.title}</div>
+            </span>
+            <Icon name="chevronDown" size={13} class="mt-1 shrink-0 transition-transform {showModelSubmenu ? 'rotate-180' : ''}" />
+          </button>
+          {#if showModelSubmenu}
+            <div class="pl-2.5 flex flex-col gap-0.5 pb-1 max-h-[260px] overflow-y-auto scroll-visible">
+              {#each GEMINI_MODEL_OPTIONS as option (option.value)}
+                <button
+                  onclick={() => chooseModel(option.value)}
+                  class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2"
+                >
+                  <span
+                    class="w-3 h-3 mt-0.5 shrink-0 rounded-full border {option.value === geminiModel
+                      ? 'border-accent bg-accent'
+                      : 'border-border'}"
+                  ></span>
+                  <span class="flex-1">
+                    <div class="text-[12px] font-medium">{option.title}</div>
+                    <div class="text-[10px] text-text-muted">{option.description}</div>
+                  </span>
+                </button>
+              {/each}
+            </div>
+          {/if}
           <!-- 2 mục dưới KHÔNG đóng menu khi bấm — bấm nhiều lần liền để
           chuyển nhanh qua từng mức mà không phải mở lại menu mỗi lần. -->
           <button

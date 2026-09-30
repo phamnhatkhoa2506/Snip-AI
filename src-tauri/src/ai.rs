@@ -365,6 +365,17 @@ pub(crate) enum GeminiAuth {
 /// khi CHƯA đăng nhập (không phải khi đăng nhập lỗi tạm thời, vì
 /// `read_session_token()` chỉ trả Err khi thật sự không có session nào).
 /// Dùng chung cho hỏi AI, đọc giọng nói (tts.rs), trò chuyện trực tiếp (live.rs).
+/// Giá trị header `x-snap-model` — tên model chỉ gồm chữ/số/`-`/`.`; giá trị
+/// lạ (VD còn sót từ bản cũ hồi còn ô gõ tên model tay) sẽ làm reqwest từ
+/// chối cả request, nên thay bằng rỗng -> backend dùng model mặc định.
+fn model_header_value(model: &str) -> &str {
+    if model.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') {
+        model
+    } else {
+        ""
+    }
+}
+
 pub(crate) fn current_auth() -> Result<GeminiAuth, String> {
     match crate::oauth::read_session_token() {
         Ok(token) => Ok(GeminiAuth::Backend { token }),
@@ -566,7 +577,9 @@ pub async fn ask_ai_gemini(
     let send = |body: &serde_json::Value| {
         let req = client.post(&endpoint).header("Accept", "text/event-stream").json(body);
         match &auth {
-            GeminiAuth::Backend { token } => req.bearer_auth(token),
+            // Model người dùng chọn trong Cài đặt — backend chỉ nhận model
+            // trong danh sách cho phép (xem pickChatModel ở backend).
+            GeminiAuth::Backend { token } => req.bearer_auth(token).header("x-snap-model", model_header_value(model)),
             GeminiAuth::Direct { api_key } => req.header("x-goog-api-key", api_key.as_str()),
         }
     };
@@ -756,7 +769,7 @@ pub async fn ask_ai_diagram(app: AppHandle, state: State<'_, AppState>, window_l
     let client = &app.state::<HttpClientState>().client;
     let req = client.post(&endpoint).header("Accept", "text/event-stream").json(&body);
     let req = match &auth {
-        GeminiAuth::Backend { token } => req.bearer_auth(token),
+        GeminiAuth::Backend { token } => req.bearer_auth(token).header("x-snap-model", model_header_value(model)),
         GeminiAuth::Direct { api_key } => req.header("x-goog-api-key", api_key.as_str()),
     };
     let resp = send_with_timeout(req).await?;

@@ -652,7 +652,7 @@
     await scrollToBottom();
     try {
       const settings = loadSettings();
-      const data = await askAIDiagram(settings.geminiModel);
+      const data = await askAIDiagram(currentModel(settings));
       const assistantIndex = history.length;
       turnDiagrams = { ...turnDiagrams, [assistantIndex]: data };
       history = [...history, { role: "assistant", content: diagramToFallbackText(data) }];

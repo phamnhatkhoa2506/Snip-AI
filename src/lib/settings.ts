@@ -50,8 +50,28 @@ export type VideoAudioChoice = "none" | AudioSnapSource;
 
 const STORAGE_KEY = "snip-ai:settings";
 
+/** Model mặc định — trùng GEMINI_MODEL của backend (wrangler.toml). */
+export const DEFAULT_GEMINI_MODEL = "gemini-3.6-flash";
+
+/** Các model người dùng chọn được trong Cài đặt -> "Mô hình AI". CHỈ gồm
+ * model chat ỔN ĐỊNH còn FREE TIER của Gemini API (đã đối chiếu trang
+ * models/pricing của Google, 09/2026): bỏ dòng Pro (không còn free tier),
+ * dòng 2.5 (Google chỉ còn cho người dùng cũ) và bản preview (đã có bản ổn
+ * định mới hơn). Backend có danh sách cho phép TƯƠNG ỨNG
+ * (DEFAULT_ALLOWED_CHAT_MODELS trong backend/src/index.ts) — thêm/bớt model
+ * phải sửa CẢ HAI nơi, model ngoài danh sách backend sẽ lặng lẽ bị thay
+ * bằng model mặc định. */
+export const GEMINI_MODEL_OPTIONS: { value: string; title: string; description: string }[] = [
+  { value: "gemini-3.8-flash", title: "Gemini 3.8 Flash", description: "Mới nhất, thông minh nhất — bài khó, lập trình, suy luận nhiều bước" },
+  { value: "gemini-3.7-flash", title: "Gemini 3.7 Flash", description: "Thế hệ trước, vẫn mạnh cho lập trình và suy luận" },
+  { value: "gemini-3.6-flash", title: "Gemini 3.6 Flash", description: "Cân bằng tốc độ và độ chính xác (mặc định)" },
+  { value: "gemini-3.5-flash", title: "Gemini 3.5 Flash", description: "Nhanh, ổn định cho câu hỏi thường ngày" },
+  { value: "gemini-3.5-flash-lite", title: "Gemini 3.5 Flash-Lite", description: "Nhanh nhất — OCR, dịch, hỏi nhanh" },
+  { value: "gemini-3.1-flash-lite", title: "Gemini 3.1 Flash-Lite", description: "Nhẹ, tiết kiệm — dự phòng khi model khác quá tải" },
+];
+
 export const DEFAULT_SETTINGS: Settings = {
-  geminiModel: "gemini-3.6-flash",
+  geminiModel: DEFAULT_GEMINI_MODEL,
   reasoningEffort: "auto",
   autoCopyOnCapture: false,
   micAllowed: false,
@@ -85,10 +105,13 @@ export function saveSettings(settings: Settings): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, geminiModel: settings.geminiModel.trim() }));
 }
 
-/** Tên model đang dùng (đã trim — tránh lỗi từng gặp: model dán dính khoảng
- * trắng cuối khiến API trả HTTP 404 khó hiểu). */
+/** Tên model đang dùng — luôn là 1 model TRONG danh sách GEMINI_MODEL_OPTIONS.
+ * Giá trị đã lưu không còn hợp lệ (bản cũ từng cho gõ tên model tay, hoặc
+ * model đã bị gỡ khỏi danh sách) thì rơi về mặc định thay vì gọi 1 model
+ * không tồn tại rồi báo lỗi 404 khó hiểu. */
 export function currentModel(settings: Settings): string {
-  return settings.geminiModel.trim();
+  const model = (settings.geminiModel ?? "").trim();
+  return GEMINI_MODEL_OPTIONS.some((o) => o.value === model) ? model : DEFAULT_GEMINI_MODEL;
 }
 
 /** Danh sách 5 lựa chọn hiện trong UI Cài đặt (result/+page.svelte và

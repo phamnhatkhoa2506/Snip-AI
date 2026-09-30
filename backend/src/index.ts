@@ -29,6 +29,9 @@ export interface Env {
   // lượt/ngày, miễn phí, không cần bật thanh toán). Optional với default bên
   // dưới nên không bắt buộc phải set lại secret/var cho deploy cũ.
   GEMINI_SEARCH_MODEL?: string;
+  // Danh sách model app được tự chọn, phân tách dấu phẩy — optional, mặc
+  // định xem DEFAULT_ALLOWED_CHAT_MODELS.
+  GEMINI_ALLOWED_MODELS?: string;
   // Model đọc câu trả lời thành giọng nói (POST /v1/gemini/tts) — xem
   // wrangler.toml. Optional, có default trong code.
   GEMINI_TTS_MODEL?: string;
@@ -60,6 +63,33 @@ export interface Env {
   // Không cần tham số generic `<GeminiProxy>` — chỉ gọi `.fetch()` thường
   // (không dùng RPC method trực tiếp trên class), không cần "brand" class.
   GEMINI_PROXY: DurableObjectNamespace;
+}
+
+/** Model chat app được phép TỰ CHỌN (header `x-snap-model`, xem Cài đặt ->
+ * "Mô hình AI" trong app). Chỉ gồm model ỔN ĐỊNH còn FREE TIER — key ở đây
+ * là key free-tier dùng chung, cho chọn model trả phí (dòng Pro) hay model
+ * đã bị Google khoá (dòng 2.5 cho người dùng mới) thì bấm vào là lỗi. Model
+ * ngoài danh sách -> lặng lẽ dùng GEMINI_MODEL mặc định. Ghi đè được bằng
+ * biến GEMINI_ALLOWED_MODELS (danh sách phân tách bằng dấu phẩy) khi Google
+ * ra model mới mà chưa kịp cập nhật code. Phải khớp danh sách
+ * GEMINI_MODEL_OPTIONS trong app (src/lib/settings.ts). */
+const DEFAULT_ALLOWED_CHAT_MODELS = [
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+];
+
+function pickChatModel(request: Request, env: Env): string {
+  const fallback = env.GEMINI_MODEL || "gemini-3.6-flash";
+  const wanted = (request.headers.get("x-snap-model") ?? "").trim();
+  if (!wanted) return fallback;
+  const allowed = env.GEMINI_ALLOWED_MODELS
+    ? env.GEMINI_ALLOWED_MODELS.split(",").map((m) => m.trim()).filter(Boolean)
+    : DEFAULT_ALLOWED_CHAT_MODELS;
+  return allowed.includes(wanted) ? wanted : fallback;
 }
 
 function unauthorized(message = "Unauthorized"): Response {
@@ -155,9 +185,9 @@ export default {
 
       // Body request client gửi lên PHẢI đúng format Gemini generateContent
       // (contents, systemInstruction, generationConfig...) — worker này chỉ
-      // forward nguyên xi, không parse/validate sâu ở bước 1. Model đọc từ
-      // biến môi trường phía server (không cho client tự chọn model tuỳ ý,
-      // tránh lạm dụng gọi model đắt tiền hơn).
+      // forward nguyên xi, không parse/validate sâu ở bước 1. Model: người
+      // dùng chọn trong app (header x-snap-model) nhưng CHỈ trong danh sách
+      // cho phép (xem pickChatModel) — không cho client gọi model tuỳ ý.
       const body = await request.text();
 
       // Lượt hỏi có bật "Tra cứu web" (field "tools" chứa google_search) ->
@@ -169,9 +199,7 @@ export default {
       // này khi bật search (xem ai.rs), đủ tin cậy cho việc CHỌN MODEL, không
       // ảnh hưởng gì tới nội dung request thật sự forward đi.
       const wantsSearch = body.includes('"googleSearch"') || body.includes('"google_search"');
-      const model = wantsSearch
-        ? env.GEMINI_SEARCH_MODEL || "gemini-2.5-flash"
-        : env.GEMINI_MODEL || "gemini-3.6-flash";
+      const model = wantsSearch ? env.GEMINI_SEARCH_MODEL || "gemini-2.5-flash" : pickChatModel(request, env);
 
       let keys: string[];
       try {
