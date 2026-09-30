@@ -104,6 +104,7 @@ export const DEFAULT_LIVE_MODEL = "gemini-3.8-live";
 export const LIVE_MODEL_OPTIONS: Option[] = [
   { value: "gemini-3.8-live", title: "Gemini 3.8 Live", description: "Phản hồi nhanh, tự nhiên như gọi điện (mặc định)" },
   { value: "gemini-3.8-live-extended-thinking", title: "Gemini 3.8 Live — suy luận sâu", description: "Nghĩ kỹ hơn trước khi nói — hợp câu hỏi khó, trả lời chậm hơn" },
+  { value: "gemini-3.1-flash-live-preview", title: "Gemini 3.1 Flash Live (preview)", description: "Bản cũ hơn, dự phòng khi 3.8 quá tải — Google khuyên dùng 3.8" },
 ];
 
 /** 30 giọng dựng sẵn của Gemini (dùng được cho cả TTS lẫn Live, đều nói

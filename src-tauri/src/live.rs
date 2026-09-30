@@ -497,7 +497,11 @@ mod tests {
     #[test]
     #[ignore]
     fn e2e_live_full_turn_via_backend() {
-        for (model, voice) in [("gemini-3.8-live", "Puck"), ("gemini-3.8-live-extended-thinking", "Sulafat")] {
+        for (model, voice) in [
+            ("gemini-3.8-live", "Puck"),
+            ("gemini-3.8-live-extended-thinking", "Sulafat"),
+            ("gemini-3.1-flash-live-preview", "Kore"),
+        ] {
             println!("== {model} / {voice}");
             e2e_live_one_turn(model, voice);
         }

@@ -246,7 +246,9 @@
   let liveModel = $state("");
   let voiceName = $state("");
   let voicePreviewBusy = $state(false);
-  const currentVoiceOption = $derived(VOICE_OPTIONS.find((o) => o.value === voiceName) ?? VOICE_OPTIONS[0]);
+  const currentVoiceOption = $derived(
+    VOICE_OPTIONS.find((o) => o.value === voiceName) ?? VOICE_OPTIONS[0],
+  );
   function chooseTtsModel(value: string) {
     ttsModel = value;
     saveSettings({ ...loadSettings(), ttsModel: value });
@@ -262,7 +264,9 @@
   async function previewVoice() {
     voicePreviewBusy = true;
     try {
-      await speakMarkdown(`Xin chào, mình là giọng ${voiceName}. Bạn nghe có rõ không?`);
+      await speakMarkdown(
+        `Xin chào, mình là giọng ${voiceName}. Bạn nghe có rõ không?`,
+      );
     } finally {
       voicePreviewBusy = false;
     }
@@ -734,9 +738,6 @@
     </div>
     <div class="flex-1 min-w-0">
       <h1 class="text-[15px] font-bold leading-tight">Snap AI</h1>
-      <p class="text-[11px] text-text-muted leading-tight">
-        Chụp màn hình · Hỏi AI
-      </p>
     </div>
 
     <!-- Gộp Lịch sử/Giao diện/Cỡ chữ vào 1 menu "..." — càng thêm cài đặt
@@ -764,7 +765,8 @@
         <!-- z-40: xem giải thích ở menu tài khoản ngay bên dưới (thanh toggle
         Ảnh/Video cùng z-20 sẽ đè lên nếu để thấp hơn). -->
         <div
-          class="absolute right-0 top-full mt-2 w-64 card p-1.5 z-40"
+          class="absolute right-0 top-full mt-2 w-64 card p-1.5 z-40 overflow-y-auto scroll-visible"
+          style="max-height: calc(100vh - 80px);"
           transition:fade={{ duration: 120 }}
         >
           <button
@@ -835,44 +837,86 @@
             <Icon name="volume" size={15} class="mt-0.5 shrink-0" />
             <span class="flex-1 min-w-0">
               <div class="text-[12.5px] font-semibold">Giọng nói AI</div>
-              <div class="text-[10.5px] text-text-muted truncate">Giọng: {currentVoiceOption.title}</div>
+              <div class="text-[10.5px] text-text-muted truncate">
+                Giọng: {currentVoiceOption.title}
+              </div>
             </span>
-            <Icon name="chevronDown" size={13} class="mt-1 shrink-0 transition-transform {showVoiceSubmenu ? 'rotate-180' : ''}" />
+            <Icon
+              name="chevronDown"
+              size={13}
+              class="mt-1 shrink-0 transition-transform {showVoiceSubmenu
+                ? 'rotate-180'
+                : ''}"
+            />
           </button>
           {#if showVoiceSubmenu}
             <div class="pl-2.5 flex flex-col gap-1 pb-1">
-              {#snippet radioList(options: { value: string; title: string; description: string }[], selected: string, choose: (v: string) => void)}
+              {#snippet radioList(
+                options: {
+                  value: string;
+                  title: string;
+                  description: string;
+                }[],
+                selected: string,
+                choose: (v: string) => void,
+              )}
                 {#each options as option (option.value)}
                   <button
                     onclick={() => choose(option.value)}
                     class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2"
                   >
-                    <span class="w-3 h-3 mt-0.5 shrink-0 rounded-full border {option.value === selected ? 'border-accent bg-accent' : 'border-border'}"></span>
+                    <span
+                      class="w-3 h-3 mt-0.5 shrink-0 rounded-full border {option.value ===
+                      selected
+                        ? 'border-accent bg-accent'
+                        : 'border-border'}"
+                    ></span>
                     <span class="flex-1">
                       <div class="text-[12px] font-medium">{option.title}</div>
-                      <div class="text-[10px] text-text-muted">{option.description}</div>
+                      <div class="text-[10px] text-text-muted">
+                        {option.description}
+                      </div>
                     </span>
                   </button>
                 {/each}
               {/snippet}
               <div class="flex items-center justify-between px-2.5 pt-1">
-                <span class="text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Giọng</span>
+                <span
+                  class="text-[10.5px] font-semibold uppercase tracking-wide text-text-muted"
+                  >Giọng</span
+                >
                 <button
                   onclick={previewVoice}
                   disabled={voicePreviewBusy}
                   class="text-[11px] text-accent font-medium flex items-center gap-1 disabled:opacity-50"
                 >
-                  <Icon name={voicePreviewBusy ? "loader" : "volume"} size={11} class={voicePreviewBusy ? "animate-spin" : ""} />
+                  <Icon
+                    name={voicePreviewBusy ? "loader" : "volume"}
+                    size={11}
+                    class={voicePreviewBusy ? "animate-spin" : ""}
+                  />
                   Nghe thử
                 </button>
               </div>
               <div class="max-h-[180px] overflow-y-auto scroll-visible">
                 {@render radioList(VOICE_OPTIONS, voiceName, chooseVoice)}
               </div>
-              <div class="px-2.5 pt-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Mô hình đọc câu trả lời</div>
+              <div
+                class="px-2.5 pt-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted"
+              >
+                Mô hình đọc câu trả lời
+              </div>
               {@render radioList(TTS_MODEL_OPTIONS, ttsModel, chooseTtsModel)}
-              <div class="px-2.5 pt-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Mô hình trò chuyện</div>
-              {@render radioList(LIVE_MODEL_OPTIONS, liveModel, chooseLiveModel)}
+              <div
+                class="px-2.5 pt-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted"
+              >
+                Mô hình trò chuyện
+              </div>
+              {@render radioList(
+                LIVE_MODEL_OPTIONS,
+                liveModel,
+                chooseLiveModel,
+              )}
             </div>
           {/if}
           <!-- 2 mục dưới KHÔNG đóng menu khi bấm — bấm nhiều lần liền để
