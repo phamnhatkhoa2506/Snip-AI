@@ -1451,7 +1451,7 @@
       <span class="flex-1">
         <div class="text-[12.5px] font-semibold">Mức độ suy luận</div>
         <div class="text-[10.5px] text-text-muted">
-          Đang chọn: {currentReasoningOption.title} — áp dụng cho các câu hỏi sau
+          Đang chọn: <b class="text-accent font-bold">{currentReasoningOption.title}</b> — áp dụng cho các câu hỏi sau
         </div>
       </span>
       <Icon
