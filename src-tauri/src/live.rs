@@ -472,11 +472,23 @@ mod tests {
     #[test]
     #[ignore]
     fn e2e_tts_returns_audio() {
+        for model in [
+            "gemini-3.8-flash-lite-tts",
+            "gemini-3.8-flash-tts",
+            "gemini-3.1-flash-tts-preview",
+            "gemini-2.5-flash-preview-tts",
+        ] {
+            println!("== {model}");
+            e2e_tts_one(model);
+        }
+    }
+
+    fn e2e_tts_one(model: &str) {
         tauri::async_runtime::block_on(async {
             let resp = reqwest::Client::new()
                 .post(format!("{}/v1/gemini/tts", crate::oauth::backend_base_url()))
                 .bearer_auth(e2e_token())
-                .json(&serde_json::json!({"text": "Xin chào, đây là thử giọng đọc."}))
+                .json(&serde_json::json!({"text": "Xin chào, đây là thử giọng đọc.", "model": model, "voice": "Puck"}))
                 .send()
                 .await
                 .unwrap();

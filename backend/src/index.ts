@@ -86,7 +86,12 @@ const DEFAULT_ALLOWED_CHAT_MODELS = [
 
 /** Model đọc giọng/trò chuyện trực tiếp app được tự chọn — khớp
  * TTS_MODEL_OPTIONS/LIVE_MODEL_OPTIONS trong app (src/lib/settings.ts). */
-const ALLOWED_TTS_MODELS = ["gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts"];
+const ALLOWED_TTS_MODELS = [
+  "gemini-3.8-flash-lite-tts",
+  "gemini-3.8-flash-tts",
+  "gemini-3.1-flash-tts-preview",
+  "gemini-2.5-flash-preview-tts",
+];
 const ALLOWED_LIVE_MODELS = ["gemini-3.8-live", "gemini-3.8-live-extended-thinking", "gemini-3.1-flash-live-preview"];
 
 function pickFromList(wanted: string | null | undefined, allowed: string[], fallback: string): string {

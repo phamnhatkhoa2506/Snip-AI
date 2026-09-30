@@ -96,6 +96,8 @@ export const DEFAULT_TTS_MODEL = "gemini-3.8-flash-lite-tts";
 export const TTS_MODEL_OPTIONS: Option[] = [
   { value: "gemini-3.8-flash-lite-tts", title: "Gemini 3.8 Flash-Lite TTS", description: "Nhanh, nhẹ quota (mặc định)" },
   { value: "gemini-3.8-flash-tts", title: "Gemini 3.8 Flash TTS", description: "Giọng tự nhiên, diễn cảm hơn — chậm hơn chút" },
+  { value: "gemini-3.1-flash-tts-preview", title: "Gemini 3.1 Flash TTS (preview)", description: "Bản cũ hơn — dự phòng khi 3.8 quá tải" },
+  { value: "gemini-2.5-flash-preview-tts", title: "Gemini 2.5 Flash TTS (preview)", description: "Bản cũ nhất — dự phòng" },
 ];
 
 /** Model trò chuyện trực tiếp (Live API) — cùng quy tắc chọn như trên,
