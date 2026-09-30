@@ -21,9 +21,25 @@
     DIAGRAM_MODE_SUFFIX,
     type QuickPrompt,
   } from "$lib/config";
-  import { currentModel, loadSettings, saveSettings, REASONING_EFFORT_OPTIONS, type Settings, type ReasoningEffort } from "$lib/settings";
-  import { askAIStream, askAIDiagram, type ChatTurn, type VocabDiagramData } from "$lib/aiClient";
-  import { renderMarkdown, markdownToPlainText, linkifyTimestamps } from "$lib/markdown";
+  import {
+    currentModel,
+    loadSettings,
+    saveSettings,
+    REASONING_EFFORT_OPTIONS,
+    type Settings,
+    type ReasoningEffort,
+  } from "$lib/settings";
+  import {
+    askAIStream,
+    askAIDiagram,
+    type ChatTurn,
+    type VocabDiagramData,
+  } from "$lib/aiClient";
+  import {
+    renderMarkdown,
+    markdownToPlainText,
+    linkifyTimestamps,
+  } from "$lib/markdown";
   import { mermaidBlocks } from "$lib/mermaid";
   import { plotBlocks } from "$lib/plot";
   import { svgFigureBlocks } from "$lib/svgFigure";
@@ -32,7 +48,13 @@
   import { scene3dBlocks } from "$lib/scene3d";
   import { codeCopyButtons } from "$lib/codeCopyButtons";
   import { speakMarkdown, stopSpeaking } from "$lib/speech";
-  import { extractFirstTable, exportTableAsCsv, exportTableAsExcel, exportMarkdownAsDocx, printHtmlAsPdf } from "$lib/exportFile";
+  import {
+    extractFirstTable,
+    exportTableAsCsv,
+    exportTableAsExcel,
+    exportMarkdownAsDocx,
+    printHtmlAsPdf,
+  } from "$lib/exportFile";
   import VocabDiagram from "$lib/VocabDiagram.svelte";
 
   type Phase = "ask" | "chat";
@@ -55,7 +77,8 @@
   // gắn với ảnh/video (OCR, dịch, Sơ đồ từ vựng...) — vẫn có thể "+ Chụp/Quay
   // thêm bước" SAU ĐÓ để bổ sung ảnh/video giữa chừng, dùng chung đúng cơ chế
   // trộn ảnh+video đã có (AppState::media_sessions), không phải luồng riêng.
-  const textOnlyMode = new URLSearchParams(window.location.search).get("mode") === "chat";
+  const textOnlyMode =
+    new URLSearchParams(window.location.search).get("mode") === "chat";
 
   type MediaKind = "image" | "video" | "audio";
   interface MediaEntry {
@@ -78,25 +101,39 @@
    * điểm/chip gợi ý đều đi theo phần tử đang xem (mới nhất). Chưa nạp được
    * gì thì đoán theo phần tử đầu (tiền tố label). */
   const latestIsVideo = $derived(
-    mediaChain.length > 0 ? mediaChain[mediaChain.length - 1].kind === "video" : startedAsVideo,
+    mediaChain.length > 0
+      ? mediaChain[mediaChain.length - 1].kind === "video"
+      : startedAsVideo,
   );
   /** Có ít nhất 1 video trong chuỗi — mốc giờ "[mm:ss]" trong câu trả lời chỉ
    * có nghĩa khi có video (xem linkifyTimestamps). */
   const latestIsAudio = $derived(
-    mediaChain.length > 0 ? mediaChain[mediaChain.length - 1].kind === "audio" : startedAsAudio,
+    mediaChain.length > 0
+      ? mediaChain[mediaChain.length - 1].kind === "audio"
+      : startedAsAudio,
   );
   /** Phần tử mới nhất là ẢNH — chỉ ảnh mới khoanh vùng (box_2d) / vẽ sơ đồ từ
    * vựng được. */
-  const latestIsImage = $derived(mediaChain.length > 0 && mediaChain[mediaChain.length - 1].kind === "image");
+  const latestIsImage = $derived(
+    mediaChain.length > 0 && mediaChain[mediaChain.length - 1].kind === "image",
+  );
   /** Có ít nhất 1 video/audio (có trục thời gian) — mốc giờ "[mm:ss]" trong
    * câu trả lời chỉ có nghĩa khi có 1 trong 2 (xem linkifyTimestamps). */
-  const chainHasTimeline = $derived(mediaChain.some((m) => m.kind === "video" || m.kind === "audio"));
+  const chainHasTimeline = $derived(
+    mediaChain.some((m) => m.kind === "video" || m.kind === "audio"),
+  );
 
   // Bộ chip gợi ý khác nhau giữa ảnh, video và audio. Không chỉ là đổi chữ
   // "ảnh" thành "video": video có trục thời gian và bị Gemini lấy mẫu thưa
   // (~1 khung/giây) nên câu hỏi phải đặt khác hẳn — xem giải thích đầy đủ ở
   // config.ts, ngay trên PROMPT_VIDEO_OCR. Theo phần tử MỚI NHẤT.
-  const quickPrompts = $derived(latestIsAudio ? AUDIO_PROMPTS : latestIsVideo ? VIDEO_PROMPTS : QUICK_PROMPTS);
+  const quickPrompts = $derived(
+    latestIsAudio
+      ? AUDIO_PROMPTS
+      : latestIsVideo
+        ? VIDEO_PROMPTS
+        : QUICK_PROMPTS,
+  );
   /** Màn hình "ask" sẵn sàng cho hỏi — bình thường phải CHỜ có ảnh/video
    * (`mediaB64`), nhưng phiên "Hỏi AI" (textOnlyMode) sẵn sàng NGAY từ đầu,
    * không có gì để chờ cả. Dùng thay `!!mediaB64` cho mọi chỗ enable/disable
@@ -157,7 +194,9 @@
   const isTimePoint = $derived(rangeEnd - rangeStart < 1);
 
   const timeRangeLabel = $derived(
-    isTimePoint ? formatClock(rangeStart) : `${formatClock(rangeStart)}–${formatClock(rangeEnd)}`,
+    isTimePoint
+      ? formatClock(rangeStart)
+      : `${formatClock(rangeStart)}–${formatClock(rangeEnd)}`,
   );
 
   /** Câu chỉ dẫn nối vào CUỐI nội dung thật gửi cho AI (không hiện lên bong
@@ -221,8 +260,13 @@
         // Chuỗi có thể đan xen ảnh/video/audio và kết thúc bằng ẢNH — ghim
         // xem đúng video/audio gần nhất (mốc giờ chỉ có nghĩa với 2 loại có
         // trục thời gian), không phải mặc định "phần tử mới nhất".
-        const lastTimeline = mediaChain.findLastIndex((m) => m.kind === "video" || m.kind === "audio");
-        previewIndex = lastTimeline >= 0 && lastTimeline !== mediaChain.length - 1 ? lastTimeline : null;
+        const lastTimeline = mediaChain.findLastIndex(
+          (m) => m.kind === "video" || m.kind === "audio",
+        );
+        previewIndex =
+          lastTimeline >= 0 && lastTimeline !== mediaChain.length - 1
+            ? lastTimeline
+            : null;
         openMediaPreview();
       }
       return;
@@ -236,7 +280,9 @@
     const link = target.closest<HTMLAnchorElement>("a[href]");
     if (link) {
       e.preventDefault();
-      openUrl(link.href).catch((err) => console.warn("[snip-ai] Không mở được link:", err));
+      openUrl(link.href).catch((err) =>
+        console.warn("[snip-ai] Không mở được link:", err),
+      );
     }
   }
 
@@ -260,9 +306,14 @@
         await invoke("open_audio_snap", { appendTo: windowLabel });
         return;
       }
-      await invoke(kind === "video" ? "trigger_recording_for_session" : "trigger_capture_for_session", {
-        windowLabel,
-      });
+      await invoke(
+        kind === "video"
+          ? "trigger_recording_for_session"
+          : "trigger_capture_for_session",
+        {
+          windowLabel,
+        },
+      );
     } catch (e) {
       error = String(e);
     } finally {
@@ -281,11 +332,19 @@
     try {
       const selected = await openFileDialog({
         multiple: true,
-        filters: [{ name: "Ảnh & PDF", extensions: ["png", "jpg", "jpeg", "webp", "pdf"] }],
+        filters: [
+          {
+            name: "Ảnh & PDF",
+            extensions: ["png", "jpg", "jpeg", "webp", "pdf"],
+          },
+        ],
       });
       if (!selected) return; // người dùng bấm Huỷ
       const paths = Array.isArray(selected) ? selected : [selected];
-      await invoke("attach_files_to_session", { windowLabel: getCurrentWindow().label, paths });
+      await invoke("attach_files_to_session", {
+        windowLabel: getCurrentWindow().label,
+        paths,
+      });
     } catch (e) {
       error = String(e).replace(/^Error:\s*/, "");
     } finally {
@@ -295,7 +354,10 @@
 
   async function removeAttachment(index: number) {
     try {
-      await invoke("remove_attachment_from_session", { windowLabel: getCurrentWindow().label, index });
+      await invoke("remove_attachment_from_session", {
+        windowLabel: getCurrentWindow().label,
+        index,
+      });
     } catch (e) {
       error = String(e);
     }
@@ -315,11 +377,17 @@
    * media MỚI NHẤT (mặc định). Bấm vào 1 thumbnail cụ thể trong dải mới ghim
    * cố định vào đúng cái đó. */
   let previewIndex = $state<number | null>(null);
-  const previewMediaB64 = $derived(mediaChain[previewIndex ?? mediaChain.length - 1]?.data ?? "");
+  const previewMediaB64 = $derived(
+    mediaChain[previewIndex ?? mediaChain.length - 1]?.data ?? "",
+  );
   /** Phần tử ĐANG XEM trong ảnh phóng to là video? — chuỗi đan xen nên mỗi
    * phần tử tự quyết định dùng <video> hay <img>, không theo cả phiên. */
-  const previewIsVideo = $derived(mediaChain[previewIndex ?? mediaChain.length - 1]?.kind === "video");
-  const previewIsAudio = $derived(mediaChain[previewIndex ?? mediaChain.length - 1]?.kind === "audio");
+  const previewIsVideo = $derived(
+    mediaChain[previewIndex ?? mediaChain.length - 1]?.kind === "video",
+  );
+  const previewIsAudio = $derived(
+    mediaChain[previewIndex ?? mediaChain.length - 1]?.kind === "audio",
+  );
   let modalAudioEl = $state<HTMLAudioElement | null>(null);
   function onModalAudioReady() {
     if (modalAudioEl && pendingSeekTime != null) {
@@ -340,8 +408,13 @@
     // nhật độ dài theo đúng video này. Cần vì lúc đang chat có thể vừa "+ Quay
     // thêm video" (hoặc phiên bắt đầu bằng ảnh, giờ mới có video đầu tiên) —
     // `videoDuration` cũ lấy từ khung xem lúc mới mở không còn đúng nữa.
-    const viewingLatest = previewIndex === null || previewIndex === mediaChain.length - 1;
-    if (modalVideoEl && viewingLatest && Number.isFinite(modalVideoEl.duration)) {
+    const viewingLatest =
+      previewIndex === null || previewIndex === mediaChain.length - 1;
+    if (
+      modalVideoEl &&
+      viewingLatest &&
+      Number.isFinite(modalVideoEl.duration)
+    ) {
       if (modalVideoEl.duration !== videoDuration) {
         rangeStart = 0;
         rangeTouched = false;
@@ -372,11 +445,17 @@
       const win = getCurrentWindow();
       const scale = await win.scaleFactor();
       const current = (await win.innerSize()).toLogical(scale);
-      if (current.width >= COMFORTABLE_PREVIEW_SIZE.width && current.height >= COMFORTABLE_PREVIEW_SIZE.height) {
+      if (
+        current.width >= COMFORTABLE_PREVIEW_SIZE.width &&
+        current.height >= COMFORTABLE_PREVIEW_SIZE.height
+      ) {
         return; // đã đủ rộng — khỏi đụng gì tới cửa sổ
       }
       const newWidth = Math.max(current.width, COMFORTABLE_PREVIEW_SIZE.width);
-      const newHeight = Math.max(current.height, COMFORTABLE_PREVIEW_SIZE.height);
+      const newHeight = Math.max(
+        current.height,
+        COMFORTABLE_PREVIEW_SIZE.height,
+      );
       await win.setSize(new LogicalSize(newWidth, newHeight));
 
       // Vị trí cửa sổ được TÍNH SẴN cho kích thước NHỎ ban đầu (xem
@@ -488,7 +567,9 @@
   let attachments = $state<AttachmentMeta[]>([]);
   async function loadAttachments() {
     try {
-      attachments = await invoke<AttachmentMeta[]>("get_attachment_list", { windowLabel: getCurrentWindow().label });
+      attachments = await invoke<AttachmentMeta[]>("get_attachment_list", {
+        windowLabel: getCurrentWindow().label,
+      });
     } catch (e) {
       console.warn("[snip-ai] Không nạp được danh sách file đính kèm:", e);
     }
@@ -510,14 +591,19 @@
    * `resume_pending` ngay khi trả về, gọi lại lần 2 sẽ luôn ra `null`. */
   async function loadResumeIfAny() {
     try {
-      const resume = await invoke<ResumeData | null>("get_resume_data", { windowLabel: getCurrentWindow().label });
+      const resume = await invoke<ResumeData | null>("get_resume_data", {
+        windowLabel: getCurrentWindow().label,
+      });
       if (resume) {
         history = resume.turns;
         modelLabel = resume.model;
         phase = "chat";
       }
     } catch (e) {
-      console.warn("[snip-ai] Không nạp được dữ liệu resume (bỏ qua, coi như phiên bình thường):", e);
+      console.warn(
+        "[snip-ai] Không nạp được dữ liệu resume (bỏ qua, coi như phiên bình thường):",
+        e,
+      );
     }
   }
 
@@ -542,7 +628,9 @@
       // (silent, phòng trường hợp ảnh đã kịp xử lý xong), đồng thời lắng nghe
       // event "ai:crop-ready" từ Rust để nạp lại khi ảnh THẬT SỰ sẵn sàng.
       loadMediaChain(true);
-      listen("ai:crop-ready", () => loadMediaChain(false)).then((fn) => unlistens.push(fn));
+      listen("ai:crop-ready", () => loadMediaChain(false)).then((fn) =>
+        unlistens.push(fn),
+      );
     }
 
     // "+ Chụp thêm bước" đã thêm xong 1 ảnh/video vào chuỗi, HOẶC vừa đính
@@ -566,12 +654,17 @@
       windowLabel: getCurrentWindow().label,
       model: currentModel(settings),
       turns: history,
-    }).catch((e) => console.warn("[snip-ai] Lưu lịch sử thất bại (bỏ qua):", e));
+    }).catch((e) =>
+      console.warn("[snip-ai] Lưu lịch sử thất bại (bỏ qua):", e),
+    );
   }
 
   async function scrollToBottom() {
     await tick();
-    transcriptEl?.scrollTo({ top: transcriptEl.scrollHeight, behavior: "smooth" });
+    transcriptEl?.scrollTo({
+      top: transcriptEl.scrollHeight,
+      behavior: "smooth",
+    });
   }
 
   // ── Khoanh vùng AI chỉ tới (chỉ phiên ẢNH) — Rust dặn Gemini thêm 1 dòng
@@ -582,8 +675,13 @@
   // quy đổi toạ độ 0-1000 sang pixel, tuỳ theo kích thước hiển thị).
   type Box2d = [number, number, number, number]; // [ymin, xmin, ymax, xmax]
 
-  function extractBoxFromAnswer(text: string): { text: string; box: Box2d | null } {
-    const m = text.match(/\n*\{\s*"box_2d"\s*:\s*\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\]\s*\}\s*$/);
+  function extractBoxFromAnswer(text: string): {
+    text: string;
+    box: Box2d | null;
+  } {
+    const m = text.match(
+      /\n*\{\s*"box_2d"\s*:\s*\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\]\s*\}\s*$/,
+    );
     if (!m) return { text, box: null };
     const nums = m.slice(1, 5).map(Number) as Box2d;
     // Model thỉnh thoảng trả toạ độ lệch khỏi [0,1000] (VD làm tròn quá đà) —
@@ -609,8 +707,13 @@
   // ảnh lẫn video, khác box_2d — đáp số bài tập không phụ thuộc có ảnh hay
   // không), nên gọi TRƯỚC extractBoxFromAnswer (final_answer là dòng cuối
   // TUYỆT ĐỐI, box_2d nếu có nằm ngay trước nó — xem rule bbox đã cập nhật).
-  function extractFinalAnswerFromAnswer(text: string): { text: string; finalAnswer: string | null } {
-    const m = text.match(/\n*\{\s*"final_answer"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}\s*$/);
+  function extractFinalAnswerFromAnswer(text: string): {
+    text: string;
+    finalAnswer: string | null;
+  } {
+    const m = text.match(
+      /\n*\{\s*"final_answer"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}\s*$/,
+    );
     if (!m) return { text, finalAnswer: null };
     let value: string;
     try {
@@ -620,7 +723,10 @@
     } catch {
       value = m[1];
     }
-    return { text: text.slice(0, m.index).trimEnd(), finalAnswer: value || null };
+    return {
+      text: text.slice(0, m.index).trimEnd(),
+      finalAnswer: value || null,
+    };
   }
 
   /** Đáp số theo TỪNG LƯỢT trả lời (key = index trong `history`) — cùng cơ
@@ -638,7 +744,10 @@
   let diagramBusy = $state(false);
 
   function diagramToFallbackText(data: VocabDiagramData): string {
-    const lines = data.related.map((r) => `- **${r.term}** (${r.relation}): ${r.translation} — _${r.example}_`);
+    const lines = data.related.map(
+      (r) =>
+        `- **${r.term}** (${r.relation}): ${r.translation} — _${r.example}_`,
+    );
     return `**${data.mainTerm}** — ${data.translation}\n${lines.join("\n")}`;
   }
 
@@ -647,7 +756,14 @@
     diagramBusy = true;
     busy = true;
     error = "";
-    history = [...history, { role: "user", content: "Vẽ sơ đồ từ vựng cho ảnh này", displayLabel: "Sơ đồ từ vựng" }];
+    history = [
+      ...history,
+      {
+        role: "user",
+        content: "Vẽ sơ đồ từ vựng cho ảnh này",
+        displayLabel: "Sơ đồ từ vựng",
+      },
+    ];
     phase = "chat";
     await scrollToBottom();
     try {
@@ -655,7 +771,10 @@
       const data = await askAIDiagram(currentModel(settings));
       const assistantIndex = history.length;
       turnDiagrams = { ...turnDiagrams, [assistantIndex]: data };
-      history = [...history, { role: "assistant", content: diagramToFallbackText(data) }];
+      history = [
+        ...history,
+        { role: "assistant", content: diagramToFallbackText(data) },
+      ];
       saveHistoryTurn(settings);
     } catch (e) {
       error = String(e).replace(/^Error:\s*/, "");
@@ -736,15 +855,20 @@
       // final_answer LUÔN thử bóc trước (dòng cuối tuyệt đối, cả ảnh lẫn
       // video), rồi mới tới box_2d (chỉ ảnh, nằm ngay TRƯỚC final_answer nếu
       // cả hai cùng có) — đúng thứ tự đã dặn ở rule 11/bbox trong ai.rs.
-      const { text: afterFinal, finalAnswer } = extractFinalAnswerFromAnswer(answer);
-      const { text: cleanAnswer, box } = latestIsImage ? extractBoxFromAnswer(afterFinal) : { text: afterFinal, box: null };
+      const { text: afterFinal, finalAnswer } =
+        extractFinalAnswerFromAnswer(answer);
+      const { text: cleanAnswer, box } = latestIsImage
+        ? extractBoxFromAnswer(afterFinal)
+        : { text: afterFinal, box: null };
       const newTurnIndex = history.length; // đúng vị trí lượt assistant sắp thêm vào bên dưới
       if (box) turnBoxes = { ...turnBoxes, [newTurnIndex]: box };
-      if (finalAnswer) turnFinalAnswers = { ...turnFinalAnswers, [newTurnIndex]: finalAnswer };
+      if (finalAnswer)
+        turnFinalAnswers = { ...turnFinalAnswers, [newTurnIndex]: finalAnswer };
       history = [...history, { role: "assistant", content: cleanAnswer }];
       saveHistoryTurn(settings);
       // "Hỏi bằng giọng, nghe trả lời bằng giọng" — đang hỏi về 1 đoạn ghi âm.
-      if (latestIsAudio && settings.autoSpeakAudioAnswers) toggleSpeak(newTurnIndex, cleanAnswer);
+      if (latestIsAudio && settings.autoSpeakAudioAnswers)
+        toggleSpeak(newTurnIndex, cleanAnswer);
     } catch (e) {
       // Luôn hiện lỗi + không bao giờ để `busy` treo mãi (bug đã gặp trước đây:
       // UI đứng im ở trạng thái đang chờ mà không báo gì).
@@ -761,7 +885,9 @@
   /** Hậu tố "(00:05)" / "(00:05–00:12)" gắn vào displayLabel khi có chỉ định
    * thời điểm — để bong bóng chat TỰ ghi lại đã hỏi trong phạm vi nào, không
    * cần người dùng nhớ lại. Chỉ áp dụng phiên video. */
-  const timeBadgeSuffix = $derived(latestIsVideo && rangeTouched ? ` (${timeRangeLabel})` : "");
+  const timeBadgeSuffix = $derived(
+    latestIsVideo && rangeTouched ? ` (${timeRangeLabel})` : "",
+  );
 
   /** Bật "Tra cứu web thật" (Google Search grounding) — CHỈ Gemini hỗ trợ,
    * tính phí theo lượt Google tự quyết định search, nên KHÔNG mặc định bật
@@ -789,7 +915,8 @@
   // cần vào riêng 1 màn Cài đặt nào khác. */
   let reasoningEffort = $state<ReasoningEffort>("auto");
   const currentReasoningOption = $derived(
-    REASONING_EFFORT_OPTIONS.find((o) => o.value === reasoningEffort) ?? REASONING_EFFORT_OPTIONS[0],
+    REASONING_EFFORT_OPTIONS.find((o) => o.value === reasoningEffort) ??
+      REASONING_EFFORT_OPTIONS[0],
   );
   let showReasoningSubmenu = $state(false);
 
@@ -822,7 +949,9 @@
    * được (lần đầu mount, hiếm khi thấy vì $effect chạy gần như ngay) thì rơi
    * về `undefined` (không giới hạn) qua nhánh `|| undefined` bên dưới, tránh
    * menu bị bóp về 0px 1 nhịp trước khi đo xong. */
-  const moreMenuMaxHeight = $derived(moreMenuItemHeight > 0 ? moreMenuItemHeight * 5 + 17 : undefined);
+  const moreMenuMaxHeight = $derived(
+    moreMenuItemHeight > 0 ? moreMenuItemHeight * 5 + 17 : undefined,
+  );
 
   /** CHẨN ĐOÁN SAI trước đó: tưởng góc bo bị cắt là do cửa sổ quá nhỏ, nên
    * đã gọi `ensureRoomyWindow()` (tự phình cửa sổ) mỗi lần mở menu — SAI, vì
@@ -841,14 +970,23 @@
     // câu hỏi rỗng thì không có gì để hỏi cả, khác hẳn phiên có ảnh/video
     // (rỗng vẫn hợp lệ, ngầm hiểu là "giải thích ảnh/video này").
     if (textOnlyMode && !typed) return;
-    const q = typed || (latestIsAudio ? PROMPT_AUDIO_EXPLAIN : latestIsVideo ? PROMPT_VIDEO_EXPLAIN : PROMPT_EXPLAIN);
+    const q =
+      typed ||
+      (latestIsAudio
+        ? PROMPT_AUDIO_EXPLAIN
+        : latestIsVideo
+          ? PROMPT_VIDEO_EXPLAIN
+          : PROMPT_EXPLAIN);
     const search = searchEnabled;
     searchEnabled = false;
     const diagram = diagramMode;
     diagramMode = false;
     const suffix = `${timeBadgeSuffix}${search ? " 🌐" : ""}${diagram ? " 📊" : ""}`;
-    const displayLabel = suffix ? `${typed || "Giải thích nội dung"}${suffix}` : undefined;
-    const content = q + timeContextSuffix + (diagram ? DIAGRAM_MODE_SUFFIX : "");
+    const displayLabel = suffix
+      ? `${typed || "Giải thích nội dung"}${suffix}`
+      : undefined;
+    const content =
+      q + timeContextSuffix + (diagram ? DIAGRAM_MODE_SUFFIX : "");
     history = [{ role: "user", content, displayLabel }];
     phase = "chat";
     await scrollToBottom();
@@ -861,7 +999,11 @@
    * (AI đọc) và `timeBadgeSuffix` vào nhãn hiển thị (người dùng thấy). */
   async function askWithPrompt(chip: QuickPrompt) {
     history = [
-      { role: "user", content: chip.prompt + timeContextSuffix, displayLabel: chip.chatLabel + timeBadgeSuffix },
+      {
+        role: "user",
+        content: chip.prompt + timeContextSuffix,
+        displayLabel: chip.chatLabel + timeBadgeSuffix,
+      },
     ];
     phase = "chat";
     await scrollToBottom();
@@ -884,7 +1026,8 @@
     diagramMode = false; // tương tự — dùng 1 lần cho câu hỏi này rồi tự tắt
     const suffix = `${timeBadgeSuffix}${search ? " 🌐" : ""}${diagram ? " 📊" : ""}`;
     const displayLabel = suffix ? `${q}${suffix}` : undefined;
-    const content = q + timeContextSuffix + (diagram ? DIAGRAM_MODE_SUFFIX : "");
+    const content =
+      q + timeContextSuffix + (diagram ? DIAGRAM_MODE_SUFFIX : "");
     history = [...history, { role: "user", content, displayLabel }];
     scrollToBottom();
     runTurn(region, search);
@@ -986,7 +1129,11 @@
 </script>
 
 <svelte:window
-  onkeydown={showImagePreview ? onPreviewKeydown : zoomedDiagramIndex !== null ? onDiagramZoomKeydown : undefined}
+  onkeydown={showImagePreview
+    ? onPreviewKeydown
+    : zoomedDiagramIndex !== null
+      ? onDiagramZoomKeydown
+      : undefined}
 />
 
 <div class="app-bg h-screen flex flex-col text-text overflow-hidden">
@@ -999,15 +1146,18 @@
         <div class="relative shrink-0 group">
           <button
             type="button"
-            onclick={() => (previewIndex = i === mediaChain.length - 1 ? null : i)}
-            class="w-12 h-12 rounded-lg overflow-hidden border-2 transition-colors {(previewIndex ?? mediaChain.length - 1) ===
-            i
+            onclick={() =>
+              (previewIndex = i === mediaChain.length - 1 ? null : i)}
+            class="w-12 h-12 rounded-lg overflow-hidden border-2 transition-colors {(previewIndex ??
+              mediaChain.length - 1) === i
               ? 'border-accent'
               : 'border-border hover:border-accent/50'}"
             title={`Bước ${i + 1}`}
           >
             {#if item.kind === "audio"}
-              <span class="flex w-full h-full items-center justify-center bg-bg-elevated text-accent">
+              <span
+                class="flex w-full h-full items-center justify-center bg-bg-elevated text-accent"
+              >
                 <Icon name="audioWave" size={18} />
               </span>
             {:else if item.kind === "video"}
@@ -1015,13 +1165,23 @@
               ở góc để phân biệt ngay với ảnh (khung đầu video trông y hệt
               1 ảnh chụp tĩnh). -->
               <span class="relative block w-full h-full">
-                <video src={`data:video/mp4;base64,${item.data}`} muted class="w-full h-full object-cover"></video>
-                <span class="absolute bottom-0.5 right-0.5 rounded bg-black/60 text-white p-0.5 leading-none">
+                <video
+                  src={`data:video/mp4;base64,${item.data}`}
+                  muted
+                  class="w-full h-full object-cover"
+                ></video>
+                <span
+                  class="absolute bottom-0.5 right-0.5 rounded bg-black/60 text-white p-0.5 leading-none"
+                >
                   <Icon name="video" size={9} />
                 </span>
               </span>
             {:else}
-              <img src={`data:image/png;base64,${item.data}`} alt={`Bước ${i + 1}`} class="w-full h-full object-cover" />
+              <img
+                src={`data:image/png;base64,${item.data}`}
+                alt={`Bước ${i + 1}`}
+                class="w-full h-full object-cover"
+              />
             {/if}
           </button>
           {#if mediaChain.length > 1}
@@ -1057,7 +1217,9 @@
       <div class="flex items-center justify-between mb-1">
         <span class="text-[10.5px] text-text-muted flex items-center gap-1">
           <Icon name="target" size={11} />
-          {rangeTouched ? `Đang hỏi về ${isTimePoint ? "thời điểm" : "khoảng"} ${timeRangeLabel}` : "Kéo để hỏi về 1 thời điểm/khoảng cụ thể"}
+          {rangeTouched
+            ? `Đang hỏi về ${isTimePoint ? "thời điểm" : "khoảng"} ${timeRangeLabel}`
+            : "Kéo để hỏi về 1 thời điểm/khoảng cụ thể"}
         </span>
         <div class="flex items-center gap-2">
           {#if rangeTouched}
@@ -1072,7 +1234,11 @@
           {#if onDone}
             <!-- Chỉ có ở bản dùng TRONG CHAT (truyền onDone) — thu gọn thanh
             lại sau khi đã chọn xong, tránh chiếm chỗ mãi trong lúc gõ hỏi tiếp. -->
-            <button type="button" onclick={onDone} class="text-[10.5px] text-accent font-medium hover:brightness-110 transition-all">
+            <button
+              type="button"
+              onclick={onDone}
+              class="text-[10.5px] text-accent font-medium hover:brightness-110 transition-all"
+            >
               Xong
             </button>
           {/if}
@@ -1082,7 +1248,9 @@
         <div class="absolute inset-x-0 h-1 rounded-full bg-bg-elevated"></div>
         <div
           class="absolute h-1 rounded-full"
-          style="left:{(rangeStart / videoDuration) * 100}%; right:{100 - (rangeEnd / videoDuration) * 100}%; background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));"
+          style="left:{(rangeStart / videoDuration) * 100}%; right:{100 -
+            (rangeEnd / videoDuration) *
+              100}%; background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));"
         ></div>
         <input
           type="range"
@@ -1121,13 +1289,20 @@
     hiện khi có ít nhất 1 file. Không hiện preview nội dung (khác ảnh/video
     chính) — chỉ tên + icon theo loại + nút xoá, đủ để biết đang đính kèm gì. -->
     {#if attachments.length > 0}
-      <div class="shrink-0 px-3 flex flex-wrap gap-1.5" transition:fade={{ duration: 120 }}>
+      <div
+        class="shrink-0 px-3 flex flex-wrap gap-1.5"
+        transition:fade={{ duration: 120 }}
+      >
         {#each attachments as file, i (i)}
           <div
             class="flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg text-[11px] border border-border bg-bg-elevated"
             title={file.name}
           >
-            <Icon name={file.mime === "application/pdf" ? "file" : "image"} size={12} class="text-text-muted shrink-0" />
+            <Icon
+              name={file.mime === "application/pdf" ? "file" : "image"}
+              size={12}
+              class="text-text-muted shrink-0"
+            />
             <span class="text-text-muted">{shortenFileName(file.name)}</span>
             <button
               type="button"
@@ -1167,7 +1342,9 @@
         {/if}
         <span>
           <div class="text-[12.5px] font-semibold">{opt.title}</div>
-          <div class="text-[10.5px] text-text-muted">Nối thêm 1 bước vào cùng cuộc hội thoại này</div>
+          <div class="text-[10.5px] text-text-muted">
+            Nối thêm 1 bước vào cùng cuộc hội thoại này
+          </div>
         </span>
       </button>
     {/each}
@@ -1194,7 +1371,9 @@
       {/if}
       <span>
         <div class="text-[12.5px] font-semibold">Đính kèm file</div>
-        <div class="text-[10.5px] text-text-muted">Thêm ảnh/PDF làm tài liệu tham khảo</div>
+        <div class="text-[10.5px] text-text-muted">
+          Thêm ảnh/PDF làm tài liệu tham khảo
+        </div>
       </span>
     </button>
   {/snippet}
@@ -1209,13 +1388,21 @@
       aria-pressed={diagramMode}
       class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
     >
-      <Icon name="flowchart" size={15} class="mt-0.5 shrink-0 {diagramMode ? 'text-accent' : ''}" />
+      <Icon
+        name="flowchart"
+        size={15}
+        class="mt-0.5 shrink-0 {diagramMode ? 'text-accent' : ''}"
+      />
       <span class="flex-1">
         <div class="text-[12.5px] font-semibold flex items-center gap-1.5">
           Vẽ sơ đồ
-          {#if diagramMode}<span class="text-[9.5px] font-bold text-accent">BẬT</span>{/if}
+          {#if diagramMode}<span class="text-[9.5px] font-bold text-accent"
+              >BẬT</span
+            >{/if}
         </div>
-        <div class="text-[10.5px] text-text-muted">Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ trong ô nhập</div>
+        <div class="text-[10.5px] text-text-muted">
+          Ép AI vẽ sơ đồ cho câu hỏi này — mô tả thêm cách vẽ trong ô nhập
+        </div>
       </span>
     </button>
     <button
@@ -1224,13 +1411,21 @@
       aria-pressed={searchEnabled}
       class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
     >
-      <Icon name="globe" size={15} class="mt-0.5 shrink-0 {searchEnabled ? 'text-accent' : ''}" />
+      <Icon
+        name="globe"
+        size={15}
+        class="mt-0.5 shrink-0 {searchEnabled ? 'text-accent' : ''}"
+      />
       <span class="flex-1">
         <div class="text-[12.5px] font-semibold flex items-center gap-1.5">
           Tra cứu web
-          {#if searchEnabled}<span class="text-[9.5px] font-bold text-accent">BẬT</span>{/if}
+          {#if searchEnabled}<span class="text-[9.5px] font-bold text-accent"
+              >BẬT</span
+            >{/if}
         </div>
-        <div class="text-[10.5px] text-text-muted">Google Search thật, chỉ áp dụng cho câu hỏi này</div>
+        <div class="text-[10.5px] text-text-muted">
+          Google Search thật, chỉ áp dụng cho câu hỏi này
+        </div>
       </span>
     </button>
   {/snippet}
@@ -1246,12 +1441,26 @@
       aria-expanded={showReasoningSubmenu}
       class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
     >
-      <Icon name="lightbulb" size={15} class="mt-0.5 shrink-0 {reasoningEffort !== 'auto' ? 'text-accent' : ''}" />
+      <Icon
+        name="lightbulb"
+        size={15}
+        class="mt-0.5 shrink-0 {reasoningEffort !== 'auto'
+          ? 'text-accent'
+          : ''}"
+      />
       <span class="flex-1">
         <div class="text-[12.5px] font-semibold">Mức độ suy luận</div>
-        <div class="text-[10.5px] text-text-muted">Đang chọn: {currentReasoningOption.title} — áp dụng cho các câu hỏi sau</div>
+        <div class="text-[10.5px] text-text-muted">
+          Đang chọn: {currentReasoningOption.title} — áp dụng cho các câu hỏi sau
+        </div>
       </span>
-      <Icon name="chevronDown" size={13} class="mt-1 shrink-0 transition-transform {showReasoningSubmenu ? 'rotate-180' : ''}" />
+      <Icon
+        name="chevronDown"
+        size={13}
+        class="mt-1 shrink-0 transition-transform {showReasoningSubmenu
+          ? 'rotate-180'
+          : ''}"
+      />
     </button>
     {#if showReasoningSubmenu}
       <div class="pl-2.5 flex flex-col gap-0.5 pb-1">
@@ -1262,13 +1471,16 @@
             class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2"
           >
             <span
-              class="w-3 h-3 mt-0.5 shrink-0 rounded-full border {option.value === reasoningEffort
+              class="w-3 h-3 mt-0.5 shrink-0 rounded-full border {option.value ===
+              reasoningEffort
                 ? 'border-accent bg-accent'
                 : 'border-border'}"
             ></span>
             <span class="flex-1">
               <div class="text-[12px] font-medium">{option.title}</div>
-              <div class="text-[10px] text-text-muted">{option.description}</div>
+              <div class="text-[10px] text-text-muted">
+                {option.description}
+              </div>
             </span>
           </button>
         {/each}
@@ -1295,7 +1507,11 @@
             >
               <Icon name="audioWave" size={20} />
             </div>
-            <audio src={`data:audio/wav;base64,${previewMediaB64}`} controls class="w-full"></audio>
+            <audio
+              src={`data:audio/wav;base64,${previewMediaB64}`}
+              controls
+              class="w-full"
+            ></audio>
           </div>
         {:else if previewIsVideo}
           <video
@@ -1321,21 +1537,31 @@
         <!-- Phiên "Hỏi AI" — KHÔNG chờ xử lý gì cả (không hề chụp/quay), hiện
         lời chào thay vì loading (khác ảnh/video luôn cần vài trăm ms xử lý
         trước khi có gì để xem). -->
-        <div class="flex flex-col items-center gap-2 text-text-muted" transition:fade={{ duration: 140 }}>
+        <div
+          class="flex flex-col items-center gap-2 text-text-muted"
+          transition:fade={{ duration: 140 }}
+        >
           <div
             class="w-9 h-9 rounded-xl flex items-center justify-center text-accent-text"
             style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
           >
             <Icon name="sparkles" size={17} strokeWidth={2.3} />
           </div>
-          <span class="text-[12px]">Hỏi AI bất kỳ điều gì — không cần chụp/quay trước</span>
+          <span class="text-[12px]">Hỏi AI</span>
         </div>
       {:else if !error}
         <!-- Cửa sổ mở ngay khi vừa chọn xong vùng/quay xong, ảnh/video còn
         đang xử lý ở backend — hiện loading thay vì để khoảng trống im lặng. -->
-        <div class="flex flex-col items-center gap-2 text-text-muted" transition:fade={{ duration: 140 }}>
-          <span class="thinking-dots inline-flex items-center h-4"><span></span><span></span><span></span></span>
-          <span class="text-[11px]">{startedAsVideo ? "Đang xử lý video…" : "Đang xử lý ảnh…"}</span>
+        <div
+          class="flex flex-col items-center gap-2 text-text-muted"
+          transition:fade={{ duration: 140 }}
+        >
+          <span class="thinking-dots inline-flex items-center h-4"
+            ><span></span><span></span><span></span></span
+          >
+          <span class="text-[11px]"
+            >{startedAsVideo ? "Đang xử lý video…" : "Đang xử lý ảnh…"}</span
+          >
         </div>
       {/if}
     </div>
@@ -1362,7 +1588,11 @@
       đó chip mới hiện trở lại — không phải ẩn vĩnh viễn. -->
       <div class="shrink-0 px-3 pt-3 flex flex-wrap gap-1.5">
         {#each quickPrompts as chip (chip.id)}
-          <button class="chip disabled:opacity-40" disabled={!mediaB64} onclick={() => askWithPrompt(chip)}>
+          <button
+            class="chip disabled:opacity-40"
+            disabled={!mediaB64}
+            onclick={() => askWithPrompt(chip)}
+          >
             <Icon name={chip.icon} size={13} />
             {chip.label}
           </button>
@@ -1371,7 +1601,11 @@
           <!-- Riêng biệt với chip "Dịch" — dịch phẳng nguyên đoạn văn vẫn giữ
           nguyên, đây là 1 hướng khác hẳn: sơ đồ liên kết từ vựng, dành cho ảnh
           chụp 1 từ/cụm từ muốn học sâu hơn (xem VocabDiagram.svelte). -->
-          <button class="chip disabled:opacity-40" disabled={!mediaB64} onclick={askDiagram}>
+          <button
+            class="chip disabled:opacity-40"
+            disabled={!mediaB64}
+            onclick={askDiagram}
+          >
             <Icon name="network" size={13} />
             Sơ đồ từ vựng
           </button>
@@ -1425,7 +1659,9 @@
         >
           <Icon name="plus" size={15} />
           {#if !moreMenuOpen && (diagramMode || searchEnabled)}
-            <span class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full" style="background: var(--color-accent);"
+            <span
+              class="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full"
+              style="background: var(--color-accent);"
             ></span>
           {/if}
         </button>
@@ -1479,18 +1715,32 @@
                 : "Xem lại ảnh đã chụp"}
         >
           {#if latestIsAudio}
-            <span class="flex w-full h-full items-center justify-center bg-bg-elevated text-accent">
+            <span
+              class="flex w-full h-full items-center justify-center bg-bg-elevated text-accent"
+            >
               <Icon name="audioWave" size={15} />
             </span>
           {:else if latestIsVideo}
-            <video src={`data:video/mp4;base64,${mediaB64}`} muted class="w-full h-full object-cover"></video>
+            <video
+              src={`data:video/mp4;base64,${mediaB64}`}
+              muted
+              class="w-full h-full object-cover"
+            ></video>
           {:else}
-            <img src={`data:image/png;base64,${mediaB64}`} alt="Vùng đã chụp" class="w-full h-full object-cover" />
+            <img
+              src={`data:image/png;base64,${mediaB64}`}
+              alt="Vùng đã chụp"
+              class="w-full h-full object-cover"
+            />
           {/if}
           <span
             class="absolute inset-0 bg-black/0 group-hover:bg-black/35 flex items-center justify-center transition-colors"
           >
-            <Icon name="eye" size={13} class="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+            <Icon
+              name="eye"
+              size={13}
+              class="text-white opacity-0 group-hover:opacity-100 transition-opacity"
+            />
           </span>
           {#if mediaChain.length > 1}
             <!-- Có nhiều ảnh/video (chuỗi "+ Chụp thêm bước") — báo ngay ở
@@ -1504,14 +1754,18 @@
         </button>
       {:else}
         <div
-          class="w-6 h-6 rounded-lg flex items-center justify-center text-accent-text shrink-0 {busy ? 'pulse-ring' : ''}"
+          class="w-6 h-6 rounded-lg flex items-center justify-center text-accent-text shrink-0 {busy
+            ? 'pulse-ring'
+            : ''}"
           style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
         >
           <Icon name="sparkles" size={13} strokeWidth={2.3} />
         </div>
       {/if}
       <div class="flex-1 min-w-0">
-        <div class="text-[12.5px] font-semibold leading-tight">{textOnlyMode && !mediaB64 ? "Hỏi AI" : "Kết quả AI"}</div>
+        <div class="text-[12.5px] font-semibold leading-tight">
+          {textOnlyMode && !mediaB64 ? "Hỏi AI" : "Kết quả AI"}
+        </div>
       </div>
       <button
         onclick={handleCopy}
@@ -1522,13 +1776,20 @@
         <Icon name={copyFlash ? "check" : "copy"} size={13} />
         {copyFlash ? "Đã chép" : "Chép"}
       </button>
-      <button onclick={handleClose} class="btn-ghost p-1.5 rounded-lg" title="Đóng">
+      <button
+        onclick={handleClose}
+        class="btn-ghost p-1.5 rounded-lg"
+        title="Đóng"
+      >
         <Icon name="x" size={14} />
       </button>
     </div>
 
     {#if busy}
-      <div class="shrink-0 h-0.5 shimmer" transition:fade={{ duration: 120 }}></div>
+      <div
+        class="shrink-0 h-0.5 shimmer"
+        transition:fade={{ duration: 120 }}
+      ></div>
     {/if}
 
     <ScrollArea
@@ -1586,7 +1847,9 @@
                   phẳng cho ĐÚNG lượt trả lời này (xem askDiagram). Bong bóng
                   chat khá hẹp nên có sẵn nút phóng to (modal riêng, xem
                   zoomedDiagramIndex). -->
-                  <div class="card rounded-2xl rounded-tl-md px-3.5 py-3 relative">
+                  <div
+                    class="card rounded-2xl rounded-tl-md px-3.5 py-3 relative"
+                  >
                     <VocabDiagram data={turnDiagrams[i]} />
                     <!-- right-8 (không phải right-2): tránh chồng lên nút "Chép"
                     của cả bong bóng, nằm NGAY BÊN NGOÀI div này (absolute cùng
@@ -1618,83 +1881,115 @@
                     use:scene3dBlocks={turn.content}
                     use:codeCopyButtons={turn.content}
                   >
-                    {@html renderMarkdown(chainHasTimeline ? linkifyTimestamps(turn.content) : turn.content)}
+                    {@html renderMarkdown(
+                      chainHasTimeline
+                        ? linkifyTimestamps(turn.content)
+                        : turn.content,
+                    )}
                   </div>
                 {/if}
-              <button
-                onclick={() => handleCopyTurn(i, turn.content)}
-                class="absolute top-1.5 right-1.5 p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-white/8 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Sao chép câu trả lời này"
-              >
-                <Icon name={copiedTurnIndex === i ? "check" : "copy"} size={12} />
-              </button>
-              {#if !turnDiagrams[i]}
                 <button
-                  onclick={() => toggleSpeak(i, turn.content)}
-                  class="absolute top-1.5 right-14 p-1.5 rounded-md hover:text-accent hover:bg-white/8 transition-opacity {speakingIndex ===
-                  i
-                    ? 'text-accent opacity-100'
-                    : 'text-text-muted opacity-0 group-hover:opacity-100'}"
-                  title={speakingIndex === i ? "Dừng đọc" : "Đọc to câu trả lời này"}
+                  onclick={() => handleCopyTurn(i, turn.content)}
+                  class="absolute top-1.5 right-1.5 p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-white/8 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Sao chép câu trả lời này"
                 >
-                  <Icon name={speakingIndex === i ? "stopSquare" : "volume"} size={12} />
+                  <Icon
+                    name={copiedTurnIndex === i ? "check" : "copy"}
+                    size={12}
+                  />
                 </button>
-                <!-- "Xuất file" — KHÔNG hiện cho bong bóng "Sơ đồ từ vựng"
+                {#if !turnDiagrams[i]}
+                  <button
+                    onclick={() => toggleSpeak(i, turn.content)}
+                    class="absolute top-1.5 right-14 p-1.5 rounded-md hover:text-accent hover:bg-white/8 transition-opacity {speakingIndex ===
+                    i
+                      ? 'text-accent opacity-100'
+                      : 'text-text-muted opacity-0 group-hover:opacity-100'}"
+                    title={speakingIndex === i
+                      ? "Dừng đọc"
+                      : "Đọc to câu trả lời này"}
+                  >
+                    <Icon
+                      name={speakingIndex === i ? "stopSquare" : "volume"}
+                      size={12}
+                    />
+                  </button>
+                  <!-- "Xuất file" — KHÔNG hiện cho bong bóng "Sơ đồ từ vựng"
                 (turnDiagrams[i], xem askDiagram) — nội dung đó không phải
                 Markdown thường, extractFirstTable/markdownToPlainText không
                 áp dụng đúng. right-8 (không phải right-1.5) — tránh chồng
                 lên nút "Chép" ngay bên cạnh. -->
-                <div class="absolute top-1.5 right-8">
-                  <button
-                    onclick={() => toggleExportMenu(i)}
-                    disabled={exportBusy}
-                    class="p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-white/8 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-40"
-                    class:!opacity-100={exportMenuOpenIndex === i}
-                    title="Xuất file"
-                  >
-                    <Icon name="download" size={12} />
-                  </button>
-                  {#if exportMenuOpenIndex === i}
-                    {@const table = extractFirstTable(turn.content)}
+                  <div class="absolute top-1.5 right-8">
                     <button
-                      class="fixed inset-0 z-30 cursor-default"
-                      style="background: transparent;"
-                      onclick={() => (exportMenuOpenIndex = null)}
-                      aria-label="Đóng menu xuất file"
-                    ></button>
-                    <div class="absolute right-0 top-full mt-1 w-52 card p-1.5 z-40" transition:fade={{ duration: 120 }}>
-                      {#if table}
+                      onclick={() => toggleExportMenu(i)}
+                      disabled={exportBusy}
+                      class="p-1.5 rounded-md text-text-muted hover:text-accent hover:bg-white/8 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-40"
+                      class:!opacity-100={exportMenuOpenIndex === i}
+                      title="Xuất file"
+                    >
+                      <Icon name="download" size={12} />
+                    </button>
+                    {#if exportMenuOpenIndex === i}
+                      {@const table = extractFirstTable(turn.content)}
+                      <button
+                        class="fixed inset-0 z-30 cursor-default"
+                        style="background: transparent;"
+                        onclick={() => (exportMenuOpenIndex = null)}
+                        aria-label="Đóng menu xuất file"
+                      ></button>
+                      <div
+                        class="absolute right-0 top-full mt-1 w-52 card p-1.5 z-40"
+                        transition:fade={{ duration: 120 }}
+                      >
+                        {#if table}
+                          <button
+                            onclick={() =>
+                              runExport(() =>
+                                exportTableAsCsv(table, "du-lieu.csv"),
+                              )}
+                            class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors text-[12px]"
+                          >
+                            Xuất CSV
+                          </button>
+                          <button
+                            onclick={() =>
+                              runExport(() =>
+                                exportTableAsExcel(table, "du-lieu.xlsx"),
+                              )}
+                            class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors text-[12px]"
+                          >
+                            Xuất Excel (.xlsx)
+                          </button>
+                          <div class="h-px bg-border my-1"></div>
+                        {/if}
                         <button
-                          onclick={() => runExport(() => exportTableAsCsv(table, "du-lieu.csv"))}
+                          onclick={() =>
+                            runExport(() =>
+                              exportMarkdownAsDocx(
+                                turn.content,
+                                "cau-tra-loi.docx",
+                              ),
+                            )}
                           class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors text-[12px]"
                         >
-                          Xuất CSV
+                          Xuất Word (.docx)
                         </button>
                         <button
-                          onclick={() => runExport(() => exportTableAsExcel(table, "du-lieu.xlsx"))}
+                          onclick={() =>
+                            runExport(async () =>
+                              printHtmlAsPdf(
+                                renderMarkdown(turn.content),
+                                "Câu trả lời AI",
+                              ),
+                            )}
                           class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors text-[12px]"
                         >
-                          Xuất Excel (.xlsx)
+                          In / Lưu PDF
                         </button>
-                        <div class="h-px bg-border my-1"></div>
-                      {/if}
-                      <button
-                        onclick={() => runExport(() => exportMarkdownAsDocx(turn.content, "cau-tra-loi.docx"))}
-                        class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors text-[12px]"
-                      >
-                        Xuất Word (.docx)
-                      </button>
-                      <button
-                        onclick={() =>
-                          runExport(async () => printHtmlAsPdf(renderMarkdown(turn.content), "Câu trả lời AI"))}
-                        class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors text-[12px]"
-                      >
-                        In / Lưu PDF
-                      </button>
-                    </div>
-                  {/if}
-                </div>
-              {/if}
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
               </div>
               {#if turnFinalAnswers[i]}
                 <!-- "Đáp số" nổi bật (giải bài tập) — bóc từ dòng
@@ -1707,10 +2002,21 @@
                   class="rounded-xl px-3 py-2 flex items-start gap-2 text-[calc(12.5px*var(--chat-text-scale,1))]"
                   style="background: color-mix(in srgb, var(--color-accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);"
                 >
-                  <Icon name="check" size={14} class="text-accent shrink-0 mt-0.5" strokeWidth={2.6} />
+                  <Icon
+                    name="check"
+                    size={14}
+                    class="text-accent shrink-0 mt-0.5"
+                    strokeWidth={2.6}
+                  />
                   <div class="min-w-0">
-                    <div class="text-[10.5px] font-semibold uppercase tracking-wide text-accent">Đáp số</div>
-                    <div class="font-semibold leading-snug break-words">{turnFinalAnswers[i]}</div>
+                    <div
+                      class="text-[10.5px] font-semibold uppercase tracking-wide text-accent"
+                    >
+                      Đáp số
+                    </div>
+                    <div class="font-semibold leading-snug break-words">
+                      {turnFinalAnswers[i]}
+                    </div>
                   </div>
                 </div>
               {/if}
@@ -1727,12 +2033,17 @@
           >
             <Icon name="sparkles" size={12} strokeWidth={2.3} />
           </div>
-          <div class="card max-w-[88%] rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[calc(12.5px*var(--chat-text-scale,1))] leading-relaxed">
+          <div
+            class="card max-w-[88%] rounded-2xl rounded-tl-md px-3.5 py-2.5 text-[calc(12.5px*var(--chat-text-scale,1))] leading-relaxed"
+          >
             {#if streamChunks.length === 0}
-              <span class="thinking-dots inline-flex items-center h-4"><span></span><span></span><span></span></span>
+              <span class="thinking-dots inline-flex items-center h-4"
+                ><span></span><span></span><span></span></span
+              >
             {:else}
               <span class="whitespace-pre-wrap"
-                >{#each streamChunks as chunk (chunk.id)}<span in:fade={{ duration: 170 }}>{chunk.text}</span
+                >{#each streamChunks as chunk (chunk.id)}<span
+                    in:fade={{ duration: 170 }}>{chunk.text}</span
                   >{/each}<span class="typing-cursor"></span></span
               >
             {/if}
@@ -1758,21 +2069,32 @@
         {#if rangeTouched}
           <!-- Khoảng chọn vẫn còn hiệu lực cho câu hỏi tiếp theo (sticky) —
           nhắc lại ở đây để người dùng không quên đang giới hạn phạm vi hỏi. -->
-          <div class="flex items-center gap-1.5 text-[10.5px] text-accent px-0.5">
+          <div
+            class="flex items-center gap-1.5 text-[10.5px] text-accent px-0.5"
+          >
             <button
               type="button"
               onclick={openRangeSliderModal}
               class="flex items-center gap-1.5 hover:brightness-110 transition-all"
             >
               <Icon name="target" size={11} />
-              Đang hỏi về {isTimePoint ? "thời điểm" : "khoảng"} {timeRangeLabel}
+              Đang hỏi về {isTimePoint ? "thời điểm" : "khoảng"}
+              {timeRangeLabel}
             </button>
-            <button type="button" onclick={clearTimeRange} class="text-text-muted hover:text-text transition-colors ml-0.5">
+            <button
+              type="button"
+              onclick={clearTimeRange}
+              class="text-text-muted hover:text-text transition-colors ml-0.5"
+            >
               <Icon name="x" size={10} />
             </button>
           </div>
         {:else}
-          <button type="button" onclick={openRangeSliderModal} class="chip self-start">
+          <button
+            type="button"
+            onclick={openRangeSliderModal}
+            class="chip self-start"
+          >
             <Icon name="target" size={12} />
             Chọn khoảng thời gian
           </button>
@@ -1784,13 +2106,20 @@
         <div class="flex items-center gap-1.5 text-[10.5px] text-accent px-0.5">
           <Icon name="target" size={11} />
           Đang hỏi về vùng đã chọn
-          <button type="button" onclick={() => (pendingRegion = null)} class="text-text-muted hover:text-text transition-colors ml-0.5">
+          <button
+            type="button"
+            onclick={() => (pendingRegion = null)}
+            class="text-text-muted hover:text-text transition-colors ml-0.5"
+          >
             <Icon name="x" size={10} />
           </button>
         </div>
       {/if}
       {#if busy && statusLine}
-        <div class="text-[10.5px] text-text-muted flex items-center gap-1.5 px-0.5" transition:fade={{ duration: 140 }}>
+        <div
+          class="text-[10.5px] text-text-muted flex items-center gap-1.5 px-0.5"
+          transition:fade={{ duration: 140 }}
+        >
           <span class="truncate">{statusLine}</span>
           <span class="text-accent font-semibold shrink-0">{elapsedSec}s</span>
         </div>
@@ -1894,7 +2223,9 @@
                   <Icon name="network" size={15} class="mt-0.5 shrink-0" />
                   <span>
                     <div class="text-[12.5px] font-semibold">Sơ đồ từ vựng</div>
-                    <div class="text-[10.5px] text-text-muted">Vẽ sơ đồ liên kết từ cho ảnh này</div>
+                    <div class="text-[10.5px] text-text-muted">
+                      Vẽ sơ đồ liên kết từ cho ảnh này
+                    </div>
                   </span>
                 </button>
               {/if}
@@ -1907,7 +2238,11 @@
             </div>
           {/if}
         </div>
-        <button onclick={handleSend} disabled={busy} class="h-9 shrink-0 btn-accent px-4 rounded-lg">
+        <button
+          onclick={handleSend}
+          disabled={busy}
+          class="h-9 shrink-0 btn-accent px-4 rounded-lg"
+        >
           <Icon name="send" size={15} strokeWidth={2.2} />
         </button>
       </div>
@@ -1927,7 +2262,10 @@
       {#if previewIsAudio}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div onclick={(e) => e.stopPropagation()} class="card p-5 flex flex-col items-center gap-3 w-[min(460px,85vw)]">
+        <div
+          onclick={(e) => e.stopPropagation()}
+          class="card p-5 flex flex-col items-center gap-3 w-[min(460px,85vw)]"
+        >
           <div
             class="w-12 h-12 rounded-2xl flex items-center justify-center text-accent-text"
             style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
@@ -1954,7 +2292,10 @@
         chung video + thanh kéo trong 1 khối chặn nổi bọt
         click — thanh kéo nằm NGOÀI thẻ <video> nên cần chặn riêng, không
         thì bấm vào nó sẽ đóng mất modal (tính là bấm "ra ngoài"). -->
-        <div onclick={(e) => e.stopPropagation()} class="flex flex-col items-center gap-3 max-w-[85vw]">
+        <div
+          onclick={(e) => e.stopPropagation()}
+          class="flex flex-col items-center gap-3 max-w-[85vw]"
+        >
           <video
             bind:this={modalVideoEl}
             onloadedmetadata={onModalVideoReady}
@@ -1989,7 +2330,10 @@
         max-h-full mong muốn. Bug thực tế đã gặp: thêm lớp div chặn click này
         làm đứt quãng chuỗi ràng buộc kích thước vốn nằm thẳng trên <img>
         trước đây. -->
-        <div class="max-w-full max-h-full min-w-0 min-h-0" onclick={(e) => e.stopPropagation()}>
+        <div
+          class="max-w-full max-h-full min-w-0 min-h-0"
+          onclick={(e) => e.stopPropagation()}
+        >
           <!-- max-w/max-h theo vw/vh (KHÔNG theo %) — luôn tính theo kích
           thước cửa sổ thật, không phụ thuộc chuỗi div cha có "auto" hay
           không, tránh đúng bug đã gặp: ảnh hiển thị to hơn khung, bị cắt mất
@@ -1998,7 +2342,10 @@
           <div class="flex flex-col items-center gap-3">
             <BoxedImage
               src={`data:image/png;base64,${previewMediaB64}`}
-              box={previewIndex === null || previewIndex === mediaChain.length - 1 ? latestBox : null}
+              box={previewIndex === null ||
+              previewIndex === mediaChain.length - 1
+                ? latestBox
+                : null}
               alt="Vùng đã chụp (phóng to)"
               class="max-w-[85vw] max-h-[80vh] object-contain rounded-xl border border-border shadow-2xl"
               interactive
@@ -2010,7 +2357,11 @@
           </div>
         </div>
       {/if}
-      <button onclick={closeImagePreview} class="absolute top-4 right-4 btn-ghost p-2 rounded-lg" title="Đóng (Esc)">
+      <button
+        onclick={closeImagePreview}
+        class="absolute top-4 right-4 btn-ghost p-2 rounded-lg"
+        title="Đóng (Esc)"
+      >
         <Icon name="x" size={18} />
       </button>
     </div>

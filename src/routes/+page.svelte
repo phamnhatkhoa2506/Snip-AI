@@ -793,7 +793,7 @@
             <span class="flex-1 min-w-0">
               <div class="text-[12.5px] font-semibold">Mô hình AI</div>
               <div class="text-[10.5px] text-text-muted truncate">
-                Đang dùng: {currentModelOption.title}
+                Đang dùng: <b class="text-accent font-bold">{currentModelOption.title}</b>
               </div>
             </span>
             <Icon
@@ -838,7 +838,7 @@
             <span class="flex-1 min-w-0">
               <div class="text-[12.5px] font-semibold">Giọng nói AI</div>
               <div class="text-[10.5px] text-text-muted truncate">
-                Giọng: {currentVoiceOption.title}
+                Giọng: <b class="text-accent font-bold">{currentVoiceOption.title}</b>
               </div>
             </span>
             <Icon
@@ -933,7 +933,7 @@
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Giao diện</div>
               <div class="text-[10.5px] text-text-muted">
-                Đang chọn: {currentThemeOption.title} — bấm để đổi
+                Đang chọn: <b class="text-accent font-bold">{currentThemeOption.title}</b> — bấm để đổi
               </div>
             </span>
           </button>
@@ -948,7 +948,7 @@
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Cỡ chữ hội thoại</div>
               <div class="text-[10.5px] text-text-muted">
-                Đang chọn: {currentTextSizeOption.title} — bấm để đổi
+                Đang chọn: <b class="text-accent font-bold">{currentTextSizeOption.title}</b> — bấm để đổi
               </div>
             </span>
           </button>
@@ -962,7 +962,9 @@
                 Tự động chép vào clipboard
               </div>
               <div class="text-[10.5px] text-text-muted">
-                {autoCopyOnCapture ? "Đang bật" : "Đang tắt"} — chép ảnh/video/audio
+                <b class={autoCopyOnCapture ? "text-accent font-bold" : "font-bold"}
+                  >{autoCopyOnCapture ? "Đang bật" : "Đang tắt"}</b
+                > — chép ảnh/video/audio
                 sau khi chụp/quay/ghi xong, bấm để đổi
               </div>
             </span>
@@ -975,7 +977,9 @@
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Đọc to câu trả lời</div>
               <div class="text-[10.5px] text-text-muted">
-                {autoSpeakAudioAnswers ? "Đang bật" : "Đang tắt"} — tự đọc khi hỏi
+                <b class={autoSpeakAudioAnswers ? "text-accent font-bold" : "font-bold"}
+                  >{autoSpeakAudioAnswers ? "Đang bật" : "Đang tắt"}</b
+                > — tự đọc khi hỏi
                 về đoạn ghi âm, bấm để đổi
               </div>
             </span>
