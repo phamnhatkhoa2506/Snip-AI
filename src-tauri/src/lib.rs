@@ -9,6 +9,7 @@ mod export;
 mod file_api;
 mod history;
 mod hotkey;
+mod caption;
 mod live;
 mod oauth;
 mod record;
@@ -65,6 +66,10 @@ pub fn run() {
             } else if window.label() == live::LIVE_LABEL {
                 if let WindowEvent::Destroyed = event {
                     live::on_window_destroyed(window.app_handle());
+                }
+            } else if window.label() == caption::CAPTION_LABEL {
+                if let WindowEvent::Destroyed = event {
+                    caption::on_window_destroyed(window.app_handle());
                 }
             } else if window.label() == audio_snap::AUDIO_TOOLBAR_LABEL {
                 if let WindowEvent::Destroyed = event {
@@ -123,6 +128,10 @@ pub fn run() {
             commands::show_settings_window,
             tts::speak_text,
             transcribe::transcribe_session_audio,
+            caption::open_caption_window,
+            caption::caption_start,
+            caption::caption_stop,
+            caption::caption_set_paused,
             live::open_live_window,
             live::live_start,
             live::live_stop,

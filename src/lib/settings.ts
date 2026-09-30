@@ -56,7 +56,34 @@ export interface Settings {
   /** Giọng AI — dùng CHUNG cho cả đọc câu trả lời lẫn trò chuyện trực tiếp
    * (cùng bộ giọng dựng sẵn của Gemini), để AI luôn "cùng 1 giọng". */
   voiceName: string;
+  /** Phụ đề trực tiếp (cửa sổ caption): chép lời hay dịch, nguồn âm thanh,
+   * ngôn ngữ đích của chế độ dịch, cỡ chữ (px). */
+  captionMode: CaptionMode;
+  captionSource: AudioSnapSource;
+  captionTargetLang: string;
+  captionFontSize: number;
 }
+
+export type CaptionMode = "transcribe" | "translate";
+
+/** Ngôn ngữ đích của chế độ dịch — TRÙNG TARGET_LANGS trong caption.rs. */
+export const CAPTION_LANG_OPTIONS: { value: string; title: string }[] = [
+  { value: "vi", title: "Tiếng Việt" },
+  { value: "en", title: "Tiếng Anh" },
+  { value: "ja", title: "Tiếng Nhật" },
+  { value: "ko", title: "Tiếng Hàn" },
+  { value: "zh", title: "Tiếng Trung" },
+  { value: "fr", title: "Tiếng Pháp" },
+  { value: "de", title: "Tiếng Đức" },
+  { value: "es", title: "Tiếng Tây Ban Nha" },
+  { value: "th", title: "Tiếng Thái" },
+  { value: "id", title: "Tiếng Indonesia" },
+  { value: "ru", title: "Tiếng Nga" },
+  { value: "pt", title: "Tiếng Bồ Đào Nha" },
+  { value: "it", title: "Tiếng Ý" },
+  { value: "hi", title: "Tiếng Hindi" },
+  { value: "ar", title: "Tiếng Ả Rập" },
+];
 
 export type AudioSnapSource = "mic" | "system" | "both";
 export type VideoAudioChoice = "none" | AudioSnapSource;
@@ -160,6 +187,10 @@ export const DEFAULT_SETTINGS: Settings = {
   ttsModel: DEFAULT_TTS_MODEL,
   liveModel: DEFAULT_LIVE_MODEL,
   voiceName: DEFAULT_VOICE,
+  captionMode: "transcribe",
+  captionSource: "system",
+  captionTargetLang: "vi",
+  captionFontSize: 18,
 };
 
 /** Danh sách nguồn thật sẽ thu cho 1 lựa chọn — CHỈ gồm những nguồn đã được

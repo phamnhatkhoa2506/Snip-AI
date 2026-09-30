@@ -58,7 +58,7 @@
 
   /** Icon theo loại mục: ảnh/video/audio, "chat" (hỏi bằng chữ), "live" (cuộc gọi). */
   function kindIcon(kind: string): string {
-    return kind === "video" ? "video" : kind === "audio" ? "audioWave" : kind === "live" ? "phone" : kind === "chat" ? "sparkles" : "image";
+    return kind === "video" ? "video" : kind === "audio" ? "audioWave" : kind === "live" ? "phone" : kind === "caption" ? "captions" : kind === "chat" ? "sparkles" : "image";
   }
   function formatDuration(secs: number): string {
     const m = Math.floor(secs / 60);
@@ -259,7 +259,8 @@
                 <div class="text-[12px] font-medium truncate leading-tight">{it.preview}</div>
                 <div class="text-[10.5px] text-text-muted mt-0.5 flex items-center gap-1">
                   {formatRelative(it.createdAt)}{#if it.kind === "live"}
-                    · Cuộc gọi{it.durationSecs ? ` ${formatDuration(it.durationSecs)}` : ""}{/if}
+                    · Cuộc gọi{it.durationSecs ? ` ${formatDuration(it.durationSecs)}` : ""}{:else if it.kind === "caption"}
+                    · Phụ đề{it.durationSecs ? ` ${formatDuration(it.durationSecs)}` : ""}{/if}
                   {#if it.mediaMissing}
                     <span class="text-[color:var(--color-danger)]">· mất ảnh/video gốc</span>
                   {/if}
@@ -298,7 +299,12 @@
         <div class="text-[12px] text-[color:var(--color-danger)]">{detailError}</div>
       {:else if detail}
         <div class="max-w-2xl mx-auto flex flex-col gap-4">
-          {#if detail.kind === "live"}
+          {#if detail.kind === "caption"}
+            <div class="flex items-center gap-2 text-[11.5px] text-text-muted">
+              <Icon name="captions" size={13} class="text-accent" />
+              Phụ đề trực tiếp{detail.durationSecs ? ` · ${formatDuration(detail.durationSecs)}` : ""} — chỉ lưu chữ, không lưu âm thanh
+            </div>
+          {:else if detail.kind === "live"}
             <!-- Cuộc gọi trực tiếp chỉ lưu LỜI THOẠI (không ghi âm cuộc gọi),
             là luồng âm thanh trực tiếp nên không "tiếp tục hội thoại" được. -->
             <div class="flex items-center gap-2 text-[11.5px] text-text-muted">

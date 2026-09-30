@@ -144,6 +144,8 @@ pub struct AppState {
 
     /// Phiên trò chuyện trực tiếp đang chạy, nếu có — xem live.rs.
     pub live: Mutex<Option<crate::live::LiveSession>>,
+    /// Phiên phụ đề trực tiếp đang chạy, nếu có — xem caption.rs.
+    pub caption: Mutex<Option<crate::caption::CaptionSession>>,
 }
 
 /// Trần số lượng media (ảnh HOẶC video) cho phép gom vào CÙNG 1 chuỗi/phiên —

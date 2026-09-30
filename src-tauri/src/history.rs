@@ -307,6 +307,7 @@ pub fn history_list(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Hi
                 .turns
                 .iter()
                 .find(|t| t.role == "user")
+                .or_else(|| it.turns.first())
                 .map(|t| t.display_label.clone().unwrap_or_else(|| truncate_chars(&t.content, 60)))
                 .unwrap_or_else(|| "(không có nội dung)".into());
             HistoryListEntry {
@@ -480,6 +481,11 @@ pub async fn history_resume(app: AppHandle, state: State<'_, AppState>, id: Stri
 /// gồm lời thoại 2 phía, không có media (âm thanh cuộc gọi không được ghi
 /// lại). Không có lượt nói nào thì không lưu (mở cửa sổ rồi tắt ngay).
 pub fn save_live_session(app: &AppHandle, model: &str, turns: Vec<HistoryTurn>, duration_secs: u64) {
+    save_text_session(app, "live", model, turns, duration_secs);
+}
+
+/// Phiên chỉ có chữ (không media): "live" (trò chuyện) hoặc "caption" (phụ đề).
+pub fn save_text_session(app: &AppHandle, kind: &str, model: &str, turns: Vec<HistoryTurn>, duration_secs: u64) {
     if turns.is_empty() {
         return;
     }
@@ -489,7 +495,7 @@ pub fn save_live_session(app: &AppHandle, model: &str, turns: Vec<HistoryTurn>, 
         0,
         HistoryItem {
             id: crate::record::uuid_like(),
-            kind: "live".into(),
+            kind: kind.into(),
             created_at: now_ms(),
             media_file: String::new(),
             model: model.to_string(),

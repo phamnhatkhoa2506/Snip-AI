@@ -35,11 +35,11 @@ use crate::state::AppState;
 pub const LIVE_LABEL: &str = "live";
 /// Chỉ dùng cho đường API key tự nhập — đường backend do server chọn model.
 const DIRECT_LIVE_MODEL: &str = "gemini-3.8-live";
-const INPUT_RATE: u32 = 16_000;
+pub(crate) const INPUT_RATE: u32 = 16_000;
 const OUTPUT_RATE_DEFAULT: u32 = 24_000;
 /// Nhịp gửi tiếng micro — đủ nhanh cho hội thoại tự nhiên, không quá dày
 /// (mỗi tin nhắn đi qua Durable Object đều bị tính 1 phần request).
-const FRAME_MS: u32 = 100;
+pub(crate) const FRAME_MS: u32 = 100;
 const MAX_SESSION: Duration = Duration::from_secs(10 * 60);
 const ECHO_TAIL: Duration = Duration::from_millis(300);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -156,7 +156,7 @@ fn setup_message(model: &str, voice: &str) -> serde_json::Value {
     setup
 }
 
-fn audio_message(samples: &[i16]) -> String {
+pub(crate) fn audio_message(samples: &[i16]) -> String {
     let bytes: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
     serde_json::json!({
         "realtimeInput": { "audio": { "data": STANDARD.encode(bytes), "mimeType": "audio/pcm;rate=16000" } }
@@ -172,17 +172,19 @@ fn rate_from_mime(mime: &str) -> Option<u32> {
 /// Những gì 1 tin nhắn từ server yêu cầu làm — tách riêng để test được mà
 /// không cần mạng/loa.
 #[derive(Debug, Default, PartialEq)]
-struct ServerEvents {
-    audio: Vec<(Vec<i16>, u32)>,
-    user_text: Option<String>,
-    model_text: Option<String>,
-    interrupted: bool,
-    turn_complete: bool,
-    setup_complete: bool,
-    go_away: bool,
+pub(crate) struct ServerEvents {
+    pub(crate) audio: Vec<(Vec<i16>, u32)>,
+    pub(crate) user_text: Option<String>,
+    /// Chữ TẠM (còn đổi khi người nói tiếp) của model chép lời trực tiếp.
+    pub(crate) interim_input: Option<String>,
+    pub(crate) model_text: Option<String>,
+    pub(crate) interrupted: bool,
+    pub(crate) turn_complete: bool,
+    pub(crate) setup_complete: bool,
+    pub(crate) go_away: bool,
 }
 
-fn parse_server_message(raw: &str) -> ServerEvents {
+pub(crate) fn parse_server_message(raw: &str) -> ServerEvents {
     let mut ev = ServerEvents::default();
     let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else { return ev };
     ev.setup_complete = v.get("setupComplete").is_some();
@@ -197,6 +199,7 @@ fn parse_server_message(raw: &str) -> ServerEvents {
             }
         }
     }
+    ev.interim_input = sc["interimInputTranscription"]["text"].as_str().filter(|t| !t.is_empty()).map(str::to_string);
     ev.user_text = sc["inputTranscription"]["text"].as_str().filter(|t| !t.is_empty()).map(str::to_string);
     ev.model_text = sc["outputTranscription"]["text"].as_str().filter(|t| !t.is_empty()).map(str::to_string);
     ev.interrupted = sc["interrupted"].as_bool().unwrap_or(false);
@@ -204,7 +207,7 @@ fn parse_server_message(raw: &str) -> ServerEvents {
     ev
 }
 
-fn message_text(msg: &Message) -> Option<String> {
+pub(crate) fn message_text(msg: &Message) -> Option<String> {
     match msg {
         Message::Text(t) => Some(t.as_str().to_string()),
         // Google gửi JSON dưới dạng khung BINARY — vẫn là UTF-8.
@@ -225,19 +228,16 @@ fn describe_connect_error(e: &tokio_tungstenite::tungstenite::Error, via_backend
     }
 }
 
-/// `model`/`voice`: lựa chọn trong Cài đặt -> "Giọng nói AI" (thiếu thì dùng
-/// mặc định).
-#[tauri::command]
-pub async fn live_start(app: AppHandle, headphones: bool, model: Option<String>, voice: Option<String>) -> Result<(), String> {
-    let model = crate::tts::sanitize_model(model.as_deref(), DIRECT_LIVE_MODEL).to_string();
-    let voice = crate::tts::sanitize_voice(voice.as_deref()).to_string();
-    {
-        let state = app.state::<AppState>();
-        if state.live.lock().unwrap().is_some() {
-            return Err("Đang có 1 phiên trò chuyện trực tiếp chạy rồi.".into());
-        }
-    }
+pub(crate) type WsStream = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+pub(crate) type WsTx = futures_util::stream::SplitSink<WsStream, Message>;
+pub(crate) type WsRx = futures_util::stream::SplitStream<WsStream>;
 
+/// Mở kết nối Live API (qua backend khi đã đăng nhập, trực tiếp nếu dùng API
+/// key riêng), gửi `setup` rồi CHỜ server xác nhận (`setupComplete`) — setup
+/// sai (model không tồn tại, bị chặn vùng...) thì server đóng ngay, báo lỗi rõ
+/// ràng thay vì mở micro rồi im lặng. Dùng chung cho cuộc gọi live và phụ đề
+/// trực tiếp (caption.rs). `model` đã qua `sanitize_model`.
+pub(crate) async fn open_live_socket(model: &str, setup: serde_json::Value) -> Result<(WsTx, WsRx), String> {
     let auth = current_auth()?;
     let via_backend = matches!(auth, GeminiAuth::Backend { .. });
     let mut request = match &auth {
@@ -254,26 +254,22 @@ pub async fn live_start(app: AppHandle, headphones: bool, model: Option<String>,
     if let GeminiAuth::Backend { token } = &auth {
         let value = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|e| format!("Token không hợp lệ: {e}"))?;
         request.headers_mut().insert("Authorization", value);
-        // `model` đã qua sanitize_model — chỉ còn ký tự hợp lệ cho header.
-        if let Ok(value) = HeaderValue::from_str(&model) {
+        if let Ok(value) = HeaderValue::from_str(model) {
             request.headers_mut().insert("x-snap-model", value);
         }
     }
 
     let (ws, _) = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(request))
         .await
-        .map_err(|_| "Kết nối trò chuyện trực tiếp quá lâu, thử lại sau.".to_string())?
+        .map_err(|_| "Kết nối quá lâu, thử lại sau.".to_string())?
         .map_err(|e| describe_connect_error(&e, via_backend))?;
     let (mut ws_tx, mut ws_rx) = ws.split();
 
     ws_tx
-        .send(Message::text(setup_message(&model, &voice).to_string()))
+        .send(Message::text(setup.to_string()))
         .await
         .map_err(|e| format!("Lỗi gửi cấu hình phiên: {e}"))?;
 
-    // Chờ server xác nhận setup trước khi mở micro — setup sai (model không
-    // tồn tại, bị chặn vùng...) thì server đóng kết nối ngay, báo lỗi rõ ràng
-    // thay vì mở micro rồi im lặng.
     let wait_setup = async {
         while let Some(msg) = ws_rx.next().await {
             match msg {
@@ -294,6 +290,23 @@ pub async fn live_start(app: AppHandle, headphones: bool, model: Option<String>,
     tokio::time::timeout(CONNECT_TIMEOUT, wait_setup)
         .await
         .map_err(|_| "Gemini không phản hồi khi khởi tạo phiên.".to_string())??;
+    Ok((ws_tx, ws_rx))
+}
+
+/// `model`/`voice`: lựa chọn trong Cài đặt -> "Giọng nói AI" (thiếu thì dùng
+/// mặc định).
+#[tauri::command]
+pub async fn live_start(app: AppHandle, headphones: bool, model: Option<String>, voice: Option<String>) -> Result<(), String> {
+    let model = crate::tts::sanitize_model(model.as_deref(), DIRECT_LIVE_MODEL).to_string();
+    let voice = crate::tts::sanitize_voice(voice.as_deref()).to_string();
+    {
+        let state = app.state::<AppState>();
+        if state.live.lock().unwrap().is_some() {
+            return Err("Đang có 1 phiên trò chuyện trực tiếp chạy rồi.".into());
+        }
+    }
+
+    let (mut ws_tx, mut ws_rx) = open_live_socket(&model, setup_message(&model, &voice)).await?;
 
     let playback = Playback::start()?;
     let (mic_tx, mut mic_rx) = mpsc::unbounded_channel::<Vec<i16>>();
@@ -566,6 +579,73 @@ mod tests {
             let rate = u32::from_le_bytes(wav[24..28].try_into().unwrap());
             (audio::pcm16_from_le_bytes(&wav[44..]), rate)
         })
+    }
+
+    /// THĂM DÒ giao thức 2 model caption: in mọi tin nhắn server trả về.
+    #[test]
+    #[ignore]
+    fn e2e_probe_caption_models() {
+        let (pcm, rate) = e2e_tts_pcm("Xin chào các bạn, hôm nay chúng ta sẽ học về trí tuệ nhân tạo. Cảm ơn các bạn đã lắng nghe.", "Puck");
+        // 24k -> 16k bằng resample đơn giản (lấy mẫu theo tỉ lệ), đủ cho test.
+        let ratio = rate as f64 / 16_000.0;
+        let pcm16: Vec<i16> = (0..(pcm.len() as f64 / ratio) as usize).map(|i| pcm[(i as f64 * ratio) as usize]).collect();
+
+        let cases: Vec<(&str, serde_json::Value)> = vec![
+            (
+                "gemini-3.5-transcribe-live",
+                serde_json::json!({"setup":{
+                    "model":"models/gemini-3.5-transcribe-live",
+                    "generationConfig":{"responseModalities":["TEXT"]},
+                    "inputAudioTranscription":{"languageCodes":[]},
+                    "realtimeInputConfig":{"automaticActivityDetection":{"disabled":false}}}}),
+            ),
+            (
+                "gemini-3.5-live-translate-preview",
+                serde_json::json!({"setup":{
+                    "model":"models/gemini-3.5-live-translate-preview",
+                    "generationConfig":{"responseModalities":["AUDIO"],
+                        "translationConfig":{"targetLanguageCode":"en","echoTargetLanguage":true}},
+                    "inputAudioTranscription":{},"outputAudioTranscription":{}}}),
+            ),
+        ];
+        for (model, setup) in cases {
+            println!("===== {model}");
+            tauri::async_runtime::block_on(async {
+                let (mut tx, mut rx) = match open_live_socket(model, setup).await {
+                    Ok(x) => x,
+                    Err(e) => {
+                        println!("LỖI mở: {e}");
+                        return;
+                    }
+                };
+                println!("setupComplete OK");
+                for chunk in pcm16.chunks(1600) {
+                    tx.send(Message::text(audio_message(chunk))).await.unwrap();
+                    tokio::time::sleep(Duration::from_millis(40)).await;
+                }
+                // 1.5s im lặng để model chốt câu cuối
+                for _ in 0..15 {
+                    tx.send(Message::text(audio_message(&vec![0i16; 1600]))).await.unwrap();
+                    tokio::time::sleep(Duration::from_millis(40)).await;
+                }
+                tx.send(Message::text(r#"{"realtimeInput":{"audioStreamEnd":true}}"#)).await.unwrap();
+                let deadline = tokio::time::sleep(Duration::from_secs(12));
+                tokio::pin!(deadline);
+                loop {
+                    tokio::select! {
+                        _ = &mut deadline => break,
+                        m = rx.next() => match m {
+                            Some(Ok(Message::Close(f))) => { println!("CLOSE {f:?}"); break; }
+                            Some(Ok(m)) => if let Some(t) = message_text(&m) {
+                                let short: String = t.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(300).collect();
+                                println!("MSG {short}");
+                            },
+                            _ => break,
+                        }
+                    }
+                }
+            });
+        }
     }
 
     /// Upload -> keyId -> upload ghim cùng key -> hỏi bằng file_data kèm

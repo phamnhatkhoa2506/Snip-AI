@@ -305,6 +305,18 @@
   /** Điểm khởi đầu THỨ 2 (xem open_text_chat_window trong commands.rs) — hỏi
    * thẳng bằng chữ, không chụp/quay gì trước. Mở luôn được nhiều cửa sổ song
    * song, giống nút "+ New" chính — không phải singleton như Lịch sử. */
+  let captionBusy = $state(false);
+  /** Phụ đề trực tiếp (caption.rs) — cửa sổ luôn nằm trên cùng. */
+  async function handleOpenCaption() {
+    captionBusy = true;
+    try {
+      await invoke("open_caption_window");
+    } catch (e) {
+      flash("err", String(e));
+    } finally {
+      captionBusy = false;
+    }
+  }
   let liveBusy = $state(false);
   /** Trò chuyện trực tiếp bằng giọng nói (Gemini Live, xem live.rs) — 1 cửa
    * sổ duy nhất, mở lại thì đưa cửa sổ cũ lên trước. */
@@ -1124,6 +1136,20 @@
           title={m.title}
           class="relative w-9 h-8 rounded-full flex items-center justify-center transition-colors {captureMode ===
           m.mode
+        <button
+          onclick={handleOpenCaption}
+          disabled={captionBusy}
+          data-tooltip="Phụ đề trực tiếp"
+          data-tooltip-pos="bottom-start"
+          aria-label="Phụ đề trực tiếp"
+          class="w-9 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-text transition-colors disabled:opacity-50"
+        >
+          <Icon
+            name={captionBusy ? "loader" : "captions"}
+            size={15}
+            class={captionBusy ? "animate-spin" : ""}
+          />
+        </button>
             ? 'text-accent'
             : 'text-text-muted hover:text-text'}"
         >
