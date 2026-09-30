@@ -24,12 +24,33 @@ use crate::ai::GeminiAuth;
 /// để base64 hoá không phình payload đáng kể).
 pub const INLINE_THRESHOLD_BYTES: usize = 4 * 1024 * 1024;
 
-/// Upload 1 file, trả về `file_uri` để dùng trong field `file_data` của
-/// request `generateContent` (thay cho `inline_data`).
-pub async fn upload_file(client: &Client, auth: &GeminiAuth, mime: &str, display_name: &str, bytes: &[u8]) -> Result<String, String> {
+/// File đã upload: `uri` dùng trong field `file_data` của `generateContent`
+/// (thay cho `inline_data`). `key_id` (chỉ đường backend): định danh của API
+/// key đã upload file — file CHỈ dùng được với đúng key đó (backend gộp nhiều
+/// key từ nhiều tài khoản), nên mọi request dùng `uri` phải gửi kèm `key_id`
+/// (header `x-snap-key-id`) để backend ghim đúng key.
+#[derive(Clone, Debug)]
+pub struct UploadedFile {
+    pub uri: String,
+    pub key_id: Option<String>,
+}
+
+/// Upload 1 file. `pin_key_id`: upload bằng ĐÚNG key đó (để nhiều file trong
+/// cùng 1 request cùng thuộc 1 key — 1 request không tham chiếu được file
+/// của 2 key khác nhau).
+pub async fn upload_file(
+    client: &Client,
+    auth: &GeminiAuth,
+    mime: &str,
+    display_name: &str,
+    bytes: &[u8],
+    pin_key_id: Option<&str>,
+) -> Result<UploadedFile, String> {
     match auth {
-        GeminiAuth::Backend { token } => upload_via_backend(client, token, mime, display_name, bytes).await,
-        GeminiAuth::Direct { api_key } => upload_direct(client, api_key, mime, display_name, bytes).await,
+        GeminiAuth::Backend { token } => upload_via_backend(client, token, mime, display_name, bytes, pin_key_id).await,
+        GeminiAuth::Direct { api_key } => {
+            Ok(UploadedFile { uri: upload_direct(client, api_key, mime, display_name, bytes).await?, key_id: None })
+        }
     }
 }
 
@@ -43,13 +64,24 @@ fn encode_header_value(s: &str) -> String {
 /// Đường BACKEND — forward toàn bộ việc upload (kể cả chọn key, ghim vị trí
 /// chạy) sang Cloudflare Worker, giống hệt lý do lệnh hỏi AI chính không gọi
 /// thẳng Google khi đã đăng nhập (xem GeminiAuth::Backend trong ai.rs).
-async fn upload_via_backend(client: &Client, token: &str, mime: &str, display_name: &str, bytes: &[u8]) -> Result<String, String> {
+async fn upload_via_backend(
+    client: &Client,
+    token: &str,
+    mime: &str,
+    display_name: &str,
+    bytes: &[u8],
+    pin_key_id: Option<&str>,
+) -> Result<UploadedFile, String> {
     let url = format!("{}/v1/gemini/upload", crate::oauth::backend_base_url());
-    let resp = client
+    let mut req = client
         .post(&url)
         .bearer_auth(token)
         .header("x-gemini-mime", mime)
-        .header("x-gemini-filename", encode_header_value(display_name))
+        .header("x-gemini-filename", encode_header_value(display_name));
+    if let Some(id) = pin_key_id.filter(|id| id.len() == 8 && id.chars().all(|c| c.is_ascii_hexdigit())) {
+        req = req.header("x-snap-key-id", id);
+    }
+    let resp = req
         .body(bytes.to_vec())
         .send()
         .await
@@ -62,7 +94,8 @@ async fn upload_via_backend(client: &Client, token: &str, mime: &str, display_na
     }
 
     let json: serde_json::Value = resp.json().await.map_err(|e| format!("Lỗi đọc phản hồi upload file (backend): {e}"))?;
-    json["fileUri"].as_str().map(|s| s.to_string()).ok_or_else(|| "Backend thiếu \"fileUri\" trong phản hồi upload".to_string())
+    let uri = json["fileUri"].as_str().ok_or_else(|| "Backend thiếu \"fileUri\" trong phản hồi upload".to_string())?;
+    Ok(UploadedFile { uri: uri.to_string(), key_id: json["keyId"].as_str().map(str::to_string) })
 }
 
 /// Đường DIRECT (API key tự nhập, hiện không còn kích hoạt được từ UI — xem

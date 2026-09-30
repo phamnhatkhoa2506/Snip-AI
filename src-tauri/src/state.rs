@@ -189,6 +189,9 @@ pub struct AttachmentEntry {
     pub mime: String,
     pub name: String,
     pub file_uri: Option<String>,
+    /// Key backend đã upload file này (xem file_api::UploadedFile) — `file_uri`
+    /// chỉ dùng được với đúng key đó.
+    pub key_id: Option<String>,
 }
 
 /// Nối 1 ảnh/video vào CUỐI chuỗi của phiên `window_label` — dùng chung cho

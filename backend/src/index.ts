@@ -92,7 +92,14 @@ const ALLOWED_TTS_MODELS = [
   "gemini-3.1-flash-tts-preview",
   "gemini-2.5-flash-preview-tts",
 ];
-const ALLOWED_LIVE_MODELS = ["gemini-3.8-live", "gemini-3.8-live-extended-thinking", "gemini-3.1-flash-live-preview"];
+const ALLOWED_LIVE_MODELS = [
+  "gemini-3.8-live",
+  "gemini-3.8-live-extended-thinking",
+  "gemini-3.1-flash-live-preview",
+  // Phụ đề trực tiếp (caption): chép lời / dịch realtime, cùng kênh WebSocket.
+  "gemini-3.5-transcribe-live",
+  "gemini-3.5-live-translate-preview",
+];
 
 function pickFromList(wanted: string | null | undefined, allowed: string[], fallback: string): string {
   const w = (wanted ?? "").trim();
@@ -111,6 +118,10 @@ function pickChatModel(request: Request, env: Env): string {
 
 /** Trần kích thước file upload qua File API — nhỉnh hơn 50MB của app 1 chút. */
 const MAX_UPLOAD_BYTES = 55 * 1024 * 1024;
+
+/** Trần file âm thanh gửi chép lời — Snap Audio tối đa 2 phút (~4MB WAV),
+ * chừa rộng cho file dài hơn sau này, vẫn dưới trần Worker. */
+const MAX_TRANSCRIBE_BYTES = 40 * 1024 * 1024;
 
 /** Trần body lệnh hỏi AI — bằng mức inline tối đa của Gemini (100MB) là quá
  * rộng cho Worker 128MB; ảnh/video của app nén nhỏ hơn nhiều. */
@@ -257,7 +268,14 @@ export default {
       const proxy = env.GEMINI_PROXY.getByName("gemini", { locationHint: "wnam" });
       const resp = await proxy.fetch("https://gemini-proxy.internal/stream", {
         method: "POST",
-        headers: { "x-gemini-model": model, "x-gemini-keys": JSON.stringify(keys) },
+        headers: {
+          "x-gemini-model": model,
+          "x-gemini-keys": JSON.stringify(keys),
+          // File đã upload chỉ dùng được với đúng key đã upload (xem keyIdOf).
+          "x-snap-key-id": /^[0-9a-f]{8}$/.test(request.headers.get("x-snap-key-id") ?? "")
+            ? (request.headers.get("x-snap-key-id") as string)
+            : "",
+        },
         body,
       });
 
@@ -318,10 +336,55 @@ export default {
           "x-gemini-keys": JSON.stringify(keys),
           "x-gemini-mime": mimeType,
           "x-gemini-filename": filenameHeader,
+          // Upload bằng ĐÚNG key này (nhiều file trong 1 request phải cùng key).
+          "x-snap-key-id": /^[0-9a-f]{8}$/.test(request.headers.get("x-snap-key-id") ?? "")
+            ? (request.headers.get("x-snap-key-id") as string)
+            : "",
         },
         body: bytes,
       });
 
+      return new Response(resp.body, {
+        status: resp.status,
+        headers: { "content-type": resp.headers.get("content-type") ?? "application/json" },
+      });
+    }
+
+    // Chép lời 1 đoạn ghi âm bằng gemini-3.5-transcribe — body là bytes âm
+    // thanh thô, cấu hình chép lời nằm ở header `x-transcribe-config`.
+    if (url.pathname === "/v1/gemini/transcribe" && request.method === "POST") {
+      const user = await authenticate(request, env);
+      if (!user) return unauthorized();
+
+      const mimeType = (request.headers.get("x-gemini-mime") ?? "").trim();
+      if (!/^audio\/[a-z0-9.+-]+$/i.test(mimeType)) {
+        return json({ error: "x-gemini-mime phải là audio/*" }, 400);
+      }
+      if (Number(request.headers.get("content-length") ?? "0") > MAX_TRANSCRIBE_BYTES) {
+        return json({ error: "File âm thanh quá lớn" }, 413);
+      }
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      if (bytes.byteLength === 0) return json({ error: "File rỗng" }, 400);
+      if (bytes.byteLength > MAX_TRANSCRIBE_BYTES) return json({ error: "File âm thanh quá lớn" }, 413);
+
+      let keys: string[];
+      try {
+        keys = JSON.parse(env.GEMINI_API_KEYS);
+        if (!Array.isArray(keys) || keys.length === 0) throw new Error("empty");
+      } catch {
+        return json({ error: "Backend chưa cấu hình đúng GEMINI_API_KEYS (phải là JSON array khác rỗng)" }, 500);
+      }
+
+      const proxy = env.GEMINI_PROXY.getByName("gemini", { locationHint: "wnam" });
+      const resp = await proxy.fetch("https://gemini-proxy.internal/transcribe", {
+        method: "POST",
+        headers: {
+          "x-gemini-keys": JSON.stringify(keys),
+          "x-gemini-mime": mimeType,
+          "x-transcribe-config": request.headers.get("x-transcribe-config") ?? "%7B%7D",
+        },
+        body: bytes,
+      });
       return new Response(resp.body, {
         status: resp.status,
         headers: { "content-type": resp.headers.get("content-type") ?? "application/json" },

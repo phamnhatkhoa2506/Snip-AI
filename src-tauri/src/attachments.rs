@@ -88,7 +88,7 @@ pub fn attach_files_to_session(app: AppHandle, state: State<'_, AppState>, windo
                 MAX_FILE_BYTES / 1024 / 1024,
             ));
         }
-        list.push(AttachmentEntry { bytes, mime: mime.to_string(), name, file_uri: None });
+        list.push(AttachmentEntry { bytes, mime: mime.to_string(), name, file_uri: None, key_id: None });
     }
 
     drop(sessions);
@@ -141,12 +141,37 @@ fn snapshot_attachments(state: &State<'_, AppState>, window_label: &str) -> Vec<
 /// biệt trong giới hạn tối đa MAX_ATTACHMENTS file/phiên). Lần hỏi SAU trong
 /// cùng phiên đọc lại cache này, KHÔNG upload lại (Google giữ file sống ~48h,
 /// xem file_api.rs).
-fn cache_uploaded_file_uri(state: &State<'_, AppState>, window_label: &str, name: &str, size: usize, file_uri: &str) {
+fn cache_uploaded_file_uri(state: &State<'_, AppState>, window_label: &str, name: &str, size: usize, up: &crate::file_api::UploadedFile) {
     if let Some(list) = state.attachment_sessions.lock().unwrap().get_mut(window_label) {
         if let Some(entry) = list.iter_mut().find(|e| e.name == name && e.bytes.len() == size) {
-            entry.file_uri = Some(file_uri.to_string());
+            entry.file_uri = Some(up.uri.clone());
+            entry.key_id = up.key_id.clone();
         }
     }
+}
+
+/// Xoá cache file đã upload của cả phiên (hết hạn 48h, key không còn...) — lần
+/// hỏi SAU sẽ upload lại từ bytes gốc còn giữ trong RAM.
+pub fn invalidate_uploads(state: &State<'_, AppState>, window_label: &str) {
+    if let Some(list) = state.attachment_sessions.lock().unwrap().get_mut(window_label) {
+        for e in list.iter_mut() {
+            e.file_uri = None;
+            e.key_id = None;
+        }
+    }
+}
+
+/// Key mà các file đã upload của request này đang gắn — gửi kèm request hỏi
+/// AI (header x-snap-key-id) để backend ghim đúng key.
+pub fn pinned_key_id(parts: &[AttachmentPart]) -> Option<String> {
+    parts.iter().find_map(|p| match p {
+        AttachmentPart::FileRef { key_id, .. } => key_id.clone(),
+        _ => None,
+    })
+}
+
+pub fn has_file_refs(parts: &[AttachmentPart]) -> bool {
+    parts.iter().any(|p| matches!(p, AttachmentPart::FileRef { .. }))
 }
 
 /// 1 phần đính kèm ĐÃ QUYẾT ĐỊNH xong cách gửi cho Gemini — `Inline` (file
@@ -156,7 +181,7 @@ fn cache_uploaded_file_uri(state: &State<'_, AppState>, window_label: &str, name
 /// không cần biết logic ngưỡng/cache nằm ở đâu.
 pub enum AttachmentPart {
     Inline { b64: String, mime: String, name: String },
-    FileRef { uri: String, mime: String, name: String },
+    FileRef { uri: String, mime: String, name: String, key_id: Option<String> },
 }
 
 /// Quyết định cách gửi TỪNG file đính kèm của phiên cho lượt hỏi hiện tại —
@@ -174,6 +199,14 @@ pub async fn resolve_attachments_for_request(
     let snapshot = snapshot_attachments(state, window_label);
     let mut out = Vec::with_capacity(snapshot.len());
 
+    // Mọi file của 1 request phải thuộc CÙNG 1 key (1 request không tham
+    // chiếu được file của 2 project Google khác nhau): lấy key của file đã
+    // upload đầu tiên làm chuẩn, file nào gắn key khác thì upload lại.
+    let mut pin: Option<String> = snapshot
+        .iter()
+        .find(|e| e.bytes.len() > crate::file_api::INLINE_THRESHOLD_BYTES && e.file_uri.is_some())
+        .and_then(|e| e.key_id.clone());
+
     for entry in snapshot {
         if entry.bytes.len() <= crate::file_api::INLINE_THRESHOLD_BYTES {
             out.push(AttachmentPart::Inline { b64: STANDARD.encode(&entry.bytes), mime: entry.mime, name: entry.name });
@@ -181,14 +214,20 @@ pub async fn resolve_attachments_for_request(
         }
 
         if let Some(uri) = entry.file_uri.clone() {
-            out.push(AttachmentPart::FileRef { uri, mime: entry.mime, name: entry.name });
-            continue;
+            if entry.key_id == pin {
+                out.push(AttachmentPart::FileRef { uri, mime: entry.mime, name: entry.name, key_id: entry.key_id.clone() });
+                continue;
+            }
+            // Khác key chuẩn -> rơi xuống upload lại (ghim đúng key chuẩn).
         }
 
-        match crate::file_api::upload_file(client, auth, &entry.mime, &entry.name, &entry.bytes).await {
-            Ok(uri) => {
-                cache_uploaded_file_uri(state, window_label, &entry.name, entry.bytes.len(), &uri);
-                out.push(AttachmentPart::FileRef { uri, mime: entry.mime, name: entry.name });
+        match crate::file_api::upload_file(client, auth, &entry.mime, &entry.name, &entry.bytes, pin.as_deref()).await {
+            Ok(up) => {
+                cache_uploaded_file_uri(state, window_label, &entry.name, entry.bytes.len(), &up);
+                if pin.is_none() {
+                    pin = up.key_id.clone();
+                }
+                out.push(AttachmentPart::FileRef { uri: up.uri, mime: entry.mime, name: entry.name, key_id: up.key_id });
             }
             Err(e) => {
                 eprintln!("[snip-ai][attachments] Upload File API lỗi cho \"{}\": {e} — gửi inline thay thế", entry.name);

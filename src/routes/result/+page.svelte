@@ -997,7 +997,46 @@
    * còn `chip.prompt` (đầy đủ, chi tiết) mới là thứ thực sự gửi cho AI. Có
    * chỉ định thời điểm thì nối thêm `timeContextSuffix` vào nội dung thật
    * (AI đọc) và `timeBadgeSuffix` vào nhãn hiển thị (người dùng thấy). */
+  /** "Chép lời" đoạn ghi âm bằng model CHUYÊN CHÉP LỜI (gemini-3.5-transcribe,
+   * xem transcribe.rs) thay vì nhờ model chat qua câu lệnh — nhanh hơn, sát
+   * nguyên văn, có mốc thời gian + tách người nói. Kết quả đưa vào hội thoại
+   * như 1 câu trả lời thường (mốc [mm:ss] bấm được để tua; các câu hỏi tiếp
+   * theo model chat đọc được cả bản chép lẫn âm thanh gốc). */
+  async function runTranscribe() {
+    if (busy) return;
+    const userTurn = {
+      role: "user" as const,
+      content: "Chép lời đoạn ghi âm này.",
+      displayLabel: "Chép lời đoạn ghi âm",
+    };
+    history = phase === "ask" ? [userTurn] : [...history, userTurn];
+    phase = "chat";
+    busy = true;
+    error = "";
+    statusLine = "Đang chép lời";
+    await scrollToBottom();
+    try {
+      const r = await invoke<{ markdown: string }>("transcribe_session_audio", {
+        windowLabel: getCurrentWindow().label,
+        index: null,
+        language: null,
+      });
+      history = [...history, { role: "assistant", content: r.markdown }];
+      saveHistoryTurn(loadSettings());
+    } catch (e) {
+      error = String(e).replace(/^Error:\s*/, "");
+    } finally {
+      statusLine = "";
+      busy = false;
+      await scrollToBottom();
+    }
+  }
+
   async function askWithPrompt(chip: QuickPrompt) {
+    if (chip.id === "transcribe" && latestIsAudio) {
+      runTranscribe();
+      return;
+    }
     history = [
       {
         role: "user",
@@ -2208,6 +2247,24 @@
             >
               {@render attachFileItem()}
               {@render appendCaptureItem()}
+              {#if latestIsAudio}
+                <button
+                  type="button"
+                  onclick={() => {
+                    moreMenuOpen = false;
+                    runTranscribe();
+                  }}
+                  class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+                >
+                  <Icon name="text" size={15} class="mt-0.5 shrink-0" />
+                  <span>
+                    <div class="text-[12.5px] font-semibold">Chép lời</div>
+                    <div class="text-[10.5px] text-text-muted">
+                      Chép nguyên văn, tách người nói, có mốc thời gian
+                    </div>
+                  </span>
+                </button>
+              {/if}
               {#if latestIsImage}
                 <!-- "Sơ đồ từ vựng" cần 1 ảnh THẬT (xem askDiagram) — phiên
                 "Hỏi AI" chưa "+ Chụp thêm ảnh" thì ẩn hẳn, không hiện mục bấm

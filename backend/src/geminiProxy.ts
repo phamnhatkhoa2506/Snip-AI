@@ -37,9 +37,11 @@ function shuffle<T>(arr: T[]): T[] {
  * vậy an toàn để "bỏ" response và thử key khác mà không làm hỏng stream (một
  * khi đã bắt đầu đọc/forward body thì không thể quay lại thử key khác nữa).
  */
-async function callGeminiWithFailover(keys: string[], model: string, body: string): Promise<Response> {
+async function callGeminiWithFailover(keys: string[], model: string, body: string, pinnedKey?: string): Promise<Response> {
   const upstream = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
-  const order = shuffle(keys);
+  // Request tham chiếu file đã upload (file_data) CHỈ chạy được với đúng key
+  // đã upload file đó — không failover sang key khác (sẽ bị Google từ chối).
+  const order = pinnedKey ? [pinnedKey] : shuffle(keys);
 
   let lastResp: Response | null = null;
   for (const key of order) {
@@ -81,54 +83,110 @@ async function callGeminiWithFailover(keys: string[], model: string, body: strin
  * tục" phiên upload dở dang bằng key KHÁC — URL upload gắn chặt với key đã
  * bắt đầu phiên đó).
  */
-async function uploadFileWithFailover(keys: string[], mimeType: string, displayName: string, bytes: Uint8Array<ArrayBuffer>): Promise<Response> {
-  const order = shuffle(keys);
-  let lastResp: Response | null = null;
+/** Định danh KHÔNG bí mật của 1 API key (8 ký tự đầu của SHA-256). File đã
+ * upload chỉ dùng được với ĐÚNG key (đúng project Google) đã upload nó —
+ * backend gộp nhiều key từ nhiều tài khoản, chọn ngẫu nhiên mỗi yêu cầu, nên
+ * gọi file bằng key khác sẽ bị Google từ chối. Client lưu `keyId` cùng
+ * `file_uri` và gửi lại (header x-snap-key-id) để ghim đúng key. */
+async function keyIdOf(key: string): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
+  return [...new Uint8Array(hash).slice(0, 4)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
-  for (const key of order) {
-    const startResp = await fetch("https://generativelanguage.googleapis.com/upload/v1beta/files", {
-      method: "POST",
-      headers: {
-        "x-goog-api-key": key,
-        "X-Goog-Upload-Protocol": "resumable",
-        "X-Goog-Upload-Command": "start",
-        "X-Goog-Upload-Header-Content-Length": String(bytes.byteLength),
-        "X-Goog-Upload-Header-Content-Type": mimeType,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ file: { display_name: displayName } }),
-    });
+async function findKeyById(keys: string[], keyId: string): Promise<string | null> {
+  for (const k of keys) if ((await keyIdOf(k)) === keyId) return k;
+  return null;
+}
 
-    if (!startResp.ok) {
-      lastResp = startResp;
-      const retryable = startResp.status === 429 || startResp.status >= 500;
-      if (!retryable) return startResp;
+type UploadResult = { ok: true; uri: string; mimeType: string } | { ok: false; resp: Response; retryable: boolean };
+
+/** Upload bằng ĐÚNG 1 key (2 bước resumable, xem mô tả bên trên). */
+async function uploadWithKey(key: string, mimeType: string, displayName: string, bytes: Uint8Array<ArrayBuffer>): Promise<UploadResult> {
+  const startResp = await fetch("https://generativelanguage.googleapis.com/upload/v1beta/files", {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": key,
+      "X-Goog-Upload-Protocol": "resumable",
+      "X-Goog-Upload-Command": "start",
+      "X-Goog-Upload-Header-Content-Length": String(bytes.byteLength),
+      "X-Goog-Upload-Header-Content-Type": mimeType,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ file: { display_name: displayName } }),
+  });
+  if (!startResp.ok) {
+    return { ok: false, resp: startResp, retryable: startResp.status === 429 || startResp.status >= 500 };
+  }
+  const uploadUrl = startResp.headers.get("x-goog-upload-url");
+  if (!uploadUrl) return { ok: false, resp: startResp, retryable: true }; // phản hồi bất thường -> thử key khác
+
+  const finishResp = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      "X-Goog-Upload-Offset": "0",
+      "X-Goog-Upload-Command": "upload, finalize",
+      "content-length": String(bytes.byteLength),
+    },
+    body: bytes,
+  });
+  if (!finishResp.ok) {
+    return { ok: false, resp: finishResp, retryable: finishResp.status === 429 || finishResp.status >= 500 };
+  }
+  const data = await finishResp.json<{ file?: { uri?: string; mimeType?: string } }>();
+  if (!data.file?.uri) {
+    return { ok: false, resp: new Response(JSON.stringify({ error: "Google không trả về file.uri" }), { status: 502 }), retryable: false };
+  }
+  return { ok: true, uri: data.file.uri, mimeType: data.file.mimeType ?? mimeType };
+}
+
+async function uploadFileWithFailover(
+  keys: string[],
+  mimeType: string,
+  displayName: string,
+  bytes: Uint8Array<ArrayBuffer>,
+): Promise<{ ok: true; uri: string; mimeType: string; keyId: string } | { ok: false; resp: Response }> {
+  let last: Response | null = null;
+  for (const key of shuffle(keys)) {
+    const r = await uploadWithKey(key, mimeType, displayName, bytes);
+    if (r.ok) return { ...r, keyId: await keyIdOf(key) };
+    last = r.resp;
+    if (!r.retryable) break;
+  }
+  return { ok: false, resp: last! };
+}
+
+/** Chép lời 1 file âm thanh bằng gemini-3.5-transcribe (Interactions API —
+ * KHÁC generateContent). Upload + chép lời dùng CÙNG 1 key (file gắn với key,
+ * xem `keyIdOf`). `transcriptionConfig` do app dựng sẵn (ngôn ngữ, chế độ,
+ * tách người nói, mốc thời gian). */
+async function transcribeWithFailover(
+  keys: string[],
+  mimeType: string,
+  bytes: Uint8Array<ArrayBuffer>,
+  transcriptionConfig: Record<string, unknown>,
+): Promise<Response> {
+  let last: Response | null = null;
+  for (const key of shuffle(keys)) {
+    const up = await uploadWithKey(key, mimeType, "snap-ai-audio", bytes);
+    if (!up.ok) {
+      last = up.resp;
+      if (!up.retryable) return up.resp;
       continue;
     }
-
-    const uploadUrl = startResp.headers.get("x-goog-upload-url");
-    if (!uploadUrl) {
-      lastResp = startResp;
-      continue; // phản hồi bất thường (thiếu header cần thiết) -> thử key khác
-    }
-
-    const finishResp = await fetch(uploadUrl, {
+    const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
       method: "POST",
-      headers: {
-        "X-Goog-Upload-Offset": "0",
-        "X-Goog-Upload-Command": "upload, finalize",
-        "content-length": String(bytes.byteLength),
-      },
-      body: bytes,
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        model: "gemini-3.5-transcribe",
+        input: [{ type: "audio", uri: up.uri, mime_type: up.mimeType }],
+        generation_config: { transcription_config: transcriptionConfig },
+      }),
     });
-
-    if (finishResp.ok) return finishResp;
-    lastResp = finishResp;
-    const retryable = finishResp.status === 429 || finishResp.status >= 500;
-    if (!retryable) return finishResp;
+    if (resp.ok) return resp;
+    last = resp;
+    if (!(resp.status === 429 || resp.status >= 500)) return resp;
   }
-
-  return lastResp!;
+  return last!;
 }
 
 /** Đọc 1 đoạn văn thành giọng nói bằng model TTS của Gemini (generateContent
@@ -233,22 +291,46 @@ export class GeminiProxy implements DurableObject {
         });
       }
       const bytes = new Uint8Array(await request.arrayBuffer());
-      const googleResp = await uploadFileWithFailover(keys, mimeType, displayName, bytes);
-      if (!googleResp.ok) {
-        const text = await googleResp.text();
-        return new Response(text, { status: googleResp.status, headers: { "content-type": "application/json" } });
+      const pinId = request.headers.get("x-snap-key-id") ?? "";
+      let uploadKeys = keys;
+      if (pinId) {
+        const pinned = await findKeyById(keys, pinId);
+        if (!pinned) {
+          return new Response(JSON.stringify({ error: "KEY_FOR_FILE_GONE" }), { status: 409, headers: { "content-type": "application/json" } });
+        }
+        uploadKeys = [pinned];
       }
-      const data = await googleResp.json<{ file?: { uri?: string; mimeType?: string } }>();
-      const fileUri = data.file?.uri;
-      if (!fileUri) {
-        return new Response(JSON.stringify({ error: "Google không trả về file.uri" }), {
-          status: 502,
-          headers: { "content-type": "application/json" },
-        });
+      const up = await uploadFileWithFailover(uploadKeys, mimeType, displayName, bytes);
+      if (!up.ok) {
+        const text = await up.resp.text();
+        return new Response(text, { status: up.resp.status, headers: { "content-type": "application/json" } });
       }
-      return new Response(JSON.stringify({ fileUri, mimeType: data.file?.mimeType ?? mimeType }), {
+      // `keyId`: app gửi lại khi dùng file này (x-snap-key-id) — xem keyIdOf.
+      return new Response(JSON.stringify({ fileUri: up.uri, mimeType: up.mimeType, keyId: up.keyId }), {
         status: 200,
         headers: { "content-type": "application/json" },
+      });
+    }
+
+    // Chép lời file âm thanh (gemini-3.5-transcribe, Interactions API): body
+    // là BYTES âm thanh thô; `x-transcribe-config` là JSON (percent-encoded)
+    // của `transcription_config`. Trả nguyên phản hồi Interactions của Google.
+    if (url.pathname === "/transcribe") {
+      const mimeType = request.headers.get("x-gemini-mime") ?? "";
+      let config: Record<string, unknown> = {};
+      try {
+        config = JSON.parse(decodeURIComponent(request.headers.get("x-transcribe-config") ?? "%7B%7D"));
+      } catch {
+        return new Response(JSON.stringify({ error: "x-transcribe-config không hợp lệ" }), { status: 400 });
+      }
+      if (!mimeType || keys.length === 0) {
+        return new Response(JSON.stringify({ error: "GeminiProxy transcribe: thiếu mime hoặc keys" }), { status: 500 });
+      }
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      const resp = await transcribeWithFailover(keys, mimeType, bytes, config);
+      return new Response(resp.body, {
+        status: resp.status,
+        headers: { "content-type": resp.headers.get("content-type") ?? "application/json" },
       });
     }
 
@@ -372,6 +454,19 @@ export class GeminiProxy implements DurableObject {
       });
     }
     const body = await request.text();
-    return callGeminiWithFailover(keys, model, body);
+    // Request có file_data (đã upload qua File API) -> ghim đúng key đã upload.
+    const keyId = request.headers.get("x-snap-key-id") ?? "";
+    let pinned: string | undefined;
+    if (keyId) {
+      const k = await findKeyById(keys, keyId);
+      if (!k) {
+        return new Response(JSON.stringify({ error: "KEY_FOR_FILE_GONE" }), {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      pinned = k;
+    }
+    return callGeminiWithFailover(keys, model, body, pinned);
   }
 }

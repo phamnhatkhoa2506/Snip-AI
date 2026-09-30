@@ -492,7 +492,7 @@ pub async fn ask_ai_gemini(
                                 "inline_data": {"mime_type": mime, "data": b64}
                             }));
                         }
-                        crate::attachments::AttachmentPart::FileRef { uri, mime, name } => {
+                        crate::attachments::AttachmentPart::FileRef { uri, mime, name, .. } => {
                             parts.push(serde_json::json!({"text": format!("Tệp đính kèm: {name}")}));
                             parts.push(serde_json::json!({
                                 "file_data": {"mime_type": mime, "file_uri": uri}
@@ -574,12 +574,21 @@ pub async fn ask_ai_gemini(
         }
     };
 
+    // File lớn đã upload qua File API chỉ dùng được với đúng key đã upload —
+    // gửi kèm để backend ghim key (xem file_api::UploadedFile).
+    let pinned_key = crate::attachments::pinned_key_id(&resolved_attachments);
     let send = |body: &serde_json::Value| {
         let req = client.post(&endpoint).header("Accept", "text/event-stream").json(body);
         match &auth {
             // Model người dùng chọn trong Cài đặt — backend chỉ nhận model
             // trong danh sách cho phép (xem pickChatModel ở backend).
-            GeminiAuth::Backend { token } => req.bearer_auth(token).header("x-snap-model", model_header_value(model)),
+            GeminiAuth::Backend { token } => {
+                let req = req.bearer_auth(token).header("x-snap-model", model_header_value(model));
+                match pinned_key.as_deref().filter(|k| k.len() == 8 && k.chars().all(|c| c.is_ascii_hexdigit())) {
+                    Some(k) => req.header("x-snap-key-id", k),
+                    None => req,
+                }
+            }
             GeminiAuth::Direct { api_key } => req.header("x-goog-api-key", api_key.as_str()),
         }
     };
@@ -607,6 +616,18 @@ pub async fn ask_ai_gemini(
             GeminiAuth::Direct { .. } => "API key trực tiếp",
         };
         eprintln!("[snip-ai][ai] Gemini lỗi HTTP {status} (qua {via}): {text}");
+
+        // File lớn đã upload có thể không còn dùng được (Google giữ ~48h, hoặc
+        // key đã bị gỡ khỏi backend) -> xoá cache, lần hỏi SAU tự upload lại từ
+        // bytes gốc còn trong RAM. Không tự gửi lại ngay trong lượt này để giữ
+        // luồng xử lý đơn giản (body đã dựng sẵn với tham chiếu file).
+        if crate::attachments::has_file_refs(&resolved_attachments)
+            && matches!(status.as_u16(), 400 | 403 | 404 | 409)
+            && !text.contains("User location is not supported")
+        {
+            crate::attachments::invalidate_uploads(&state, &window_label);
+            return Err("Tệp đính kèm lớn đã hết hạn hoặc không còn dùng được — hãy gửi lại câu hỏi, app sẽ tải tệp lên lại.".into());
+        }
 
         // Lỗi chặn theo VÙNG ĐỊA LÝ — thông báo gốc của Google ("User location
         // is not supported for the API use") khiến người dùng tưởng MÁY MÌNH ở

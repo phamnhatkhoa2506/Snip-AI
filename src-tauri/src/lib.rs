@@ -15,6 +15,7 @@ mod record;
 mod secrets;
 mod state;
 mod survey;
+mod transcribe;
 mod tts;
 
 use std::sync::Mutex;
@@ -121,6 +122,7 @@ pub fn run() {
             audio_snap::open_mic_privacy_settings,
             commands::show_settings_window,
             tts::speak_text,
+            transcribe::transcribe_session_audio,
             live::open_live_window,
             live::live_start,
             live::live_stop,

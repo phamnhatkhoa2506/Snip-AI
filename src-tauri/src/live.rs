@@ -550,6 +550,117 @@ mod tests {
         });
     }
 
+    /// TTS qua backend -> (PCM 16-bit, sample rate).
+    fn e2e_tts_pcm(text: &str, voice: &str) -> (Vec<i16>, u32) {
+        tauri::async_runtime::block_on(async {
+            let resp = reqwest::Client::new()
+                .post(format!("{}/v1/gemini/tts", crate::oauth::backend_base_url()))
+                .bearer_auth(e2e_token())
+                .json(&serde_json::json!({"text": text, "voice": voice}))
+                .send()
+                .await
+                .unwrap();
+            let v: serde_json::Value = resp.json().await.unwrap();
+            let raw = STANDARD.decode(v["audio"].as_str().expect("TTS thiếu audio")).unwrap();
+            let wav = crate::tts::ensure_wav(raw, v["mimeType"].as_str().unwrap_or(""));
+            let rate = u32::from_le_bytes(wav[24..28].try_into().unwrap());
+            (audio::pcm16_from_le_bytes(&wav[44..]), rate)
+        })
+    }
+
+    /// Upload -> keyId -> upload ghim cùng key -> hỏi bằng file_data kèm
+    /// x-snap-key-id (đường file đính kèm lớn). Key giả bị từ chối 409.
+    #[test]
+    #[ignore]
+    fn e2e_file_upload_key_pinning() {
+        let (pcm, rate) = e2e_tts_pcm("Con mèo đang ngủ trên ghế sofa màu đỏ.", "Kore");
+        let wav = audio::wav_from_pcm16(&pcm, rate, 1);
+        tauri::async_runtime::block_on(async {
+            let client = reqwest::Client::new();
+            let base = crate::oauth::backend_base_url();
+            let upload = |pin: Option<&'static str>| {
+                let mut req = client
+                    .post(format!("{base}/v1/gemini/upload"))
+                    .bearer_auth(e2e_token())
+                    .header("x-gemini-mime", "audio/wav")
+                    .header("x-gemini-filename", "meo.wav")
+                    .body(wav.clone());
+                if let Some(p) = pin {
+                    req = req.header("x-snap-key-id", p);
+                }
+                async move { req.send().await.unwrap() }
+            };
+
+            let first: serde_json::Value = upload(None).await.json().await.unwrap();
+            let key_id = first["keyId"].as_str().expect("thiếu keyId").to_string();
+            let uri = first["fileUri"].as_str().unwrap().to_string();
+            println!("upload 1: keyId={key_id}");
+            assert_eq!(key_id.len(), 8);
+
+            // Ghim đúng key -> upload lần 2 phải ra đúng keyId đó.
+            let leaked: &'static str = Box::leak(key_id.clone().into_boxed_str());
+            let second: serde_json::Value = upload(Some(leaked)).await.json().await.unwrap();
+            assert_eq!(second["keyId"].as_str(), Some(key_id.as_str()), "upload ghim key nhưng ra key khác");
+
+            // Key không tồn tại -> 409.
+            assert_eq!(upload(Some("deadbeef")).await.status().as_u16(), 409);
+
+            // Hỏi bằng file_data + ghim key.
+            let body = serde_json::json!({"contents":[{"role":"user","parts":[
+                {"text":"Nghe file và trả lời ngắn: con gì đang ngủ?"},
+                {"file_data":{"mime_type":"audio/wav","file_uri":uri}}]}]});
+            let resp = client
+                .post(format!("{base}/v1/gemini/stream"))
+                .bearer_auth(e2e_token())
+                .header("x-snap-key-id", &key_id)
+                .json(&body)
+                .send()
+                .await
+                .unwrap();
+            let status = resp.status();
+            let text = resp.text().await.unwrap();
+            assert!(status.is_success(), "HTTP {status}: {text}");
+            assert!(text.to_lowercase().contains("mèo"), "không trả lời từ file: {}", text.chars().take(300).collect::<String>());
+            println!("hỏi bằng file_data: OK");
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn e2e_transcribe_file_two_speakers() {
+        let (a, ra) = e2e_tts_pcm("Xin chào các bạn, hôm nay chúng ta sẽ học về trí tuệ nhân tạo.", "Puck");
+        let (b, rb) = e2e_tts_pcm("Cảm ơn thầy, em có một câu hỏi về mạng nơ ron.", "Kore");
+        assert_eq!(ra, rb);
+        let mut pcm = a;
+        pcm.extend(std::iter::repeat(0i16).take(ra as usize)); // 1s im lặng giữa 2 người
+        pcm.extend(b);
+        let wav = audio::wav_from_pcm16(&pcm, ra, 1);
+
+        let cfg = url::form_urlencoded::byte_serialize(crate::transcribe::transcription_config(None).to_string().as_bytes())
+            .collect::<String>();
+        let v: serde_json::Value = tauri::async_runtime::block_on(async {
+            let resp = reqwest::Client::new()
+                .post(format!("{}/v1/gemini/transcribe", crate::oauth::backend_base_url()))
+                .bearer_auth(e2e_token())
+                .header("x-gemini-mime", "audio/wav")
+                .header("x-transcribe-config", cfg)
+                .body(wav)
+                .send()
+                .await
+                .unwrap();
+            let status = resp.status();
+            let text = resp.text().await.unwrap();
+            assert!(status.is_success(), "HTTP {status}: {text}");
+            serde_json::from_str(&text).unwrap_or_else(|_| panic!("không phải JSON: {text}"))
+        });
+        println!("RAW: {}", v.to_string().chars().take(700).collect::<String>());
+        let r = crate::transcribe::parse_response(&v).expect("parse");
+        println!("--- markdown ---\n{}\n--- text ---\n{}", r.markdown, r.text);
+        let lower = r.text.to_lowercase();
+        assert!(lower.contains("trí tuệ") && lower.contains("câu hỏi"), "thiếu nội dung: {}", r.text);
+        assert!(r.segments.iter().any(|s| s.end > 0.0), "không có mốc thời gian");
+    }
+
     #[test]
     #[ignore]
     fn e2e_live_full_turn_via_backend() {
