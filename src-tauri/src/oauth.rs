@@ -117,22 +117,62 @@ fn open_loopback_listener() -> Result<(TcpListener, u16), String> {
 /// CHẠY BLOCKING (accept() chặn luồng gọi nó) — bắt buộc gọi trong
 /// `spawn_blocking`, không được gọi trực tiếp trong async command.
 fn wait_for_callback(listener: TcpListener, expected_state: &str) -> Result<String, String> {
-    let (stream, _addr) = listener.accept().map_err(|e| format!("Lỗi chờ callback đăng nhập: {e}"))?;
-    handle_callback(stream, expected_state)
+    wait_for_callback_until(listener, expected_state, LOGIN_TIMEOUT)
 }
 
-fn handle_callback(mut stream: TcpStream, expected_state: &str) -> Result<String, String> {
+/// Tối đa chờ người dùng đăng nhập xong trên trình duyệt — quá thì thôi, nhả
+/// cổng (trước đây `accept()` chặn vô hạn nếu người dùng đóng trình duyệt).
+const LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// Chỉ dừng khi nhận được ĐÚNG request `/callback` — kết nối lạ (trình duyệt
+/// dò trước, favicon, máy quét cổng, request rác) bị bỏ qua rồi chờ tiếp,
+/// không được làm hỏng lượt đăng nhập. `state` sai hoặc người dùng từ chối
+/// vẫn là lỗi dứt khoát.
+fn wait_for_callback_until(
+    listener: TcpListener,
+    expected_state: &str,
+    timeout: std::time::Duration,
+) -> Result<String, String> {
+    listener.set_nonblocking(true).map_err(|e| format!("Lỗi cấu hình cổng đăng nhập: {e}"))?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match listener.accept() {
+            Ok((stream, _addr)) => {
+                // Kế thừa chế độ non-blocking từ listener trên 1 số hệ điều hành.
+                let _ = stream.set_nonblocking(false);
+                // Kết nối mở rồi im lặng (preconnect) không được treo vòng lặp.
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                if let Some(result) = handle_callback(stream, expected_state).transpose() {
+                    return result;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() >= deadline {
+                    return Err("Hết thời gian chờ đăng nhập (5 phút) — thử lại.".into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => return Err(format!("Lỗi chờ callback đăng nhập: {e}")),
+        }
+    }
+}
+
+/// `Ok(None)` = không phải request callback (bỏ qua, chờ tiếp).
+fn handle_callback(mut stream: TcpStream, expected_state: &str) -> Result<Option<String>, String> {
     let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
     let mut request_line = String::new();
-    reader
-        .read_line(&mut request_line)
-        .map_err(|e| format!("Lỗi đọc request callback: {e}"))?;
+    if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
+        return Ok(None);
+    }
 
     // Dòng đầu dạng "GET /callback?code=...&state=... HTTP/1.1"
-    let path = request_line
-        .split_whitespace()
-        .nth(1)
-        .ok_or("Request callback không hợp lệ (thiếu path)")?;
+    let Some(path) = request_line.split_whitespace().nth(1) else {
+        return Ok(None);
+    };
+    if path != "/callback" && !path.starts_with("/callback?") {
+        let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        return Ok(None);
+    }
     // Ghép thành URL đầy đủ để dùng `url` crate parse query string an toàn
     // (tự xử lý percent-decode), thay vì tự tay tách chuỗi dễ sai.
     let full_url = format!("http://127.0.0.1{path}");
@@ -153,14 +193,68 @@ fn handle_callback(mut stream: TcpStream, expected_state: &str) -> Result<String
         }
     }
 
-    let _ = write_html_response(&mut stream, "Đăng nhập Snap AI thành công ✅", "Bạn có thể đóng tab này và quay lại app.");
-
-    let code = code.ok_or("Không nhận được authorization code từ Google")?;
-    let state = state.ok_or("Thiếu tham số state trong callback — huỷ đăng nhập để an toàn")?;
-    if state != expected_state {
+    // Kiểm tra `state` TRƯỚC khi báo thành công (trước đây báo "thành công"
+    // rồi mới phát hiện state sai -> trình duyệt nói đã đăng nhập còn app báo lỗi).
+    let (Some(code), Some(state)) = (code, state) else {
+        let _ = write_html_response(&mut stream, "Đăng nhập chưa hoàn tất", "Thiếu thông tin từ Google, hãy thử lại trong app.");
+        return Err("Callback thiếu code/state — huỷ đăng nhập để an toàn".into());
+    };
+    if !constant_time_eq(state.as_bytes(), expected_state.as_bytes()) {
+        let _ = write_html_response(&mut stream, "Đăng nhập bị từ chối", "Yêu cầu không khớp phiên đăng nhập, hãy thử lại trong app.");
         return Err("State không khớp — huỷ đăng nhập để an toàn (có thể bị tấn công CSRF)".into());
     }
-    Ok(code)
+    let _ = write_html_response(&mut stream, "Đăng nhập Snap AI thành công ✅", "Bạn có thể đóng tab này và quay lại app.");
+    Ok(Some(code))
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+#[cfg(test)]
+mod callback_tests {
+    use super::*;
+    use std::io::Read;
+    use std::net::TcpStream as Client;
+
+    fn get(port: u16, path: &str) -> String {
+        let mut c = Client::connect(("127.0.0.1", port)).unwrap();
+        c.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes()).unwrap();
+        let mut out = String::new();
+        let _ = c.read_to_string(&mut out);
+        out
+    }
+
+    #[test]
+    fn ignores_stray_connections_then_accepts_real_callback() {
+        let (listener, port) = open_loopback_listener().unwrap();
+        let t = std::thread::spawn(move || wait_for_callback_until(listener, "STATE1", std::time::Duration::from_secs(10)));
+        // kết nối mở rồi đóng ngay (preconnect) + đường dẫn khác + request rác
+        drop(Client::connect(("127.0.0.1", port)).unwrap());
+        assert!(get(port, "/favicon.ico").starts_with("HTTP/1.1 404"));
+        let _ = get(port, "///rac");
+        let page = get(port, "/callback?code=abc%20d&state=STATE1");
+        assert!(page.contains("thành công"));
+        assert_eq!(t.join().unwrap().unwrap(), "abc d");
+    }
+
+    #[test]
+    fn wrong_state_is_an_error_and_not_reported_as_success() {
+        let (listener, port) = open_loopback_listener().unwrap();
+        let t = std::thread::spawn(move || wait_for_callback_until(listener, "GOOD", std::time::Duration::from_secs(10)));
+        let page = get(port, "/callback?code=x&state=BAD");
+        assert!(!page.contains("thành công"));
+        assert!(t.join().unwrap().unwrap_err().contains("State không khớp"));
+    }
+
+    #[test]
+    fn times_out_instead_of_hanging() {
+        let (listener, _port) = open_loopback_listener().unwrap();
+        let started = std::time::Instant::now();
+        let err = wait_for_callback_until(listener, "S", std::time::Duration::from_millis(400)).unwrap_err();
+        assert!(err.contains("Hết thời gian"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    }
 }
 
 fn write_html_response(stream: &mut TcpStream, title: &str, message: &str) -> std::io::Result<()> {

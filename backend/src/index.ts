@@ -109,6 +109,23 @@ function pickChatModel(request: Request, env: Env): string {
   return allowed.includes(wanted) ? wanted : fallback;
 }
 
+/** Trần kích thước file upload qua File API — nhỉnh hơn 50MB của app 1 chút. */
+const MAX_UPLOAD_BYTES = 55 * 1024 * 1024;
+
+/** Trần body lệnh hỏi AI — bằng mức inline tối đa của Gemini (100MB) là quá
+ * rộng cho Worker 128MB; ảnh/video của app nén nhỏ hơn nhiều. */
+const MAX_STREAM_BODY_BYTES = 64 * 1024 * 1024;
+
+/** So sánh chuỗi bí mật không rò rỉ độ dài phần khớp qua thời gian phản hồi. */
+function safeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return diff === 0;
+}
+
 function unauthorized(message = "Unauthorized"): Response {
   return new Response(JSON.stringify({ error: message }), {
     status: 401,
@@ -129,7 +146,7 @@ async function authenticate(request: Request, env: Env): Promise<{ userId: strin
   const token = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
   if (!token) return null;
 
-  if (env.APP_SHARED_SECRET && token === env.APP_SHARED_SECRET) {
+  if (env.APP_SHARED_SECRET && safeEqual(token, env.APP_SHARED_SECRET)) {
     return { userId: "dev-shared-secret", email: "dev@local" };
   }
 
@@ -205,6 +222,9 @@ export default {
       // forward nguyên xi, không parse/validate sâu ở bước 1. Model: người
       // dùng chọn trong app (header x-snap-model) nhưng CHỈ trong danh sách
       // cho phép (xem pickChatModel) — không cho client gọi model tuỳ ý.
+      if (Number(request.headers.get("content-length") ?? "0") > MAX_STREAM_BODY_BYTES) {
+        return json({ error: "Yêu cầu quá lớn" }, 413);
+      }
       const body = await request.text();
 
       // Lượt hỏi có bật "Tra cứu web" (field "tools" chứa google_search) ->
@@ -266,9 +286,18 @@ export default {
         return json({ error: "Thiếu header x-gemini-mime" }, 400);
       }
 
+      // Chặn TRƯỚC khi đọc body vào bộ nhớ (Worker chỉ có 128MB) — app tự giới
+      // hạn 50MB/file (attachments.rs), đây là lớp chặn cho client khác/độc hại.
+      const declared = Number(request.headers.get("content-length") ?? "0");
+      if (declared > MAX_UPLOAD_BYTES) {
+        return json({ error: "File quá lớn" }, 413);
+      }
       const bytes = new Uint8Array(await request.arrayBuffer());
       if (bytes.byteLength === 0) {
         return json({ error: "File rỗng" }, 400);
+      }
+      if (bytes.byteLength > MAX_UPLOAD_BYTES) {
+        return json({ error: "File quá lớn" }, 413);
       }
 
       let keys: string[];
