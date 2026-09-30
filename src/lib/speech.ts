@@ -8,6 +8,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { markdownToPlainText } from "$lib/markdown";
+import { currentTtsModel, currentVoice, loadSettings } from "$lib/settings";
 
 /** Đọc quá dài vừa tốn quota vừa không ai nghe hết — cắt ở ranh giới câu. */
 const MAX_SPEECH_CHARS = 2500;
@@ -54,7 +55,8 @@ export async function speakMarkdown(md: string): Promise<void> {
   const text = speechTextFromMarkdown(md);
   if (!text) return;
   try {
-    const wavB64 = await invoke<string>("speak_text", { text });
+    const s = loadSettings();
+    const wavB64 = await invoke<string>("speak_text", { text, model: currentTtsModel(s), voice: currentVoice(s) });
     if (token !== playToken) return;
     await playAudio(`data:audio/wav;base64,${wavB64}`);
   } catch (e) {

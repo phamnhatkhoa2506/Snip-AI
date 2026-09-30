@@ -84,6 +84,16 @@ const DEFAULT_ALLOWED_CHAT_MODELS = [
   "gemini-3.1-flash-lite",
 ];
 
+/** Model đọc giọng/trò chuyện trực tiếp app được tự chọn — khớp
+ * TTS_MODEL_OPTIONS/LIVE_MODEL_OPTIONS trong app (src/lib/settings.ts). */
+const ALLOWED_TTS_MODELS = ["gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts"];
+const ALLOWED_LIVE_MODELS = ["gemini-3.8-live", "gemini-3.8-live-extended-thinking"];
+
+function pickFromList(wanted: string | null | undefined, allowed: string[], fallback: string): string {
+  const w = (wanted ?? "").trim();
+  return allowed.includes(w) ? w : fallback;
+}
+
 function pickChatModel(request: Request, env: Env): string {
   const fallback = env.GEMINI_MODEL || "gemini-3.6-flash";
   const wanted = (request.headers.get("x-snap-model") ?? "").trim();
@@ -309,7 +319,11 @@ export default {
         headers: {
           Upgrade: "websocket",
           "x-gemini-keys": JSON.stringify(keys),
-          "x-gemini-model": env.GEMINI_LIVE_MODEL || "gemini-3.8-live",
+          "x-gemini-model": pickFromList(
+            request.headers.get("x-snap-model"),
+            ALLOWED_LIVE_MODELS,
+            env.GEMINI_LIVE_MODEL || "gemini-3.8-live",
+          ),
         },
       });
     }
@@ -320,7 +334,7 @@ export default {
       const user = await authenticate(request, env);
       if (!user) return unauthorized();
 
-      let payload: { text?: string; voice?: string };
+      let payload: { text?: string; voice?: string; model?: string };
       try {
         payload = await request.json();
       } catch {
@@ -346,7 +360,11 @@ export default {
         headers: {
           "content-type": "application/json",
           "x-gemini-keys": JSON.stringify(keys),
-          "x-gemini-model": env.GEMINI_TTS_MODEL || "gemini-3.8-flash-lite-tts",
+          "x-gemini-model": pickFromList(
+            payload.model,
+            ALLOWED_TTS_MODELS,
+            env.GEMINI_TTS_MODEL || "gemini-3.8-flash-lite-tts",
+          ),
         },
         body: JSON.stringify({ text, voice }),
       });

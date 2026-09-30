@@ -5,7 +5,13 @@
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import Icon from "$lib/Icon.svelte";
   import ScrollArea from "$lib/ScrollArea.svelte";
-  import { loadSettings, saveSettings, MIC_PERMISSION_ERROR_PREFIX } from "$lib/settings";
+  import {
+    currentLiveModel,
+    currentVoice,
+    loadSettings,
+    saveSettings,
+    MIC_PERMISSION_ERROR_PREFIX,
+  } from "$lib/settings";
 
   // Trò chuyện trực tiếp bằng giọng nói (Gemini Live API) — toàn bộ âm thanh
   // (thu micro, phát giọng AI, gửi/nhận WebSocket) chạy ở Rust (live.rs);
@@ -71,7 +77,7 @@
     phase = "connecting";
     muted = false;
     try {
-      await invoke("live_start", { headphones });
+      await invoke("live_start", { headphones, model: currentLiveModel(s), voice: currentVoice(s) });
       // live_start chỉ trả về khi phiên ĐÃ sẵn sàng — không phụ thuộc hoàn
       // toàn vào sự kiện "live:state" để rời khỏi trạng thái đang kết nối.
       if (phase === "connecting") phase = "listening";

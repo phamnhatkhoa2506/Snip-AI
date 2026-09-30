@@ -98,20 +98,27 @@ pub async fn open_live_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn setup_message() -> serde_json::Value {
-    serde_json::json!({
+fn setup_message(model: &str, voice: &str) -> serde_json::Value {
+    let mut setup = serde_json::json!({
         "setup": {
-            // Đường backend: server tự ghi đè bằng model của nó (geminiProxy.ts).
-            "model": format!("models/{DIRECT_LIVE_MODEL}"),
+            // Đường backend: server ghi đè bằng model đã kiểm tra theo danh
+            // sách cho phép (header x-snap-model, xem geminiProxy.ts/index.ts).
+            "model": format!("models/{model}"),
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
-                "speechConfig": { "voiceConfig": { "prebuiltVoiceConfig": { "voiceName": "Kore" } } }
+                "speechConfig": { "voiceConfig": { "prebuiltVoiceConfig": { "voiceName": voice } } }
             },
             "systemInstruction": { "parts": [{ "text": LIVE_SYSTEM_PROMPT }] },
             "inputAudioTranscription": {},
             "outputAudioTranscription": {}
         }
-    })
+    });
+    // Chỉ bản "extended thinking" BẮT BUỘC khai báo mức suy luận (server đóng
+    // phiên nếu thiếu); bản thường thì NGƯỢC LẠI — phải bỏ field này.
+    if model.ends_with("-extended-thinking") {
+        setup["setup"]["generationConfig"]["thinkingConfig"] = serde_json::json!({ "thinkingLevel": "low" });
+    }
+    setup
 }
 
 fn audio_message(samples: &[i16]) -> String {
@@ -183,8 +190,12 @@ fn describe_connect_error(e: &tokio_tungstenite::tungstenite::Error, via_backend
     }
 }
 
+/// `model`/`voice`: lựa chọn trong Cài đặt -> "Giọng nói AI" (thiếu thì dùng
+/// mặc định).
 #[tauri::command]
-pub async fn live_start(app: AppHandle, headphones: bool) -> Result<(), String> {
+pub async fn live_start(app: AppHandle, headphones: bool, model: Option<String>, voice: Option<String>) -> Result<(), String> {
+    let model = crate::tts::sanitize_model(model.as_deref(), DIRECT_LIVE_MODEL).to_string();
+    let voice = crate::tts::sanitize_voice(voice.as_deref()).to_string();
     {
         let state = app.state::<AppState>();
         if state.live.lock().unwrap().is_some() {
@@ -208,6 +219,10 @@ pub async fn live_start(app: AppHandle, headphones: bool) -> Result<(), String> 
     if let GeminiAuth::Backend { token } = &auth {
         let value = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|e| format!("Token không hợp lệ: {e}"))?;
         request.headers_mut().insert("Authorization", value);
+        // `model` đã qua sanitize_model — chỉ còn ký tự hợp lệ cho header.
+        if let Ok(value) = HeaderValue::from_str(&model) {
+            request.headers_mut().insert("x-snap-model", value);
+        }
     }
 
     let (ws, _) = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(request))
@@ -217,7 +232,7 @@ pub async fn live_start(app: AppHandle, headphones: bool) -> Result<(), String> 
     let (mut ws_tx, mut ws_rx) = ws.split();
 
     ws_tx
-        .send(Message::text(setup_message().to_string()))
+        .send(Message::text(setup_message(&model, &voice).to_string()))
         .await
         .map_err(|e| format!("Lỗi gửi cấu hình phiên: {e}"))?;
 
@@ -482,13 +497,21 @@ mod tests {
     #[test]
     #[ignore]
     fn e2e_live_full_turn_via_backend() {
+        for (model, voice) in [("gemini-3.8-live", "Puck"), ("gemini-3.8-live-extended-thinking", "Sulafat")] {
+            println!("== {model} / {voice}");
+            e2e_live_one_turn(model, voice);
+        }
+    }
+
+    fn e2e_live_one_turn(model: &str, voice: &str) {
         tauri::async_runtime::block_on(async {
             let url = format!("{}/v1/gemini/live", crate::oauth::backend_base_url().replacen("https://", "wss://", 1));
             let mut req = url.into_client_request().unwrap();
             req.headers_mut().insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", e2e_token())).unwrap());
+            req.headers_mut().insert("x-snap-model", HeaderValue::from_str(model).unwrap());
             let (ws, _) = tokio_tungstenite::connect_async(req).await.expect("không nâng cấp được WebSocket");
             let (mut tx, mut rx) = ws.split();
-            tx.send(Message::text(setup_message().to_string())).await.unwrap();
+            tx.send(Message::text(setup_message(model, voice).to_string())).await.unwrap();
 
             let mut setup_ok = false;
             let mut audio_samples = 0usize;
@@ -523,9 +546,13 @@ mod tests {
 
     #[test]
     fn setup_has_audio_modality_and_transcription() {
-        let v = setup_message();
+        let v = setup_message("gemini-3.8-live", "Kore");
+        assert_eq!(v["setup"]["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"], "Kore");
         assert_eq!(v["setup"]["generationConfig"]["responseModalities"][0], "AUDIO");
         assert!(v["setup"]["inputAudioTranscription"].is_object());
         assert!(v["setup"]["outputAudioTranscription"].is_object());
+        assert!(v["setup"]["generationConfig"]["thinkingConfig"].is_null());
+        let ext = setup_message("gemini-3.8-live-extended-thinking", "Kore");
+        assert_eq!(ext["setup"]["generationConfig"]["thinkingConfig"]["thinkingLevel"], "low");
     }
 }

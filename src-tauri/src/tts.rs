@@ -35,13 +35,34 @@ fn inline_audio_from_generate_response(v: &serde_json::Value) -> Option<(String,
     })
 }
 
-/// Trả về WAV dạng base64.
+/// Tên giọng dựng sẵn của Gemini chỉ gồm chữ cái (VD "Kore") — giá trị lạ
+/// dùng giọng mặc định thay vì để API trả lỗi.
+pub(crate) fn sanitize_voice(voice: Option<&str>) -> &str {
+    match voice {
+        Some(v) if (2..=32).contains(&v.len()) && v.chars().all(|c| c.is_ascii_alphabetic()) => v,
+        _ => DEFAULT_VOICE,
+    }
+}
+
+/// Tên model hợp lệ (chữ/số/`-`/`.`, bắt đầu bằng "gemini-") — chỉ dùng cho
+/// đường API key tự nhập; đường backend do server tự kiểm tra danh sách.
+pub(crate) fn sanitize_model<'a>(model: Option<&'a str>, fallback: &'a str) -> &'a str {
+    match model {
+        Some(m) if m.starts_with("gemini-") && m.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') => m,
+        _ => fallback,
+    }
+}
+
+/// Trả về WAV dạng base64. `model`/`voice`: lựa chọn trong Cài đặt -> "Giọng
+/// nói AI" (thiếu thì dùng mặc định).
 #[tauri::command]
-pub async fn speak_text(app: AppHandle, text: String) -> Result<String, String> {
+pub async fn speak_text(app: AppHandle, text: String, model: Option<String>, voice: Option<String>) -> Result<String, String> {
     let text: String = text.trim().chars().take(MAX_CHARS).collect();
     if text.is_empty() {
         return Err("Không có nội dung để đọc.".into());
     }
+    let voice = sanitize_voice(voice.as_deref());
+    let model = sanitize_model(model.as_deref(), DIRECT_TTS_MODEL);
     let auth = current_auth()?;
     let client = &app.state::<HttpClientState>().client;
 
@@ -49,20 +70,20 @@ pub async fn speak_text(app: AppHandle, text: String) -> Result<String, String> 
         GeminiAuth::Backend { token } => client
             .post(format!("{}/v1/gemini/tts", crate::oauth::backend_base_url()))
             .bearer_auth(token)
-            .json(&serde_json::json!({ "text": text, "voice": DEFAULT_VOICE }))
+            .json(&serde_json::json!({ "text": text, "voice": voice, "model": model }))
             .timeout(TTS_TIMEOUT)
             .send()
             .await,
         GeminiAuth::Direct { api_key } => client
             .post(format!(
-                "https://generativelanguage.googleapis.com/v1beta/models/{DIRECT_TTS_MODEL}:generateContent"
+                "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
             ))
             .header("x-goog-api-key", api_key.as_str())
             .json(&serde_json::json!({
                 "contents": [{ "parts": [{ "text": text }] }],
                 "generationConfig": {
                     "responseModalities": ["AUDIO"],
-                    "speechConfig": { "voiceConfig": { "prebuiltVoiceConfig": { "voiceName": DEFAULT_VOICE } } }
+                    "speechConfig": { "voiceConfig": { "prebuiltVoiceConfig": { "voiceName": voice } } }
                 }
             }))
             .timeout(TTS_TIMEOUT)

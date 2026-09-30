@@ -920,3 +920,17 @@ textarea,
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+/* Tooltip PHÍA DƯỚI + căn theo MÉP TRÁI nút — cho nút nằm sát ngay dưới
+   header (header z-index cao hơn, tooltip phía trên bị che mất) và sát mép
+   trái cửa sổ (căn giữa thì nửa tooltip tràn ra ngoài, bị cắt chữ). */
+[data-tooltip-pos="bottom-start"]::after {
+  bottom: auto;
+  top: calc(100% + 7px);
+  left: 0;
+  text-align: left;
+  transform: translateY(-2px);
+}
+[data-tooltip-pos="bottom-start"]:hover::after,
+[data-tooltip-pos="bottom-start"]:focus-visible::after {
+  transform: translateY(0);
+}

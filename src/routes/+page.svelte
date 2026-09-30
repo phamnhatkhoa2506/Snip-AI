@@ -16,11 +16,18 @@
   } from "$lib/hotkey";
   import { loadTheme, setTheme, type ThemeMode } from "$lib/theme";
   import { loadTextSize, setTextSize, type TextSizeMode } from "$lib/textSize";
+  import { speakMarkdown } from "$lib/speech";
   import {
     currentModel,
     loadSettings,
     saveSettings,
     GEMINI_MODEL_OPTIONS,
+    TTS_MODEL_OPTIONS,
+    LIVE_MODEL_OPTIONS,
+    VOICE_OPTIONS,
+    currentTtsModel,
+    currentLiveModel,
+    currentVoice,
     MIC_PERMISSION_ERROR_PREFIX,
     type AudioSnapSource,
     type VideoAudioChoice,
@@ -66,7 +73,10 @@
     surveySubmitting = true;
     surveyError = "";
     try {
-      await invoke("submit_survey", { rating: surveyRating, comment: surveyComment.trim() });
+      await invoke("submit_survey", {
+        rating: surveyRating,
+        comment: surveyComment.trim(),
+      });
       showSurveyModal = false;
       resetSurveyForm();
       flash("ok", "Cảm ơn bạn đã góp ý!");
@@ -113,7 +123,12 @@
   ];
 
   function persistAudioSettings() {
-    saveSettings({ ...loadSettings(), micAllowed, systemAudioAllowed, audioSnapSource });
+    saveSettings({
+      ...loadSettings(),
+      micAllowed,
+      systemAudioAllowed,
+      audioSnapSource,
+    });
   }
 
   async function toggleMicAllowed() {
@@ -172,18 +187,27 @@
     { mode: "system", icon: "monitor", title: "Theo hệ thống" },
     { mode: "dark", icon: "moon", title: "Tối" },
   ];
-  const currentThemeOption = $derived(THEME_OPTIONS.find((o) => o.mode === themeMode) ?? THEME_OPTIONS[1]);
+  const currentThemeOption = $derived(
+    THEME_OPTIONS.find((o) => o.mode === themeMode) ?? THEME_OPTIONS[1],
+  );
 
   // ── Cỡ chữ toàn app (nhỏ/vừa/lớn) — xem textSize.ts. Chữ "A" hiện theo
   // đúng KÍCH THƯỚC THẬT của mức đang chọn (nhỏ/vừa/lớn khác nhau rõ), tự nó
   // đã là 1 kiểu "xem trước", không cần icon riêng cho từng mức. ────────────
   let textSizeMode = $state<TextSizeMode>("medium");
-  const TEXT_SIZE_OPTIONS: { mode: TextSizeMode; title: string; iconPx: number }[] = [
+  const TEXT_SIZE_OPTIONS: {
+    mode: TextSizeMode;
+    title: string;
+    iconPx: number;
+  }[] = [
     { mode: "small", title: "Nhỏ", iconPx: 11 },
     { mode: "medium", title: "Vừa", iconPx: 14 },
     { mode: "large", title: "Lớn", iconPx: 17 },
   ];
-  const currentTextSizeOption = $derived(TEXT_SIZE_OPTIONS.find((o) => o.mode === textSizeMode) ?? TEXT_SIZE_OPTIONS[1]);
+  const currentTextSizeOption = $derived(
+    TEXT_SIZE_OPTIONS.find((o) => o.mode === textSizeMode) ??
+      TEXT_SIZE_OPTIONS[1],
+  );
 
   /** Menu "Cài đặt" gộp Lịch sử/Giao diện/Cỡ chữ — xem markup ở header. */
   let showMoreMenu = $state(false);
@@ -205,13 +229,43 @@
   let geminiModel = $state("");
   let showModelSubmenu = $state(false);
   const currentModelOption = $derived(
-    GEMINI_MODEL_OPTIONS.find((o) => o.value === geminiModel) ?? GEMINI_MODEL_OPTIONS[0],
+    GEMINI_MODEL_OPTIONS.find((o) => o.value === geminiModel) ??
+      GEMINI_MODEL_OPTIONS[0],
   );
   function chooseModel(value: string) {
     geminiModel = value;
     showModelSubmenu = false;
     saveSettings({ ...loadSettings(), geminiModel: value });
     flash("ok", `Đã đổi mô hình: ${currentModelOption.title}`);
+  }
+
+  // ── Giọng nói AI: model đọc (TTS), model trò chuyện (Live), giọng dùng
+  // chung cho cả hai.
+  let showVoiceSubmenu = $state(false);
+  let ttsModel = $state("");
+  let liveModel = $state("");
+  let voiceName = $state("");
+  let voicePreviewBusy = $state(false);
+  const currentVoiceOption = $derived(VOICE_OPTIONS.find((o) => o.value === voiceName) ?? VOICE_OPTIONS[0]);
+  function chooseTtsModel(value: string) {
+    ttsModel = value;
+    saveSettings({ ...loadSettings(), ttsModel: value });
+  }
+  function chooseLiveModel(value: string) {
+    liveModel = value;
+    saveSettings({ ...loadSettings(), liveModel: value });
+  }
+  function chooseVoice(value: string) {
+    voiceName = value;
+    saveSettings({ ...loadSettings(), voiceName: value });
+  }
+  async function previewVoice() {
+    voicePreviewBusy = true;
+    try {
+      await speakMarkdown(`Xin chào, mình là giọng ${voiceName}. Bạn nghe có rõ không?`);
+    } finally {
+      voicePreviewBusy = false;
+    }
   }
 
   let autoSpeakAudioAnswers = $state(true);
@@ -231,7 +285,11 @@
       if (captureMode === "audio") {
         await invoke("open_audio_snap", { appendTo: null });
       } else {
-        await invoke(captureMode === "snip" ? "trigger_capture" : "trigger_recording_from_ui");
+        await invoke(
+          captureMode === "snip"
+            ? "trigger_capture"
+            : "trigger_recording_from_ui",
+        );
       }
     } catch (e) {
       newActionError = String(e);
@@ -432,7 +490,10 @@
     try {
       const confirmed = await setRecordHotkey(accelerator);
       videoHotkeyParts = confirmed.split("+").map(formatKeyLabel);
-      flash("ok", `Đã đổi phím tắt quay video: ${videoHotkeyParts.join(" + ")}`);
+      flash(
+        "ok",
+        `Đã đổi phím tắt quay video: ${videoHotkeyParts.join(" + ")}`,
+      );
     } catch (e) {
       videoHotkeyError = String(e);
       videoHotkeyParts = parts;
@@ -482,7 +543,10 @@
     try {
       const confirmed = await setAudioHotkey(accelerator);
       audioHotkeyParts = confirmed.split("+").map(formatKeyLabel);
-      flash("ok", `Đã đổi phím tắt Snap Audio: ${audioHotkeyParts.join(" + ")}`);
+      flash(
+        "ok",
+        `Đã đổi phím tắt Snap Audio: ${audioHotkeyParts.join(" + ")}`,
+      );
     } catch (e) {
       audioHotkeyError = String(e);
       audioHotkeyParts = parts;
@@ -499,12 +563,16 @@
 
   function stopAudioHotkeyCapture() {
     capturingAudioHotkey = false;
-    window.removeEventListener("keydown", onAudioHotkeyKeydown, { capture: true });
+    window.removeEventListener("keydown", onAudioHotkeyKeydown, {
+      capture: true,
+    });
   }
 
   function stopVideoHotkeyCapture() {
     capturingVideoHotkey = false;
-    window.removeEventListener("keydown", onVideoHotkeyKeydown, { capture: true });
+    window.removeEventListener("keydown", onVideoHotkeyKeydown, {
+      capture: true,
+    });
   }
 
   function flash(kind: "ok" | "err", text: string) {
@@ -527,6 +595,9 @@
     systemAudioAllowed = initialSettings.systemAudioAllowed;
     audioSnapSource = initialSettings.audioSnapSource;
     autoSpeakAudioAnswers = initialSettings.autoSpeakAudioAnswers;
+    ttsModel = currentTtsModel(initialSettings);
+    liveModel = currentLiveModel(initialSettings);
+    voiceName = currentVoice(initialSettings);
     geminiModel = currentModel(initialSettings);
     videoAudio = initialSettings.videoAudio;
     loadAudioHotkey();
@@ -549,7 +620,9 @@
 <main class="app-bg min-h-screen text-text flex flex-col">
   {#snippet switchUi(on: boolean, busy: boolean)}
     <span
-      class="w-8 h-[18px] rounded-full relative transition-colors shrink-0 {busy ? 'opacity-50' : ''}"
+      class="w-8 h-[18px] rounded-full relative transition-colors shrink-0 {busy
+        ? 'opacity-50'
+        : ''}"
       style="background: {on ? 'var(--color-accent)' : 'var(--color-border)'};"
     >
       <span
@@ -563,46 +636,81 @@
     <!-- Quyền (+ nguồn của Snap Audio). Windows không tự hỏi quyền micro cho
     app desktop nên app tự xin ở đây — mặc định TẮT cả 2. Dùng chung cho tab
     Audio lẫn "Tiếng trong video" ở tab Video. -->
-    <div class="card w-full max-w-[330px] p-3 flex flex-col gap-2.5 text-left mt-1">
+    <div
+      class="card w-full max-w-[330px] p-3 flex flex-col gap-2.5 text-left mt-1"
+    >
       {#if showSource}
-      <div class="flex items-center justify-between gap-2">
-        <span class="text-[11.5px] font-semibold">Nguồn ghi âm</span>
-        <div class="flex rounded-lg p-0.5 gap-0.5" style="background: var(--color-bg-elevated); border: 1px solid var(--color-border);">
-          {#each AUDIO_SOURCE_OPTIONS as opt (opt.value)}
-            <button
-              onclick={() => chooseAudioSource(opt.value)}
-              class="px-2 py-1 rounded-md text-[11px] font-medium transition-colors {audioSnapSource === opt.value
-                ? 'btn-accent'
-                : 'text-text-muted hover:text-text'}"
-            >
-              {opt.label}
-            </button>
-          {/each}
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[11.5px] font-semibold">Nguồn ghi âm</span>
+          <div
+            class="flex rounded-lg p-0.5 gap-0.5"
+            style="background: var(--color-bg-elevated); border: 1px solid var(--color-border);"
+          >
+            {#each AUDIO_SOURCE_OPTIONS as opt (opt.value)}
+              <button
+                onclick={() => chooseAudioSource(opt.value)}
+                class="px-2 py-1 rounded-md text-[11px] font-medium transition-colors {audioSnapSource ===
+                opt.value
+                  ? 'btn-accent'
+                  : 'text-text-muted hover:text-text'}"
+              >
+                {opt.label}
+              </button>
+            {/each}
+          </div>
         </div>
-      </div>
-      <div class="h-px bg-border"></div>
+        <div class="h-px bg-border"></div>
       {/if}
-      <button onclick={toggleMicAllowed} disabled={micProbeBusy} class="flex items-center gap-2.5 text-left">
-        <Icon name="mic" size={14} class="shrink-0 {micAllowed ? 'text-accent' : 'text-text-muted'}" />
+      <button
+        onclick={toggleMicAllowed}
+        disabled={micProbeBusy}
+        class="flex items-center gap-2.5 text-left"
+      >
+        <Icon
+          name="mic"
+          size={14}
+          class="shrink-0 {micAllowed ? 'text-accent' : 'text-text-muted'}"
+        />
         <span class="flex-1 min-w-0">
-          <div class="text-[12px] font-medium">{micProbeBusy ? "Đang kiểm tra micro…" : "Cho phép dùng micro"}</div>
-          <div class="text-[10.5px] text-text-muted">Snap Audio, trò chuyện trực tiếp với AI</div>
+          <div class="text-[12px] font-medium">
+            {micProbeBusy ? "Đang kiểm tra micro…" : "Cho phép dùng micro"}
+          </div>
+          <div class="text-[10.5px] text-text-muted">
+            Snap Audio, trò chuyện trực tiếp với AI
+          </div>
         </span>
         {@render switchUi(micAllowed, micProbeBusy)}
       </button>
-      <button onclick={toggleSystemAudioAllowed} class="flex items-center gap-2.5 text-left">
-        <Icon name="volume" size={14} class="shrink-0 {systemAudioAllowed ? 'text-accent' : 'text-text-muted'}" />
+      <button
+        onclick={toggleSystemAudioAllowed}
+        class="flex items-center gap-2.5 text-left"
+      >
+        <Icon
+          name="volume"
+          size={14}
+          class="shrink-0 {systemAudioAllowed
+            ? 'text-accent'
+            : 'text-text-muted'}"
+        />
         <span class="flex-1 min-w-0">
           <div class="text-[12px] font-medium">Cho phép thu âm thanh máy</div>
-          <div class="text-[10.5px] text-text-muted">Mọi thứ đang phát ra loa: họp online, video, bài giảng…</div>
+          <div class="text-[10.5px] text-text-muted">
+            Mọi thứ đang phát ra loa: họp online, video, bài giảng…
+          </div>
         </span>
         {@render switchUi(systemAudioAllowed, false)}
       </button>
       {#if audioError}
-        <div class="text-[11px] text-[color:var(--color-danger)] leading-relaxed selectable">
+        <div
+          class="text-[11px] text-[color:var(--color-danger)] leading-relaxed selectable"
+        >
           {audioError}
           {#if micBlockedByWindows}
-            <button onclick={openMicPrivacySettings} class="underline font-semibold ml-1">Mở cài đặt quyền micro</button>
+            <button
+              onclick={openMicPrivacySettings}
+              class="underline font-semibold ml-1"
+              >Mở cài đặt quyền micro</button
+            >
           {/if}
         </div>
       {/if}
@@ -626,7 +734,9 @@
     </div>
     <div class="flex-1 min-w-0">
       <h1 class="text-[15px] font-bold leading-tight">Snap AI</h1>
-      <p class="text-[11px] text-text-muted leading-tight">Chụp màn hình · Hỏi AI</p>
+      <p class="text-[11px] text-text-muted leading-tight">
+        Chụp màn hình · Hỏi AI
+      </p>
     </div>
 
     <!-- Gộp Lịch sử/Giao diện/Cỡ chữ vào 1 menu "..." — càng thêm cài đặt
@@ -653,7 +763,10 @@
         ></button>
         <!-- z-40: xem giải thích ở menu tài khoản ngay bên dưới (thanh toggle
         Ảnh/Video cùng z-20 sẽ đè lên nếu để thấp hơn). -->
-        <div class="absolute right-0 top-full mt-2 w-64 card p-1.5 z-40" transition:fade={{ duration: 120 }}>
+        <div
+          class="absolute right-0 top-full mt-2 w-64 card p-1.5 z-40"
+          transition:fade={{ duration: 120 }}
+        >
           <button
             onclick={() => {
               showMoreMenu = false;
@@ -664,7 +777,9 @@
             <Icon name="clock" size={15} class="mt-0.5 shrink-0" />
             <span>
               <div class="text-[12.5px] font-semibold">Lịch sử</div>
-              <div class="text-[10.5px] text-text-muted">Xem lại ảnh/video đã hỏi trước đó</div>
+              <div class="text-[10.5px] text-text-muted">
+                Xem lại ảnh/video đã hỏi trước đó
+              </div>
             </span>
           </button>
           <button
@@ -675,28 +790,89 @@
             <Icon name="sparkles" size={15} class="mt-0.5 shrink-0" />
             <span class="flex-1 min-w-0">
               <div class="text-[12.5px] font-semibold">Mô hình AI</div>
-              <div class="text-[10.5px] text-text-muted truncate">Đang dùng: {currentModelOption.title}</div>
+              <div class="text-[10.5px] text-text-muted truncate">
+                Đang dùng: {currentModelOption.title}
+              </div>
             </span>
-            <Icon name="chevronDown" size={13} class="mt-1 shrink-0 transition-transform {showModelSubmenu ? 'rotate-180' : ''}" />
+            <Icon
+              name="chevronDown"
+              size={13}
+              class="mt-1 shrink-0 transition-transform {showModelSubmenu
+                ? 'rotate-180'
+                : ''}"
+            />
           </button>
           {#if showModelSubmenu}
-            <div class="pl-2.5 flex flex-col gap-0.5 pb-1 max-h-[260px] overflow-y-auto scroll-visible">
+            <div
+              class="pl-2.5 flex flex-col gap-0.5 pb-1 max-h-[260px] overflow-y-auto scroll-visible"
+            >
               {#each GEMINI_MODEL_OPTIONS as option (option.value)}
                 <button
                   onclick={() => chooseModel(option.value)}
                   class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2"
                 >
                   <span
-                    class="w-3 h-3 mt-0.5 shrink-0 rounded-full border {option.value === geminiModel
+                    class="w-3 h-3 mt-0.5 shrink-0 rounded-full border {option.value ===
+                    geminiModel
                       ? 'border-accent bg-accent'
                       : 'border-border'}"
                   ></span>
                   <span class="flex-1">
                     <div class="text-[12px] font-medium">{option.title}</div>
-                    <div class="text-[10px] text-text-muted">{option.description}</div>
+                    <div class="text-[10px] text-text-muted">
+                      {option.description}
+                    </div>
                   </span>
                 </button>
               {/each}
+            </div>
+          {/if}
+          <button
+            onclick={() => (showVoiceSubmenu = !showVoiceSubmenu)}
+            aria-expanded={showVoiceSubmenu}
+            class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
+          >
+            <Icon name="volume" size={15} class="mt-0.5 shrink-0" />
+            <span class="flex-1 min-w-0">
+              <div class="text-[12.5px] font-semibold">Giọng nói AI</div>
+              <div class="text-[10.5px] text-text-muted truncate">Giọng: {currentVoiceOption.title}</div>
+            </span>
+            <Icon name="chevronDown" size={13} class="mt-1 shrink-0 transition-transform {showVoiceSubmenu ? 'rotate-180' : ''}" />
+          </button>
+          {#if showVoiceSubmenu}
+            <div class="pl-2.5 flex flex-col gap-1 pb-1">
+              {#snippet radioList(options: { value: string; title: string; description: string }[], selected: string, choose: (v: string) => void)}
+                {#each options as option (option.value)}
+                  <button
+                    onclick={() => choose(option.value)}
+                    class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2"
+                  >
+                    <span class="w-3 h-3 mt-0.5 shrink-0 rounded-full border {option.value === selected ? 'border-accent bg-accent' : 'border-border'}"></span>
+                    <span class="flex-1">
+                      <div class="text-[12px] font-medium">{option.title}</div>
+                      <div class="text-[10px] text-text-muted">{option.description}</div>
+                    </span>
+                  </button>
+                {/each}
+              {/snippet}
+              <div class="flex items-center justify-between px-2.5 pt-1">
+                <span class="text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Giọng</span>
+                <button
+                  onclick={previewVoice}
+                  disabled={voicePreviewBusy}
+                  class="text-[11px] text-accent font-medium flex items-center gap-1 disabled:opacity-50"
+                >
+                  <Icon name={voicePreviewBusy ? "loader" : "volume"} size={11} class={voicePreviewBusy ? "animate-spin" : ""} />
+                  Nghe thử
+                </button>
+              </div>
+              <div class="max-h-[180px] overflow-y-auto scroll-visible">
+                {@render radioList(VOICE_OPTIONS, voiceName, chooseVoice)}
+              </div>
+              <div class="px-2.5 pt-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Mô hình đọc câu trả lời</div>
+              {@render radioList(TTS_MODEL_OPTIONS, ttsModel, chooseTtsModel)}
+              <div class="px-2.5 pt-1 text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">Mô hình trò chuyện</div>
+              {@render radioList(LIVE_MODEL_OPTIONS, liveModel, chooseLiveModel)}
             </div>
           {/if}
           <!-- 2 mục dưới KHÔNG đóng menu khi bấm — bấm nhiều lần liền để
@@ -705,20 +881,31 @@
             onclick={cycleTheme}
             class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
           >
-            <Icon name={currentThemeOption.icon} size={15} class="mt-0.5 shrink-0" />
+            <Icon
+              name={currentThemeOption.icon}
+              size={15}
+              class="mt-0.5 shrink-0"
+            />
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Giao diện</div>
-              <div class="text-[10.5px] text-text-muted">Đang chọn: {currentThemeOption.title} — bấm để đổi</div>
+              <div class="text-[10.5px] text-text-muted">
+                Đang chọn: {currentThemeOption.title} — bấm để đổi
+              </div>
             </span>
           </button>
           <button
             onclick={cycleTextSize}
             class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-[var(--surface-hover)] transition-colors flex items-start gap-2.5"
           >
-            <span class="w-[15px] mt-0.5 shrink-0 text-center font-bold text-[13px] leading-none">A</span>
+            <span
+              class="w-[15px] mt-0.5 shrink-0 text-center font-bold text-[13px] leading-none"
+              >A</span
+            >
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Cỡ chữ hội thoại</div>
-              <div class="text-[10.5px] text-text-muted">Đang chọn: {currentTextSizeOption.title} — bấm để đổi</div>
+              <div class="text-[10.5px] text-text-muted">
+                Đang chọn: {currentTextSizeOption.title} — bấm để đổi
+              </div>
             </span>
           </button>
           <button
@@ -727,9 +914,12 @@
           >
             <Icon name="clipboard" size={15} class="mt-0.5 shrink-0" />
             <span class="flex-1">
-              <div class="text-[12.5px] font-semibold">Tự động chép vào clipboard</div>
+              <div class="text-[12.5px] font-semibold">
+                Tự động chép vào clipboard
+              </div>
               <div class="text-[10.5px] text-text-muted">
-                {autoCopyOnCapture ? "Đang bật" : "Đang tắt"} — chép ảnh/video/audio sau khi chụp/quay/ghi xong, bấm để đổi
+                {autoCopyOnCapture ? "Đang bật" : "Đang tắt"} — chép ảnh/video/audio
+                sau khi chụp/quay/ghi xong, bấm để đổi
               </div>
             </span>
           </button>
@@ -741,7 +931,8 @@
             <span class="flex-1">
               <div class="text-[12.5px] font-semibold">Đọc to câu trả lời</div>
               <div class="text-[10.5px] text-text-muted">
-                {autoSpeakAudioAnswers ? "Đang bật" : "Đang tắt"} — tự đọc khi hỏi về đoạn ghi âm, bấm để đổi
+                {autoSpeakAudioAnswers ? "Đang bật" : "Đang tắt"} — tự đọc khi hỏi
+                về đoạn ghi âm, bấm để đổi
               </div>
             </span>
           </button>
@@ -774,7 +965,9 @@
           <Icon
             name="chevronDown"
             size={12}
-            class="text-text-muted transition-transform duration-150 {showAccountMenu ? 'rotate-180' : ''}"
+            class="text-text-muted transition-transform duration-150 {showAccountMenu
+              ? 'rotate-180'
+              : ''}"
           />
         </button>
 
@@ -791,10 +984,17 @@
           vẽ đè lên trên, che mất menu này dù về mặt UX nó phải là popover nổi
           trên cùng (bug thực tế đã gặp: mở menu tài khoản bị thanh toggle
           che mất nửa dưới). -->
-          <div class="absolute right-0 top-full mt-2 w-56 card p-1.5 z-40" transition:fade={{ duration: 120 }}>
+          <div
+            class="absolute right-0 top-full mt-2 w-56 card p-1.5 z-40"
+            transition:fade={{ duration: 120 }}
+          >
             <div class="px-2.5 py-2">
-              <div class="text-[12px] font-semibold truncate">{loginStatus.email}</div>
-              <div class="text-[10.5px] text-text-muted">Đã đăng nhập bằng Google</div>
+              <div class="text-[12px] font-semibold truncate">
+                {loginStatus.email}
+              </div>
+              <div class="text-[10.5px] text-text-muted">
+                Đã đăng nhập bằng Google
+              </div>
             </div>
             <div class="h-px bg-border my-0.5"></div>
             <button
@@ -827,6 +1027,45 @@
   đổi PHẦN HIỂN THỊ phím tắt bên dưới — không tắt phím tắt còn lại (cả 2 vẫn
   hoạt động song song lúc dùng thật). -->
   <div class="relative z-20 flex justify-center">
+    {#if loginStatus}
+      <!-- 2 lối vào phụ KHÔNG cần chụp/quay trước — chỉ icon (gọn), rê chuột
+      mới hiện tên (tooltip hiện PHÍA DƯỚI: phía trên là header, z-index cao
+      hơn sẽ che mất). Góc trái, tách hẳn khỏi thanh chọn chế độ ở giữa vì
+      không phải "chế độ chụp". -->
+      <div
+        class="absolute left-4 top-0 flex items-center rounded-full p-0.5 shadow-md"
+        style="background: var(--color-card); border: 1px solid var(--color-border);"
+      >
+        <button
+          onclick={handleOpenTextChat}
+          disabled={textChatBusy}
+          data-tooltip="Hỏi AI"
+          data-tooltip-pos="bottom-start"
+          aria-label="Hỏi AI bằng chữ"
+          class="w-9 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-text transition-colors disabled:opacity-50"
+        >
+          <Icon
+            name={textChatBusy ? "loader" : "sparkles"}
+            size={15}
+            class={textChatBusy ? "animate-spin" : ""}
+          />
+        </button>
+        <button
+          onclick={handleOpenLive}
+          disabled={liveBusy}
+          data-tooltip="Trò chuyện bằng giọng nói"
+          data-tooltip-pos="bottom-start"
+          aria-label="Trò chuyện bằng giọng nói"
+          class="w-9 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-text transition-colors disabled:opacity-50"
+        >
+          <Icon
+            name={liveBusy ? "loader" : "phone"}
+            size={15}
+            class={liveBusy ? "animate-spin" : ""}
+          />
+        </button>
+      </div>
+    {/if}
     <div
       class="flex items-center rounded-full p-0.5 shadow-md"
       style="background: var(--color-card); border: 1px solid var(--color-border);"
@@ -858,7 +1097,10 @@
     nhập mới dùng được AI (không còn đường lùi "tự nhập API key" nữa). Giữ
     khối phím tắt gọn bên dưới, không cần chờ đăng nhập mới đổi được. -->
     <ScrollArea class="flex-1" contentClass="p-5 flex flex-col gap-4">
-      <div class="card p-5 flex flex-col items-center text-center gap-3" transition:fade={{ duration: 160 }}>
+      <div
+        class="card p-5 flex flex-col items-center text-center gap-3"
+        transition:fade={{ duration: 160 }}
+      >
         <div
           class="w-12 h-12 rounded-2xl flex items-center justify-center text-accent-text"
           style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
@@ -867,7 +1109,9 @@
         </div>
         <div>
           <h2 class="text-[14px] font-bold">Đăng nhập để bắt đầu</h2>
-          <p class="text-[12px] text-text-muted leading-relaxed mt-1 max-w-[280px]">
+          <p
+            class="text-[12px] text-text-muted leading-relaxed mt-1 max-w-[280px]"
+          >
             Đăng nhập bằng tài khoản Google để dùng AI ngay!
           </p>
         </div>
@@ -883,13 +1127,18 @@
           {/if}
         </button>
         {#if loginError}
-          <p class="text-[11.5px] text-[color:var(--color-danger)] selectable leading-relaxed">{loginError}</p>
+          <p
+            class="text-[11.5px] text-[color:var(--color-danger)] selectable leading-relaxed"
+          >
+            {loginError}
+          </p>
         {/if}
       </div>
 
       {#if captureMode === "snip"}
         <button
-          onclick={() => (capturingHotkey ? stopHotkeyCapture() : startHotkeyCapture())}
+          onclick={() =>
+            capturingHotkey ? stopHotkeyCapture() : startHotkeyCapture()}
           disabled={hotkeyBusy}
           class="btn-ghost self-center px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
         >
@@ -902,13 +1151,19 @@
           {/if}
         </button>
         {#if hotkeyError}
-          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center" transition:fade={{ duration: 140 }}>
+          <p
+            class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center"
+            transition:fade={{ duration: 140 }}
+          >
             {hotkeyError}
           </p>
         {/if}
       {:else if captureMode === "audio"}
         <button
-          onclick={() => (capturingAudioHotkey ? stopAudioHotkeyCapture() : startAudioHotkeyCapture())}
+          onclick={() =>
+            capturingAudioHotkey
+              ? stopAudioHotkeyCapture()
+              : startAudioHotkeyCapture()}
           disabled={audioHotkeyBusy}
           class="btn-ghost self-center px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
         >
@@ -921,13 +1176,19 @@
           {/if}
         </button>
         {#if audioHotkeyError}
-          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center" transition:fade={{ duration: 140 }}>
+          <p
+            class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center"
+            transition:fade={{ duration: 140 }}
+          >
             {audioHotkeyError}
           </p>
         {/if}
       {:else}
         <button
-          onclick={() => (capturingVideoHotkey ? stopVideoHotkeyCapture() : startVideoHotkeyCapture())}
+          onclick={() =>
+            capturingVideoHotkey
+              ? stopVideoHotkeyCapture()
+              : startVideoHotkeyCapture()}
           disabled={videoHotkeyBusy}
           class="btn-ghost self-center px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
         >
@@ -940,7 +1201,10 @@
           {/if}
         </button>
         {#if videoHotkeyError}
-          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center" transition:fade={{ duration: 140 }}>
+          <p
+            class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed text-center"
+            transition:fade={{ duration: 140 }}
+          >
             {videoHotkeyError}
           </p>
         {/if}
@@ -951,7 +1215,10 @@
     dễ bấm ở giữa (cho người không nhớ/không quen phím tắt), kèm 1 dòng chú
     thích phím tắt tương ứng ngay bên dưới. Toggle Ảnh/Video nằm ở header
     (gắn trên đường viền), không phải ở đây. -->
-    <div class="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center" transition:fade={{ duration: 160 }}>
+    <div
+      class="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center"
+      transition:fade={{ duration: 160 }}
+    >
       <button
         onclick={handleNewAction}
         disabled={newActionBusy}
@@ -964,25 +1231,34 @@
           <!-- Dấu cộng đặt trong đĩa tròn mờ: vừa ghim nó thẳng hàng với chữ
           (icon SVG cân giữa sẵn, khác ký tự "+" lệch baseline trước đây), vừa
           tạo điểm nhấn thị giác cho nút hành động chính. -->
-          <span class="grid place-items-center w-5 h-5 rounded-full bg-[color:var(--color-accent-text)]/15">
+          <span
+            class="grid place-items-center w-5 h-5 rounded-full bg-[color:var(--color-accent-text)]/15"
+          >
             <Icon name="plus" size={13} strokeWidth={2.75} />
           </span>
           New
         {/if}
       </button>
       {#if newActionError}
-        <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed">{newActionError}</p>
+        <p
+          class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed"
+        >
+          {newActionError}
+        </p>
       {/if}
 
       {#if captureMode === "snip"}
         <p class="text-[13.5px] text-text-muted leading-relaxed">
           {#if capturingHotkey}
-            <span class="text-accent font-medium animate-pulse">Nhấn tổ hợp phím mới…</span>
+            <span class="text-accent font-medium animate-pulse"
+              >Nhấn tổ hợp phím mới…</span
+            >
           {:else}
             Nhấn
             {#each hotkeyParts as part, i (i)}
               {#if i > 0}<span class="mx-1 text-text-muted">+</span>{/if}
-              <kbd class="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-[12px] text-text font-mono align-middle"
+              <kbd
+                class="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-[12px] text-text font-mono align-middle"
                 >{part}</kbd
               >
             {/each}
@@ -990,7 +1266,8 @@
           {/if}
         </p>
         <button
-          onclick={() => (capturingHotkey ? stopHotkeyCapture() : startHotkeyCapture())}
+          onclick={() =>
+            capturingHotkey ? stopHotkeyCapture() : startHotkeyCapture()}
           disabled={hotkeyBusy}
           class="btn-ghost px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
         >
@@ -1001,19 +1278,25 @@
           {/if}
         </button>
         {#if hotkeyError}
-          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed" transition:fade={{ duration: 140 }}>
+          <p
+            class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed"
+            transition:fade={{ duration: 140 }}
+          >
             {hotkeyError}
           </p>
         {/if}
       {:else if captureMode === "audio"}
         <p class="text-[13.5px] text-text-muted leading-relaxed">
           {#if capturingAudioHotkey}
-            <span class="text-accent font-medium animate-pulse">Nhấn tổ hợp phím mới…</span>
+            <span class="text-accent font-medium animate-pulse"
+              >Nhấn tổ hợp phím mới…</span
+            >
           {:else}
             Nhấn
             {#each audioHotkeyParts as part, i (i)}
               {#if i > 0}<span class="mx-1 text-text-muted">+</span>{/if}
-              <kbd class="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-[12px] text-text font-mono align-middle"
+              <kbd
+                class="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-[12px] text-text font-mono align-middle"
                 >{part}</kbd
               >
             {/each}
@@ -1021,7 +1304,10 @@
           {/if}
         </p>
         <button
-          onclick={() => (capturingAudioHotkey ? stopAudioHotkeyCapture() : startAudioHotkeyCapture())}
+          onclick={() =>
+            capturingAudioHotkey
+              ? stopAudioHotkeyCapture()
+              : startAudioHotkeyCapture()}
           disabled={audioHotkeyBusy}
           class="btn-ghost px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
         >
@@ -1032,7 +1318,10 @@
           {/if}
         </button>
         {#if audioHotkeyError}
-          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed" transition:fade={{ duration: 140 }}>
+          <p
+            class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed"
+            transition:fade={{ duration: 140 }}
+          >
             {audioHotkeyError}
           </p>
         {/if}
@@ -1040,12 +1329,15 @@
       {:else}
         <p class="text-[13.5px] text-text-muted leading-relaxed">
           {#if capturingVideoHotkey}
-            <span class="text-accent font-medium animate-pulse">Nhấn tổ hợp phím mới…</span>
+            <span class="text-accent font-medium animate-pulse"
+              >Nhấn tổ hợp phím mới…</span
+            >
           {:else}
             Nhấn
             {#each videoHotkeyParts as part, i (i)}
               {#if i > 0}<span class="mx-1 text-text-muted">+</span>{/if}
-              <kbd class="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-[12px] text-text font-mono align-middle"
+              <kbd
+                class="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-[12px] text-text font-mono align-middle"
                 >{part}</kbd
               >
             {/each}
@@ -1053,7 +1345,10 @@
           {/if}
         </p>
         <button
-          onclick={() => (capturingVideoHotkey ? stopVideoHotkeyCapture() : startVideoHotkeyCapture())}
+          onclick={() =>
+            capturingVideoHotkey
+              ? stopVideoHotkeyCapture()
+              : startVideoHotkeyCapture()}
           disabled={videoHotkeyBusy}
           class="btn-ghost px-3 py-1.5 rounded-lg text-[11.5px] font-medium flex items-center gap-1.5"
         >
@@ -1064,17 +1359,26 @@
           {/if}
         </button>
         {#if videoHotkeyError}
-          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed" transition:fade={{ duration: 140 }}>
+          <p
+            class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed"
+            transition:fade={{ duration: 140 }}
+          >
             {videoHotkeyError}
           </p>
         {/if}
         <div class="flex items-center gap-2 mt-1">
-          <span class="text-[11.5px] font-medium text-text-muted">Tiếng trong video</span>
-          <div class="flex rounded-lg p-0.5 gap-0.5" style="background: var(--color-bg-elevated); border: 1px solid var(--color-border);">
+          <span class="text-[11.5px] font-medium text-text-muted"
+            >Tiếng trong video</span
+          >
+          <div
+            class="flex rounded-lg p-0.5 gap-0.5"
+            style="background: var(--color-bg-elevated); border: 1px solid var(--color-border);"
+          >
             {#each VIDEO_AUDIO_OPTIONS as opt (opt.value)}
               <button
                 onclick={() => chooseVideoAudio(opt.value)}
-                class="px-2 py-1 rounded-md text-[11px] font-medium transition-colors {videoAudio === opt.value
+                class="px-2 py-1 rounded-md text-[11px] font-medium transition-colors {videoAudio ===
+                opt.value
                   ? 'btn-accent'
                   : 'text-text-muted hover:text-text'}"
               >
@@ -1087,35 +1391,6 @@
           {@render audioPermissions(false)}
         {/if}
       {/if}
-
-      <!-- Điểm khởi đầu THỨ 2 — hỏi thẳng bằng chữ, không cần chụp/quay gì
-      trước (xem open_text_chat_window trong commands.rs). Đặt DƯỚI nút
-      "+ New" chính — snip/quay vẫn là hành động chính của app, đây chỉ là 1
-      lối vào phụ cho câu hỏi không liên quan tới màn hình. -->
-      <button
-        onclick={handleOpenTextChat}
-        disabled={textChatBusy}
-        class="btn-ghost mt-1 px-3 py-1.5 rounded-lg text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-50"
-      >
-        {#if textChatBusy}
-          <Icon name="loader" size={12} class="animate-spin" />
-        {:else}
-          <Icon name="sparkles" size={12} />
-        {/if}
-        Hỏi AI trực tiếp — không cần chụp/quay
-      </button>
-      <button
-        onclick={handleOpenLive}
-        disabled={liveBusy}
-        class="btn-ghost px-3 py-1.5 rounded-lg text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-50"
-      >
-        {#if liveBusy}
-          <Icon name="loader" size={12} class="animate-spin" />
-        {:else}
-          <Icon name="phone" size={12} />
-        {/if}
-        Trò chuyện bằng giọng nói
-      </button>
     </div>
   {/if}
 
@@ -1145,7 +1420,10 @@
     >
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <div class="card w-full max-w-[340px] p-5 flex flex-col gap-4 relative" onclick={(e) => e.stopPropagation()}>
+      <div
+        class="card w-full max-w-[340px] p-5 flex flex-col gap-4 relative"
+        onclick={(e) => e.stopPropagation()}
+      >
         <button
           onclick={handleSurveyDismiss}
           class="absolute top-3 right-3 btn-ghost p-1.5 rounded-lg"
@@ -1156,7 +1434,9 @@
 
         <div class="text-center">
           <h2 class="text-[14.5px] font-bold">Bạn thấy Snap AI thế nào?</h2>
-          <p class="text-[11.5px] text-text-muted mt-1">Vài giây góp ý giúp app tốt hơn</p>
+          <p class="text-[11.5px] text-text-muted mt-1">
+            Vài giây góp ý giúp app tốt hơn
+          </p>
         </div>
 
         <div class="flex justify-center gap-3">
@@ -1165,13 +1445,18 @@
               type="button"
               onclick={() => (surveyRating = opt.v as SurveyRating)}
               title={opt.label}
-              class="flex flex-col items-center gap-1 p-2 rounded-xl border transition-colors {surveyRating === opt.v
+              class="flex flex-col items-center gap-1 p-2 rounded-xl border transition-colors {surveyRating ===
+              opt.v
                 ? 'border-accent text-accent'
                 : 'border-border text-text-muted hover:text-text hover:border-[color:var(--color-text)]/30'}"
-              style={surveyRating === opt.v ? "background: color-mix(in srgb, var(--color-accent) 12%, transparent);" : ""}
+              style={surveyRating === opt.v
+                ? "background: color-mix(in srgb, var(--color-accent) 12%, transparent);"
+                : ""}
             >
               <Icon name={opt.icon} size={26} strokeWidth={1.7} />
-              <span class="text-[9.5px] font-medium leading-none">{opt.label}</span>
+              <span class="text-[9.5px] font-medium leading-none"
+                >{opt.label}</span
+              >
             </button>
           {/each}
         </div>
@@ -1184,7 +1469,11 @@
         ></textarea>
 
         {#if surveyError}
-          <p class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed">{surveyError}</p>
+          <p
+            class="text-[11px] text-[color:var(--color-danger)] selectable leading-relaxed"
+          >
+            {surveyError}
+          </p>
         {/if}
 
         <div class="flex gap-2">
