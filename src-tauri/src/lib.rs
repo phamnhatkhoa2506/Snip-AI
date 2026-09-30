@@ -9,6 +9,7 @@ mod export;
 mod file_api;
 mod history;
 mod hotkey;
+mod live;
 mod oauth;
 mod record;
 mod secrets;
@@ -59,6 +60,10 @@ pub fn run() {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     let _ = window.hide();
+                }
+            } else if window.label() == live::LIVE_LABEL {
+                if let WindowEvent::Destroyed = event {
+                    live::on_window_destroyed(window.app_handle());
                 }
             } else if window.label() == audio_snap::AUDIO_TOOLBAR_LABEL {
                 if let WindowEvent::Destroyed = event {
@@ -116,6 +121,11 @@ pub fn run() {
             audio_snap::open_mic_privacy_settings,
             commands::show_settings_window,
             tts::speak_text,
+            live::open_live_window,
+            live::live_start,
+            live::live_stop,
+            live::live_set_muted,
+            live::live_set_headphones,
             commands::trigger_recording_from_ui,
             commands::start_region_recording,
             commands::cancel_recording,

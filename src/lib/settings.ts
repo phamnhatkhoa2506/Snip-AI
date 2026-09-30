@@ -43,6 +43,11 @@ export interface Settings {
   /** Ghi kèm tiếng khi QUAY VIDEO — TẮT mặc định (video cũ vốn không có
    * tiếng, bật lên file nặng hơn chút và cần quyền micro/âm thanh máy). */
   videoAudio: VideoAudioChoice;
+  /** Trò chuyện trực tiếp: đang đeo TAI NGHE -> gửi thẳng tiếng micro kể cả
+   * lúc AI đang nói (nói chen ngang được). Dùng loa ngoài (mặc định) thì
+   * lúc AI nói app gửi im lặng thay cho micro, tránh AI nghe lại chính giọng
+   * mình qua loa rồi tự ngắt lời (xem live.rs). */
+  liveHeadphones: boolean;
 }
 
 export type AudioSnapSource = "mic" | "system" | "both";
@@ -79,6 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
   audioSnapSource: "mic",
   autoSpeakAudioAnswers: true,
   videoAudio: "none",
+  liveHeadphones: false,
 };
 
 /** Danh sách nguồn thật sẽ thu cho 1 lựa chọn — CHỈ gồm những nguồn đã được

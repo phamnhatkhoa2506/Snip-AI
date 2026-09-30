@@ -35,6 +35,8 @@ export interface Env {
   // Model đọc câu trả lời thành giọng nói (POST /v1/gemini/tts) — xem
   // wrangler.toml. Optional, có default trong code.
   GEMINI_TTS_MODEL?: string;
+  // Model trò chuyện trực tiếp bằng giọng nói (GET /v1/gemini/live, WebSocket).
+  GEMINI_LIVE_MODEL?: string;
 
   // OAuth Client ID/Secret lấy từ Google Cloud Console (loại "Desktop app").
   // Client ID KHÔNG bí mật (nhúng thẳng vào app), Client Secret PHẢI giữ bí
@@ -279,6 +281,36 @@ export default {
       return new Response(resp.body, {
         status: resp.status,
         headers: { "content-type": resp.headers.get("content-type") ?? "application/json" },
+      });
+    }
+
+    // Trò chuyện trực tiếp bằng giọng nói — nâng cấp WebSocket rồi giao hẳn
+    // cho 1 Durable Object RIÊNG của phiên này (tên ngẫu nhiên), vẫn ghim
+    // "wnam". Không dùng chung object "gemini" như các lệnh khác: 1 phiên giữ
+    // kết nối tới 10 phút, dồn mọi phiên vào 1 object (chạy đơn luồng) sẽ làm
+    // chậm tất cả.
+    if (url.pathname === "/v1/gemini/live") {
+      if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+        return json({ error: "Endpoint này chỉ nhận WebSocket" }, 426);
+      }
+      const user = await authenticate(request, env);
+      if (!user) return unauthorized();
+
+      let keys: string[];
+      try {
+        keys = JSON.parse(env.GEMINI_API_KEYS);
+        if (!Array.isArray(keys) || keys.length === 0) throw new Error("empty");
+      } catch {
+        return json({ error: "Backend chưa cấu hình đúng GEMINI_API_KEYS (phải là JSON array khác rỗng)" }, 500);
+      }
+
+      const proxy = env.GEMINI_PROXY.getByName(`live-${crypto.randomUUID()}`, { locationHint: "wnam" });
+      return proxy.fetch("https://gemini-proxy.internal/live", {
+        headers: {
+          Upgrade: "websocket",
+          "x-gemini-keys": JSON.stringify(keys),
+          "x-gemini-model": env.GEMINI_LIVE_MODEL || "gemini-3.8-live",
+        },
       });
     }
 

@@ -141,6 +141,9 @@ pub struct AppState {
     /// thể mất vài giây) — thanh công cụ hỏi lại lúc mount phòng trường hợp
     /// sự kiện "recording:started" bắn ra trước khi nó kịp lắng nghe.
     pub recording_live: AtomicBool,
+
+    /// Phiên trò chuyện trực tiếp đang chạy, nếu có — xem live.rs.
+    pub live: Mutex<Option<crate::live::LiveSession>>,
 }
 
 /// Trần số lượng media (ảnh HOẶC video) cho phép gom vào CÙNG 1 chuỗi/phiên —

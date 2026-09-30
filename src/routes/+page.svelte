@@ -243,6 +243,20 @@
   /** Điểm khởi đầu THỨ 2 (xem open_text_chat_window trong commands.rs) — hỏi
    * thẳng bằng chữ, không chụp/quay gì trước. Mở luôn được nhiều cửa sổ song
    * song, giống nút "+ New" chính — không phải singleton như Lịch sử. */
+  let liveBusy = $state(false);
+  /** Trò chuyện trực tiếp bằng giọng nói (Gemini Live, xem live.rs) — 1 cửa
+   * sổ duy nhất, mở lại thì đưa cửa sổ cũ lên trước. */
+  async function handleOpenLive() {
+    liveBusy = true;
+    try {
+      await invoke("open_live_window");
+    } catch (e) {
+      flash("err", String(e));
+    } finally {
+      liveBusy = false;
+    }
+  }
+
   let textChatBusy = $state(false);
   async function handleOpenTextChat() {
     textChatBusy = true;
@@ -1089,6 +1103,18 @@
           <Icon name="sparkles" size={12} />
         {/if}
         Hỏi AI trực tiếp — không cần chụp/quay
+      </button>
+      <button
+        onclick={handleOpenLive}
+        disabled={liveBusy}
+        class="btn-ghost px-3 py-1.5 rounded-lg text-[12px] font-medium flex items-center gap-1.5 disabled:opacity-50"
+      >
+        {#if liveBusy}
+          <Icon name="loader" size={12} class="animate-spin" />
+        {:else}
+          <Icon name="phone" size={12} />
+        {/if}
+        Trò chuyện bằng giọng nói
       </button>
     </div>
   {/if}

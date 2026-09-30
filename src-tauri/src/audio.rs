@@ -498,6 +498,23 @@ mod tests {
         assert!(got.iter().all(|&s| s == 0));
     }
 
+    /// Mở THẬT loa mặc định, phát 0.4s âm nhỏ 24kHz (đúng định dạng Live API
+    /// trả về) — kiểm tra hàng đợi phát, trạng thái "đang phát" và `clear()`.
+    #[test]
+    #[ignore]
+    fn real_playback_drains_and_clears() {
+        let playback = Playback::start().expect("không mở được loa");
+        let tone: Vec<i16> = (0..9_600).map(|i| ((i as f32 * 0.05).sin() * 1500.0) as i16).collect();
+        playback.push_pcm16(&tone, 24_000);
+        assert!(playback.is_active(Duration::ZERO), "vừa đẩy tiếng vào mà không thấy đang phát");
+        std::thread::sleep(Duration::from_millis(900));
+        assert!(!playback.is_active(Duration::ZERO), "phát 0.4s mà sau 0.9s vẫn chưa hết");
+        assert!(playback.is_active(Duration::from_secs(5)), "đuôi tiếng vọng phải tính từ lúc vừa phát xong");
+        playback.push_pcm16(&tone, 24_000);
+        playback.clear();
+        assert!(!playback.is_active(Duration::ZERO), "clear() phải bỏ ngay phần chưa phát");
+    }
+
     /// Mở THẬT micro + loopback trên máy đang chạy test — `cargo test -- --ignored`.
     #[test]
     #[ignore]

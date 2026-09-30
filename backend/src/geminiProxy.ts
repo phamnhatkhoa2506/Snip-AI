@@ -166,6 +166,34 @@ async function synthesizeSpeechWithFailover(
   return lastResp!;
 }
 
+/** Thời lượng tối đa 1 phiên trò chuyện trực tiếp — vừa kiểm soát quota
+ * free-tier dùng chung, vừa kiểm soát thời gian Durable Object bị giữ sống
+ * (tính phí theo GB-giây). */
+const LIVE_MAX_SESSION_MS = 10 * 60 * 1000;
+
+/** Mở WebSocket tới Gemini Live API, thử lần lượt các key — chuyển key khác
+ * khi Google không nhận nâng cấp WebSocket (429/5xx hoặc lỗi bắt tay). */
+async function connectUpstreamLive(keys: string[]): Promise<{ ws: WebSocket } | { status: number }> {
+  let lastStatus = 0;
+  for (const key of shuffle(keys)) {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(key)}`,
+      { headers: { Upgrade: "websocket" } },
+    );
+    if (resp.webSocket) return { ws: resp.webSocket };
+    lastStatus = resp.status;
+    if (resp.status !== 429 && resp.status < 500) break;
+  }
+  return { status: lastStatus };
+}
+
+/** Mã đóng hợp lệ để GỬI đi (1005/1006/1015 chỉ được nhận, không được gửi). */
+function sendableCloseCode(code: number): number {
+  return code === 1000 || (code >= 3000 && code <= 4999) || (code >= 1001 && code <= 1014 && code !== 1005 && code !== 1006)
+    ? code
+    : 1011;
+}
+
 export class GeminiProxy implements DurableObject {
   // Không cần constructor lưu `state`/`env` — object này KHÔNG đọc/ghi
   // storage gì cả, chỉ tồn tại để ghim vị trí chạy (xem giải thích ở đầu
@@ -222,6 +250,87 @@ export class GeminiProxy implements DurableObject {
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    }
+
+    // Trò chuyện trực tiếp (Gemini Live API, WebSocket 2 chiều) — mỗi phiên
+    // 1 object riêng (index.ts đặt tên ngẫu nhiên) nhưng vẫn ghim "wnam",
+    // cùng lý do chặn vùng như lệnh gọi thường. Object này chỉ chuyển tiếp
+    // nguyên văn từng tin nhắn giữa app và Google, trừ tin nhắn `setup` đầu
+    // tiên: ÉP model do server chọn + bỏ `tools` (client không được tự bật
+    // công cụ tốn quota/ngoài phạm vi app).
+    if (url.pathname === "/live") {
+      if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+        return new Response("Cần nâng cấp WebSocket", { status: 426 });
+      }
+      const liveModel = request.headers.get("x-gemini-model") ?? "";
+      if (!liveModel || keys.length === 0) {
+        return new Response(JSON.stringify({ error: "GeminiProxy live: thiếu model hoặc keys" }), { status: 500 });
+      }
+      const upstreamResult = await connectUpstreamLive(keys);
+      if (!("ws" in upstreamResult)) {
+        return new Response(JSON.stringify({ error: `Không kết nối được Gemini Live (HTTP ${upstreamResult.status})` }), {
+          status: 502,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const upstream = upstreamResult.ws;
+      upstream.accept();
+
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      server.accept();
+
+      let setupSeen = false;
+      let closed = false;
+      const closeBoth = (code: number, reason: string) => {
+        if (closed) return;
+        closed = true;
+        const c = sendableCloseCode(code);
+        const r = reason.slice(0, 120);
+        try {
+          server.close(c, r);
+        } catch {}
+        try {
+          upstream.close(c, r);
+        } catch {}
+      };
+
+      server.addEventListener("message", (ev) => {
+        let data = ev.data;
+        if (!setupSeen) {
+          // Tin nhắn ĐẦU TIÊN bắt buộc là `setup` — không phải thì đóng luôn.
+          try {
+            const msg = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data as ArrayBuffer));
+            if (!msg?.setup) throw new Error("no setup");
+            msg.setup.model = `models/${liveModel}`;
+            delete msg.setup.tools;
+            data = JSON.stringify(msg);
+            setupSeen = true;
+          } catch {
+            closeBoth(1008, "Tin nhắn đầu tiên phải là setup");
+            return;
+          }
+        }
+        try {
+          upstream.send(data);
+        } catch {
+          closeBoth(1011, "Mất kết nối tới Gemini");
+        }
+      });
+      upstream.addEventListener("message", (ev) => {
+        try {
+          server.send(ev.data);
+        } catch {
+          closeBoth(1011, "Mất kết nối tới app");
+        }
+      });
+      server.addEventListener("close", () => closeBoth(1000, "App đã đóng phiên"));
+      upstream.addEventListener("close", (ev) => closeBoth(ev.code, ev.reason || "Gemini đã đóng phiên"));
+      server.addEventListener("error", () => closeBoth(1011, "Lỗi kết nối phía app"));
+      upstream.addEventListener("error", () => closeBoth(1011, "Lỗi kết nối phía Gemini"));
+      setTimeout(() => closeBoth(4000, "Hết thời lượng phiên (10 phút)"), LIVE_MAX_SESSION_MS);
+
+      return new Response(null, { status: 101, webSocket: client });
     }
 
     if (url.pathname === "/tts") {
