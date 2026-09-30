@@ -37,12 +37,20 @@ pub struct HistoryTurn {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct HistoryItem {
     pub id: String,
-    /// "image" | "video"
+    /// "image" | "video" | "audio" | "chat" (hỏi bằng chữ, không media) |
+    /// "live" (cuộc gọi giọng nói trực tiếp — chỉ xem lại, không tiếp tục được)
     pub kind: String,
     pub created_at: u64,
+    /// RỖNG với "chat"/"live" (không có media) — mọi chỗ đụng tới file phải
+    /// qua `media_len`/`remove_media`, không thì `dir.join("")` trỏ vào chính
+    /// thư mục `media/` (metadata trả kích thước thư mục, remove_file lỗi).
     pub media_file: String,
     pub model: String,
     pub turns: Vec<HistoryTurn>,
+    /// Thời lượng cuộc gọi live (giây); 0 với loại khác. `default` để đọc
+    /// được index.json của bản cũ chưa có field này.
+    #[serde(default)]
+    pub duration_secs: u64,
 }
 
 #[derive(Serialize)]
@@ -57,6 +65,8 @@ pub struct HistoryListEntry {
     pub turn_count: usize,
     #[serde(rename = "mediaMissing")]
     pub media_missing: bool,
+    #[serde(rename = "durationSecs")]
+    pub duration_secs: u64,
 }
 
 #[derive(Serialize)]
@@ -73,6 +83,8 @@ pub struct HistoryItemFull {
     pub media_mime: String,
     #[serde(rename = "mediaMissing")]
     pub media_missing: bool,
+    #[serde(rename = "durationSecs")]
+    pub duration_secs: u64,
 }
 
 // ── Đường dẫn trên đĩa ───────────────────────────────────────────────────
@@ -95,6 +107,21 @@ fn media_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn index_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(history_root(app)?.join("index.json"))
+}
+
+/// Kích thước file media của 1 mục — 0 nếu mục không có media (tên rỗng) hoặc
+/// file đã mất.
+fn media_len(dir: &std::path::Path, media_file: &str) -> u64 {
+    if media_file.is_empty() {
+        return 0;
+    }
+    fs::metadata(dir.join(media_file)).map(|m| m.len()).unwrap_or(0)
+}
+
+fn remove_media(dir: &std::path::Path, media_file: &str) {
+    if !media_file.is_empty() {
+        let _ = fs::remove_file(dir.join(media_file));
+    }
 }
 
 fn now_ms() -> u64 {
@@ -162,7 +189,7 @@ fn prune(app: &AppHandle, items: &mut Vec<HistoryItem>) {
     items.retain(|it| {
         let expired = now.saturating_sub(it.created_at) > max_age_ms;
         if expired {
-            let _ = fs::remove_file(dir.join(&it.media_file));
+            remove_media(&dir, &it.media_file);
         }
         !expired
     });
@@ -171,12 +198,11 @@ fn prune(app: &AppHandle, items: &mut Vec<HistoryItem>) {
     // dần ở trên) tới khi về dưới trần. File thiếu (đã mồ côi) tính là 0 byte
     // — không giúp gì việc hạ dung lượng nên vòng lặp tự bỏ qua, sẽ bị dọn ở
     // lượt "quá hạn dùng" của lần chạy sau khi đủ tuổi.
-    let mut total: u64 =
-        items.iter().map(|it| fs::metadata(dir.join(&it.media_file)).map(|m| m.len()).unwrap_or(0)).sum();
+    let mut total: u64 = items.iter().map(|it| media_len(&dir, &it.media_file)).sum();
     while total > MAX_TOTAL_BYTES && !items.is_empty() {
         let removed = items.remove(0);
-        let sz = fs::metadata(dir.join(&removed.media_file)).map(|m| m.len()).unwrap_or(0);
-        let _ = fs::remove_file(dir.join(&removed.media_file));
+        let sz = media_len(&dir, &removed.media_file);
+        remove_media(&dir, &removed.media_file);
         total = total.saturating_sub(sz);
     }
 }
@@ -236,25 +262,33 @@ pub fn history_save_turn(
     // (tính năng riêng, đơn giản hơn) chỉ lưu ẢNH/VIDEO MỚI NHẤT của chuỗi,
     // không lưu cả chuỗi. Xem lại đầy đủ chuỗi thì mở lại đúng cửa sổ "Kết
     // quả AI" đó trong lúc còn mở — Lịch sử chỉ là ảnh chụp nhanh lúc lưu.
-    let (bytes, kind, ext) = {
+    // Phiên "Hỏi AI" bằng chữ chưa có media nào -> lưu loại "chat", không kèm
+    // file (trước đây báo lỗi và không lưu gì cả).
+    let latest = {
         let sessions = state.media_sessions.lock().unwrap();
-        match sessions.get(&window_label).and_then(|list| list.last()) {
-            Some(m) => match m.kind {
-                MediaKind::Image => (m.bytes.clone(), "image", "png"),
-                MediaKind::Video => (m.bytes.clone(), "video", "mp4"),
-                MediaKind::Audio => (m.bytes.clone(), "audio", "wav"),
-            },
-            None => return Err("Không tìm thấy ảnh/video của phiên này để lưu lịch sử".into()),
+        sessions.get(&window_label).and_then(|list| list.last()).map(|m| (m.bytes.clone(), m.kind))
+    };
+    let id = crate::record::uuid_like();
+    let (kind, media_file) = match latest {
+        Some((bytes, media_kind)) => {
+            let (kind, ext) = match media_kind {
+                MediaKind::Image => ("image", "png"),
+                MediaKind::Video => ("video", "mp4"),
+                MediaKind::Audio => ("audio", "wav"),
+            };
+            let media_file = format!("{id}.{ext}");
+            let dir = media_dir(&app)?;
+            fs::create_dir_all(&dir).map_err(|e| format!("Không tạo được thư mục lưu ảnh/video: {e}"))?;
+            fs::write(dir.join(&media_file), &bytes).map_err(|e| format!("Không ghi được file lịch sử: {e}"))?;
+            (kind, media_file)
         }
+        None => ("chat", String::new()),
     };
 
-    let id = crate::record::uuid_like();
-    let media_file = format!("{id}.{ext}");
-    let dir = media_dir(&app)?;
-    fs::create_dir_all(&dir).map_err(|e| format!("Không tạo được thư mục lưu ảnh/video: {e}"))?;
-    fs::write(dir.join(&media_file), &bytes).map_err(|e| format!("Không ghi được file lịch sử: {e}"))?;
-
-    index.insert(0, HistoryItem { id: id.clone(), kind: kind.into(), created_at: now_ms(), media_file, model, turns });
+    index.insert(
+        0,
+        HistoryItem { id: id.clone(), kind: kind.into(), created_at: now_ms(), media_file, model, turns, duration_secs: 0 },
+    );
     state.history_ids.lock().unwrap().insert(window_label, id);
 
     prune(&app, &mut index);
@@ -282,7 +316,8 @@ pub fn history_list(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Hi
                 model: it.model.clone(),
                 preview,
                 turn_count: it.turns.len(),
-                media_missing: !dir.join(&it.media_file).exists(),
+                media_missing: !it.media_file.is_empty() && !dir.join(&it.media_file).exists(),
+                duration_secs: it.duration_secs,
             }
         })
         .collect())
@@ -298,9 +333,13 @@ pub fn history_get(app: AppHandle, state: State<'_, AppState>, id: String) -> Re
         "audio" => "audio/wav",
         _ => "image/png",
     };
-    let (media_b64, media_missing) = match fs::read(dir.join(&item.media_file)) {
-        Ok(bytes) => (Some(STANDARD.encode(bytes)), false),
-        Err(_) => (None, true),
+    let (media_b64, media_missing) = if item.media_file.is_empty() {
+        (None, false) // "chat"/"live": vốn không có media, không phải bị mất
+    } else {
+        match fs::read(dir.join(&item.media_file)) {
+            Ok(bytes) => (Some(STANDARD.encode(bytes)), false),
+            Err(_) => (None, true),
+        }
     };
     Ok(HistoryItemFull {
         id: item.id.clone(),
@@ -311,6 +350,7 @@ pub fn history_get(app: AppHandle, state: State<'_, AppState>, id: String) -> Re
         media_b64,
         media_mime: mime.into(),
         media_missing,
+        duration_secs: item.duration_secs,
     })
 }
 
@@ -323,7 +363,7 @@ pub fn history_delete(app: AppHandle, state: State<'_, AppState>, id: String) ->
     let mut index = state.history_index.lock().unwrap();
     if let Some(pos) = index.iter().position(|it| it.id == id) {
         let removed = index.remove(pos);
-        let _ = fs::remove_file(dir.join(&removed.media_file));
+        remove_media(&dir, &removed.media_file);
     }
     state.history_ids.lock().unwrap().retain(|_, v| *v != id);
     save_index_atomic(&app, &index)
@@ -375,9 +415,10 @@ pub async fn history_resume(app: AppHandle, state: State<'_, AppState>, id: Stri
         (item.kind.clone(), item.model.clone(), item.turns.clone(), item.media_file.clone())
     };
 
-    let dir = media_dir(&app)?;
-    let bytes = fs::read(dir.join(&media_file))
-        .map_err(|_| "Ảnh/video gốc của mục này đã bị xoá, không thể tiếp tục hội thoại".to_string())?;
+    if kind == "live" {
+        return Err("Cuộc gọi trực tiếp chỉ xem lại được, không tiếp tục được.".into());
+    }
+    let text_only = kind == "chat";
 
     let session_id = state.next_session_id.fetch_add(1, Ordering::Relaxed);
     let (prefix, media_kind) = match kind.as_str() {
@@ -386,11 +427,16 @@ pub async fn history_resume(app: AppHandle, state: State<'_, AppState>, id: Stri
         _ => (crate::commands::RESULT_LABEL_PREFIX, MediaKind::Image),
     };
     let window_label = format!("{prefix}{session_id}");
-    state
-        .media_sessions
-        .lock()
-        .unwrap()
-        .insert(window_label.clone(), vec![MediaItem { bytes, kind: media_kind }]);
+    if !text_only {
+        let dir = media_dir(&app)?;
+        let bytes = fs::read(dir.join(&media_file))
+            .map_err(|_| "Ảnh/video gốc của mục này đã bị xoá, không thể tiếp tục hội thoại".to_string())?;
+        state
+            .media_sessions
+            .lock()
+            .unwrap()
+            .insert(window_label.clone(), vec![MediaItem { bytes, kind: media_kind }]);
+    }
     // Ghim NGAY từ đầu -> lượt hỏi tiếp đầu tiên trong cửa sổ này (qua
     // history_save_turn) sẽ thấy "existing_id" và chỉ update turns, không tạo
     // bản ghi lịch sử mới trùng lặp.
@@ -414,7 +460,8 @@ pub async fn history_resume(app: AppHandle, state: State<'_, AppState>, id: Stri
     let pos_x = (mon_x as f64 + (mon_w as f64 - win_w) / 2.0).max(mon_x as f64);
     let pos_y = (mon_y as f64 + (mon_h as f64 - win_h) / 2.0).max(mon_y as f64);
 
-    let win = WebviewWindowBuilder::new(&app, &window_label, WebviewUrl::App("result".into()))
+    let url = if text_only { "result?mode=chat" } else { "result" };
+    let win = WebviewWindowBuilder::new(&app, &window_label, WebviewUrl::App(url.into()))
         .title("Kết quả AI")
         .decorations(true)
         .always_on_top(true)
@@ -429,6 +476,33 @@ pub async fn history_resume(app: AppHandle, state: State<'_, AppState>, id: Stri
     Ok(())
 }
 
+/// Lưu 1 cuộc gọi giọng nói trực tiếp (live.rs gọi khi phiên kết thúc) — chỉ
+/// gồm lời thoại 2 phía, không có media (âm thanh cuộc gọi không được ghi
+/// lại). Không có lượt nói nào thì không lưu (mở cửa sổ rồi tắt ngay).
+pub fn save_live_session(app: &AppHandle, model: &str, turns: Vec<HistoryTurn>, duration_secs: u64) {
+    if turns.is_empty() {
+        return;
+    }
+    let state = app.state::<AppState>();
+    let mut index = state.history_index.lock().unwrap();
+    index.insert(
+        0,
+        HistoryItem {
+            id: crate::record::uuid_like(),
+            kind: "live".into(),
+            created_at: now_ms(),
+            media_file: String::new(),
+            model: model.to_string(),
+            turns,
+            duration_secs,
+        },
+    );
+    prune(app, &mut index);
+    if let Err(e) = save_index_atomic(app, &index) {
+        eprintln!("[snip-ai][history] Không lưu được cuộc gọi live: {e}");
+    }
+}
+
 /// Xoá SẠCH toàn bộ lịch sử — nút "dọn nhanh" cho máy dùng chung (phòng máy
 /// trường học/văn phòng), không giấu trong Cài đặt.
 #[tauri::command]
@@ -436,9 +510,38 @@ pub fn history_clear_all(app: AppHandle, state: State<'_, AppState>) -> Result<(
     let dir = media_dir(&app)?;
     let mut index = state.history_index.lock().unwrap();
     for it in index.iter() {
-        let _ = fs::remove_file(dir.join(&it.media_file));
+        remove_media(&dir, &it.media_file);
     }
     index.clear();
     state.history_ids.lock().unwrap().clear();
     save_index_atomic(&app, &index)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_index_without_duration_still_loads() {
+        let old = r#"[{"id":"a","kind":"image","created_at":1,"media_file":"a.png","model":"m","turns":[]}]"#;
+        let items: Vec<HistoryItem> = serde_json::from_str(old).unwrap();
+        assert_eq!(items[0].duration_secs, 0);
+    }
+
+    /// Mục "chat"/"live" không có media: tên file rỗng KHÔNG được trỏ vào
+    /// chính thư mục media (kích thước thư mục sẽ bị tính vào dung lượng, và
+    /// remove_file trên thư mục lỗi).
+    #[test]
+    fn empty_media_file_is_ignored() {
+        let dir = std::env::temp_dir().join(format!("snap-ai-hist-test-{}", crate::record::uuid_like()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("keep.txt"), b"12345").unwrap();
+        assert_eq!(media_len(&dir, ""), 0);
+        assert_eq!(media_len(&dir, "keep.txt"), 5);
+        remove_media(&dir, "");
+        assert!(dir.join("keep.txt").exists() && dir.exists());
+        remove_media(&dir, "keep.txt");
+        assert!(!dir.join("keep.txt").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

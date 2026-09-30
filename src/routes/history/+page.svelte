@@ -42,6 +42,7 @@
     preview: string;
     turnCount: number;
     mediaMissing: boolean;
+    durationSecs: number;
   }
   interface ItemFull {
     id: string;
@@ -52,6 +53,17 @@
     mediaB64: string | null;
     mediaMime: string;
     mediaMissing: boolean;
+    durationSecs: number;
+  }
+
+  /** Icon theo loại mục: ảnh/video/audio, "chat" (hỏi bằng chữ), "live" (cuộc gọi). */
+  function kindIcon(kind: string): string {
+    return kind === "video" ? "video" : kind === "audio" ? "audioWave" : kind === "live" ? "phone" : kind === "chat" ? "sparkles" : "image";
+  }
+  function formatDuration(secs: number): string {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m > 0 ? `${m} phút ${s} giây` : `${s} giây`;
   }
 
   let items = $state<ListEntry[]>([]);
@@ -241,12 +253,13 @@
                 class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-accent-text mt-0.5"
                 style="background: linear-gradient(135deg, var(--color-accent), var(--color-accent-2));"
               >
-                <Icon name={it.kind === "video" ? "video" : it.kind === "audio" ? "audioWave" : "image"} size={13} />
+                <Icon name={kindIcon(it.kind)} size={13} />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-[12px] font-medium truncate leading-tight">{it.preview}</div>
                 <div class="text-[10.5px] text-text-muted mt-0.5 flex items-center gap-1">
-                  {formatRelative(it.createdAt)}
+                  {formatRelative(it.createdAt)}{#if it.kind === "live"}
+                    · Cuộc gọi{it.durationSecs ? ` ${formatDuration(it.durationSecs)}` : ""}{/if}
                   {#if it.mediaMissing}
                     <span class="text-[color:var(--color-danger)]">· mất ảnh/video gốc</span>
                   {/if}
@@ -285,7 +298,14 @@
         <div class="text-[12px] text-[color:var(--color-danger)]">{detailError}</div>
       {:else if detail}
         <div class="max-w-2xl mx-auto flex flex-col gap-4">
-          {#if !detail.mediaMissing}
+          {#if detail.kind === "live"}
+            <!-- Cuộc gọi trực tiếp chỉ lưu LỜI THOẠI (không ghi âm cuộc gọi),
+            là luồng âm thanh trực tiếp nên không "tiếp tục hội thoại" được. -->
+            <div class="flex items-center gap-2 text-[11.5px] text-text-muted">
+              <Icon name="phone" size={13} class="text-accent" />
+              Cuộc gọi bằng giọng nói{detail.durationSecs ? ` · ${formatDuration(detail.durationSecs)}` : ""} — chỉ lưu lời thoại
+            </div>
+          {:else if !detail.mediaMissing}
             <button
               onclick={() => detail && resumeConversation(detail.id)}
               disabled={resumingId === detail.id}

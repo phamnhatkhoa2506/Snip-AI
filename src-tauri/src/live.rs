@@ -29,6 +29,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::ai::{current_auth, GeminiAuth};
 use crate::audio::{self, AudioSource, CaptureOptions, Playback};
+use crate::history::HistoryTurn;
 use crate::state::AppState;
 
 pub const LIVE_LABEL: &str = "live";
@@ -58,6 +59,40 @@ pub struct LiveSession {
     commands: mpsc::UnboundedSender<LiveCommand>,
     muted: Arc<AtomicBool>,
     headphones: Arc<AtomicBool>,
+}
+
+/// Gom lời thoại (đến từng mẩu vài từ 1 lần) thành các lượt hội thoại để lưu
+/// vào Lịch sử: cùng vai liên tiếp thì nối vào 1 lượt, đổi vai / hết lượt /
+/// bị ngắt thì mở lượt mới.
+#[derive(Default)]
+struct TranscriptLog {
+    turns: Vec<HistoryTurn>,
+    open_role: Option<&'static str>,
+}
+
+impl TranscriptLog {
+    fn push(&mut self, role: &'static str, text: &str) {
+        match (self.open_role, self.turns.last_mut()) {
+            (Some(r), Some(last)) if r == role => last.content.push_str(text),
+            _ => {
+                self.turns.push(HistoryTurn { role: role.into(), content: text.trim_start().to_string(), display_label: None });
+                self.open_role = Some(role);
+            }
+        }
+    }
+
+    fn close_turn(&mut self) {
+        self.open_role = None;
+    }
+
+    /// Lượt rỗng/chỉ khoảng trắng (VD chỉ nhận được dấu câu) bị bỏ.
+    fn into_turns(mut self) -> Vec<HistoryTurn> {
+        for t in &mut self.turns {
+            t.content = t.content.trim().to_string();
+        }
+        self.turns.retain(|t| !t.content.is_empty());
+        self.turns
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -289,8 +324,11 @@ pub async fn live_start(app: AppHandle, headphones: bool, model: Option<String>,
     let _ = app.emit_to(LIVE_LABEL, "live:state", "listening");
 
     let loop_app = app.clone();
+    let history_model = model.clone();
     tauri::async_runtime::spawn(async move {
         let app = loop_app;
+        let started = std::time::Instant::now();
+        let mut log = TranscriptLog::default();
         let deadline = tokio::time::sleep(MAX_SESSION);
         tokio::pin!(deadline);
         let silence = vec![0i16; (INPUT_RATE * FRAME_MS / 1000) as usize];
@@ -324,6 +362,7 @@ pub async fn live_start(app: AppHandle, headphones: bool, model: Option<String>,
                         let Some(text) = message_text(&m) else { continue };
                         let ev = parse_server_message(&text);
                         if ev.interrupted {
+                            log.close_turn();
                             playback.clear();
                             let _ = app.emit_to(LIVE_LABEL, "live:interrupted", ());
                         }
@@ -335,12 +374,15 @@ pub async fn live_start(app: AppHandle, headphones: bool, model: Option<String>,
                             let _ = app.emit_to(LIVE_LABEL, "live:state", "speaking");
                         }
                         if let Some(t) = ev.user_text {
+                            log.push("user", &t);
                             let _ = app.emit_to(LIVE_LABEL, "live:transcript", TranscriptPayload { role: "user", text: t });
                         }
                         if let Some(t) = ev.model_text {
+                            log.push("assistant", &t);
                             let _ = app.emit_to(LIVE_LABEL, "live:transcript", TranscriptPayload { role: "model", text: t });
                         }
                         if ev.turn_complete {
+                            log.close_turn();
                             let _ = app.emit_to(LIVE_LABEL, "live:turn-complete", ());
                         }
                         if ev.go_away {
@@ -357,6 +399,8 @@ pub async fn live_start(app: AppHandle, headphones: bool, model: Option<String>,
         playback.clear();
         let _ = ws_tx.send(Message::Close(None)).await;
         *app.state::<AppState>().live.lock().unwrap() = None;
+        // Lưu cuộc gọi vào Lịch sử (chỉ lời thoại — không ghi âm lại cuộc gọi).
+        crate::history::save_live_session(&app, &history_model, log.into_turns(), started.elapsed().as_secs());
         let _ = app.emit_to(LIVE_LABEL, "live:ended", end_reason);
     });
 
@@ -558,6 +602,21 @@ mod tests {
             assert!(setup_ok);
             assert!(audio_samples > 12_000, "AI gần như không nói gì");
         });
+    }
+
+    #[test]
+    fn transcript_log_merges_chunks_by_role_and_turn() {
+        let mut log = TranscriptLog::default();
+        log.push("user", " xin");
+        log.push("user", " chào");
+        log.push("assistant", "Chào");
+        log.push("assistant", " bạn");
+        log.close_turn();
+        log.push("assistant", "Còn gì nữa"); // sau turnComplete -> lượt MỚI dù cùng vai
+        log.push("user", "  "); // chỉ khoảng trắng -> bị bỏ
+        let turns = log.into_turns();
+        let got: Vec<(&str, &str)> = turns.iter().map(|t| (t.role.as_str(), t.content.as_str())).collect();
+        assert_eq!(got, vec![("user", "xin chào"), ("assistant", "Chào bạn"), ("assistant", "Còn gì nữa")]);
     }
 
     #[test]
