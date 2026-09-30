@@ -72,6 +72,9 @@
     muted = false;
     try {
       await invoke("live_start", { headphones });
+      // live_start chỉ trả về khi phiên ĐÃ sẵn sàng — không phụ thuộc hoàn
+      // toàn vào sự kiện "live:state" để rời khỏi trạng thái đang kết nối.
+      if (phase === "connecting") phase = "listening";
     } catch (e) {
       const msg = String(e);
       windowsBlocked = msg.includes(MIC_PERMISSION_ERROR_PREFIX);
@@ -140,7 +143,14 @@
         phase = "ended";
         if (reason) notice = reason;
       }),
-    ]).then(start);
+    ])
+      .then(start)
+      .catch((e) => {
+        // VD cửa sổ chưa được cấp quyền nghe sự kiện (capabilities) — báo
+        // lỗi thay vì đứng mãi ở "Đang kết nối…" không nói gì.
+        error = `Không khởi tạo được cửa sổ trò chuyện: ${e}`;
+        phase = "ended";
+      });
 
     return () => {
       unlistens.forEach((fn) => fn());

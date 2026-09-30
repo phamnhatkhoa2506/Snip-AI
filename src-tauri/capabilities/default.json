@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability cho tất cả cửa sổ của app (main/settings, overlay, result, record-*)",
-  "windows": ["main", "overlay", "result-*", "record-*", "history"],
+  "description": "Capability cho tất cả cửa sổ của app — THÊM CỬA SỔ MỚI THÌ PHẢI THÊM LABEL VÀO ĐÂY, không thì listen()/clipboard/dialog trong cửa sổ đó bị từ chối âm thầm (lệnh Rust tự viết vẫn chạy nên rất khó nhận ra). audio-* gồm cả audio-toolbar lẫn cửa sổ chat audio-N; record-* gồm cả record-toolbar.",
+  "windows": ["main", "overlay", "result-*", "record-*", "audio-*", "history", "live"],
   "permissions": [
     "core:default",
     "core:window:allow-set-position",
