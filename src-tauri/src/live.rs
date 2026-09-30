@@ -416,6 +416,111 @@ mod tests {
         assert_eq!(audio::pcm16_from_le_bytes(&data), vec![1, 2, 3]);
     }
 
+    // ── Test đầu-cuối với backend PRODUCTION, dùng phiên đăng nhập Google
+    // đang lưu trên máy (Credential Manager) — `cargo test -- --ignored e2e`.
+    // Không in token ra; tốn vài lượt quota free-tier mỗi lần chạy.
+
+    fn e2e_token() -> String {
+        crate::oauth::read_session_token().expect("máy này chưa đăng nhập app")
+    }
+
+    #[test]
+    #[ignore]
+    fn e2e_chat_uses_selected_model_and_rejects_unknown() {
+        tauri::async_runtime::block_on(async {
+            let client = reqwest::Client::new();
+            let body = serde_json::json!({"contents":[{"role":"user","parts":[{"text":"Trả lời đúng 1 từ: OK"}]}]});
+            for (asked, expected) in [("gemini-3.8-flash", "gemini-3.8-flash"), ("gemini-9-ultra-hack", "gemini-3.6-flash")] {
+                let resp = client
+                    .post(format!("{}/v1/gemini/stream", crate::oauth::backend_base_url()))
+                    .bearer_auth(e2e_token())
+                    .header("x-snap-model", asked)
+                    .json(&body)
+                    .send()
+                    .await
+                    .unwrap();
+                let status = resp.status();
+                let text = resp.text().await.unwrap();
+                assert!(status.is_success(), "{asked}: HTTP {status}: {text}");
+                let version = text
+                    .split("\"modelVersion\":")
+                    .nth(1)
+                    .and_then(|s| s.split('"').nth(1))
+                    .unwrap_or("")
+                    .to_string();
+                println!("hỏi {asked} -> server dùng {version}");
+                assert!(version.starts_with(expected), "{asked}: server dùng {version}, mong đợi {expected}");
+            }
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn e2e_tts_returns_audio() {
+        tauri::async_runtime::block_on(async {
+            let resp = reqwest::Client::new()
+                .post(format!("{}/v1/gemini/tts", crate::oauth::backend_base_url()))
+                .bearer_auth(e2e_token())
+                .json(&serde_json::json!({"text": "Xin chào, đây là thử giọng đọc."}))
+                .send()
+                .await
+                .unwrap();
+            let status = resp.status();
+            let v: serde_json::Value = resp.json().await.unwrap();
+            assert!(status.is_success(), "HTTP {status}: {v}");
+            let raw = STANDARD.decode(v["audio"].as_str().expect("thiếu audio")).unwrap();
+            let mime = v["mimeType"].as_str().unwrap_or("").to_string();
+            let wav = crate::tts::ensure_wav(raw, &mime);
+            assert_eq!(&wav[0..4], b"RIFF", "không ra WAV hợp lệ");
+            let rate = u32::from_le_bytes(wav[24..28].try_into().unwrap());
+            let bits = u16::from_le_bytes(wav[34..36].try_into().unwrap());
+            println!("TTS: mime {mime}, WAV {} bytes, {rate}Hz {bits}-bit", wav.len());
+            assert!(wav.len() > 24_000, "âm thanh quá ngắn");
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn e2e_live_full_turn_via_backend() {
+        tauri::async_runtime::block_on(async {
+            let url = format!("{}/v1/gemini/live", crate::oauth::backend_base_url().replacen("https://", "wss://", 1));
+            let mut req = url.into_client_request().unwrap();
+            req.headers_mut().insert("Authorization", HeaderValue::from_str(&format!("Bearer {}", e2e_token())).unwrap());
+            let (ws, _) = tokio_tungstenite::connect_async(req).await.expect("không nâng cấp được WebSocket");
+            let (mut tx, mut rx) = ws.split();
+            tx.send(Message::text(setup_message().to_string())).await.unwrap();
+
+            let mut setup_ok = false;
+            let mut audio_samples = 0usize;
+            let mut model_text = String::new();
+            let deadline = tokio::time::sleep(Duration::from_secs(40));
+            tokio::pin!(deadline);
+            loop {
+                tokio::select! {
+                    _ = &mut deadline => panic!("quá 40s chưa xong 1 lượt (setup={setup_ok}, audio={audio_samples})"),
+                    msg = rx.next() => {
+                        let msg = msg.expect("server đóng kết nối").expect("lỗi WebSocket");
+                        if let Message::Close(f) = &msg { panic!("server đóng phiên: {f:?}"); }
+                        let Some(text) = message_text(&msg) else { continue };
+                        let ev = parse_server_message(&text);
+                        if ev.setup_complete && !setup_ok {
+                            setup_ok = true;
+                            let ask = serde_json::json!({"realtimeInput": {"text": "Chào bạn, trả lời thật ngắn: 2 cộng 2 bằng mấy?"}});
+                            tx.send(Message::text(ask.to_string())).await.unwrap();
+                        }
+                        audio_samples += ev.audio.iter().map(|(s, _)| s.len()).sum::<usize>();
+                        if let Some(t) = ev.model_text { model_text.push_str(&t); }
+                        if ev.turn_complete { break; }
+                    }
+                }
+            }
+            let _ = tx.send(Message::Close(None)).await;
+            println!("Live: {:.1}s giọng AI, lời thoại: {model_text:?}", audio_samples as f32 / 24_000.0);
+            assert!(setup_ok);
+            assert!(audio_samples > 12_000, "AI gần như không nói gì");
+        });
+    }
+
     #[test]
     fn setup_has_audio_modality_and_transcription() {
         let v = setup_message();

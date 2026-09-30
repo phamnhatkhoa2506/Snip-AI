@@ -87,10 +87,20 @@ pub async fn speak_text(app: AppHandle, text: String) -> Result<String, String> 
         GeminiAuth::Direct { .. } => inline_audio_from_generate_response(&v).ok_or("Phản hồi thiếu dữ liệu âm thanh.")?,
     };
 
-    let pcm = STANDARD.decode(audio_b64).map_err(|e| format!("Dữ liệu âm thanh hỏng: {e}"))?;
-    let rate = rate_from_mime(&mime).unwrap_or(24_000);
-    let wav = audio::wav_from_pcm16(&audio::pcm16_from_le_bytes(&pcm), rate, 1);
-    Ok(STANDARD.encode(wav))
+    let bytes = STANDARD.decode(audio_b64).map_err(|e| format!("Dữ liệu âm thanh hỏng: {e}"))?;
+    Ok(STANDARD.encode(ensure_wav(bytes, &mime)))
+}
+
+/// Model TTS có bản trả WAV hoàn chỉnh ("audio/wav", đã có header — đo thực
+/// tế với gemini-3.8-flash-lite-tts), có bản trả PCM thô ("audio/L16;...;
+/// rate=24000"). Bọc thêm header lên dữ liệu ĐÃ là WAV sẽ biến 44 byte header
+/// gốc thành mẫu âm thanh -> tiếng "tách" ở đầu, nên chỉ bọc khi là PCM thô.
+pub(crate) fn ensure_wav(bytes: Vec<u8>, mime: &str) -> Vec<u8> {
+    if bytes.starts_with(b"RIFF") {
+        return bytes;
+    }
+    let rate = rate_from_mime(mime).unwrap_or(24_000);
+    audio::wav_from_pcm16(&audio::pcm16_from_le_bytes(&bytes), rate, 1)
 }
 
 #[cfg(test)]
@@ -102,6 +112,17 @@ mod tests {
         assert_eq!(rate_from_mime("audio/L16;codec=pcm;rate=24000"), Some(24_000));
         assert_eq!(rate_from_mime("audio/pcm; rate=16000"), Some(16_000));
         assert_eq!(rate_from_mime("audio/pcm"), None);
+    }
+
+    #[test]
+    fn keeps_wav_and_wraps_raw_pcm() {
+        let wav = audio::wav_from_pcm16(&[1, 2], 24_000, 1);
+        assert_eq!(ensure_wav(wav.clone(), "audio/wav"), wav);
+        let raw: Vec<u8> = [5i16, -5].iter().flat_map(|s| s.to_le_bytes()).collect();
+        let wrapped = ensure_wav(raw, "audio/L16;codec=pcm;rate=16000");
+        assert_eq!(&wrapped[0..4], b"RIFF");
+        assert_eq!(u32::from_le_bytes(wrapped[24..28].try_into().unwrap()), 16_000);
+        assert_eq!(audio::pcm16_from_le_bytes(&wrapped[44..]), vec![5, -5]);
     }
 
     #[test]
