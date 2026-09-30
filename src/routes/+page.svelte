@@ -1105,7 +1105,7 @@
       hơn sẽ che mất). Góc trái, tách hẳn khỏi thanh chọn chế độ ở giữa vì
       không phải "chế độ chụp". -->
       <div
-        class="absolute left-4 top-0 flex items-center rounded-full p-0.5 shadow-md"
+        class="mr-3 flex items-center rounded-full p-0.5 shadow-md"
         style="background: var(--color-card); border: 1px solid var(--color-border);"
       >
         <button
